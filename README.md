@@ -1,4 +1,4 @@
-# DevilConnection Screenshot Tool
+# Devil Connection Screenshot Tool
 
 一个极简用于管理和编辑 でびるコネクショん 游戏截图保存文件的工具。
 [Steam商店页面](https://store.steampowered.com/app/3054820/)，请支持原作者。
@@ -77,6 +77,7 @@ MIT License
 - 本项目为一个编程新手利用闲暇时间写出的产物，经个人测试未发现使用问题，但难免会有疏漏。非常欢迎提交issue或者pull request。
 
 - 理论上该项目应该可以支持所有使用Tyrano构建且以.sav文件保存截图的游戏，但目前是 でびるコネクショん 特化。
+
 
 
 
