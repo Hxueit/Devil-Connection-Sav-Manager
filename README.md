@@ -2,7 +2,7 @@
 
 一个极简用于管理和编辑 でびるコネクショん 游戏截图保存文件的工具。
 
-Steam商店页面[链接](https://store.steampowered.com/app/3054820/)，请支持原作者。
+游戏很棒，这里是 [Steam商店页面](https://store.steampowered.com/app/3054820/)，欢迎支持游戏作者。
 
 使用tkinter/[Sun Valley theme](https://github.com/rdbende/Sun-Valley-ttk-theme)构建GUI。
 
@@ -78,6 +78,7 @@ MIT License
 - 本项目是利用闲暇时间写出的，经个人测试未发现使用问题，但难免会有疏漏。非常欢迎提交issue或者pull request。
 
 - 理论上该项目经过一些小改动应该就可以支持所有使用Tyrano构建且以.sav文件保存截图的游戏，但目前为了方便使用是 でびるコネクショん 特化。
+
 
 
 
