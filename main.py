@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox, Listbox, Scrollbar, Toplevel, Entry, Button, Label
+from tkinter import filedialog, messagebox, Scrollbar, Toplevel, Entry, Label
 from tkinter import ttk
 from PIL import Image
 from PIL import ImageTk
@@ -15,7 +15,13 @@ import zipfile
 import shutil
 import sv_ttk
 import locale
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from io import BytesIO
+import webbrowser
 from translations import TRANSLATIONS
+from save_analyzer import SaveAnalyzer
+from utils import set_window_icon
 
 class SavTool:
     def __init__(self, root):
@@ -25,6 +31,9 @@ class SavTool:
         self.root.title(self.t("window_title"))
         self.root.geometry("800x550")
         
+        # 设置窗口图标
+        set_window_icon(self.root)
+        
         # 应用 sun valley 亮色主题
         sv_ttk.set_theme("light")
 
@@ -32,15 +41,22 @@ class SavTool:
         self.menubar = tk.Menu(root)
         root.config(menu=self.menubar)
         
-        # Directory 菜单（软编码，根据语言决定）
+        # Directory 菜单
         self.directory_menu = tk.Menu(self.menubar, tearoff=0)
         self.menubar.add_cascade(label=self.t("directory_menu"), menu=self.directory_menu)
         self.directory_menu.add_command(label=self.t("browse_dir"), command=self.select_dir)
+        
+        # Save Analyzer 菜单
+        self.save_analyzer_menu = tk.Menu(self.menubar, tearoff=0)
+        self.menubar.add_cascade(label=self.t("save_analyzer_menu"), menu=self.save_analyzer_menu)
+        self.save_analyzer_menu.add_command(label=self.t("save_analyzer_menu"), command=self.show_save_analyzer)
         
         # Language 菜单
         self.language_menu = tk.Menu(self.menubar, tearoff=0)
         self.menubar.add_cascade(label="Language", menu=self.language_menu)
         self.language_var = tk.StringVar(value=self.current_language)
+        self.language_menu.add_radiobutton(label="日本語", variable=self.language_var, 
+                                          value="ja_JP", command=lambda: self.change_language("ja_JP"))
         self.language_menu.add_radiobutton(label="中文", variable=self.language_var, 
                                            value="zh_CN", command=lambda: self.change_language("zh_CN"))
         self.language_menu.add_radiobutton(label="English", variable=self.language_var, 
@@ -146,6 +162,9 @@ class SavTool:
         self.tree.tag_configure("DragIndicatorDown", foreground="#D06CAA")
         self.tree.tag_configure("NewIndicator", foreground="#FED491")
         self.tree.tag_configure("ReplaceIndicator", foreground="#BDC9B2")
+        # 配置页面标题行的tag样式
+        self.tree.tag_configure("PageHeaderLeft", foreground="#D26FAB", font=("Arial", 10, "bold"))
+        self.tree.tag_configure("PageHeaderRight", foreground="#85A9A5", font=("Arial", 10, "bold"))
         
         scrollbar.config(command=self.tree.yview)
         self.tree.config(yscrollcommand=scrollbar.set)
@@ -182,41 +201,94 @@ class SavTool:
         self.replace_button.pack(side='left', padx=5)
         self.delete_button = ttk.Button(button_frame, text=self.t("delete_selected"), command=self.delete_selected)
         self.delete_button.pack(side='left', padx=5)
+        self.gallery_preview_button = ttk.Button(button_frame, text=self.t("gallery_preview"), command=self.show_gallery_preview)
+        self.gallery_preview_button.pack(side='left', padx=5)
 
         self.storage_dir = None
         self.ids_data = []
         self.all_ids_data = []
         self.sav_pairs = {}  # {id: (main_sav, thumb_sav)}
+        
+        # 添加图片缓存字典 {id_str: PhotoImage} | 快速获取画廊用
+        self.image_cache = {}
+        self.cache_lock = threading.Lock()  # 用于线程安全的缓存访问
     
     def detect_system_language(self):
         """检测系统语言并返回支持的语言代码"""
         try:
-            # 尝试获取当前locale
+            # Debug用：检查自定义的环境变量
+            for env_key in ['APP_LANG', 'SCREENSHOT_TOOL_LANG', 'LANGUAGE']:
+                env_lang = os.environ.get(env_key)
+                if env_lang:
+                    env_lang = env_lang.strip().replace('-', '_').split('.')[0].lower()
+                    if env_lang.startswith('zh'):
+                        return "zh_CN"
+                    elif env_lang.startswith('ja'):
+                        return "ja_JP"
+                    elif env_lang.startswith('en'):
+                        return "en_US"
+
+            # 1. 标准locale.getlocale
             system_locale, _ = locale.getlocale()
-            
-            # 如果失败，尝试从环境变量获取
             if not system_locale:
-                system_locale = os.environ.get('LANG') or os.environ.get('LC_ALL')
-            
-            # 如果还是失败，尝试获取系统默认locale（兼容旧方法）
+                # 2. 检查系统环境变量 LANG, LC_ALL, LC_MESSAGES，LANGUAGE
+                for env_key in ['LANG', 'LC_ALL', 'LC_MESSAGES', 'LANGUAGE']:
+                    system_locale = os.environ.get(env_key)
+                    if system_locale:
+                        break
             if not system_locale:
+                # 3. locale.getdefaultlocale 尝试（已弃用但仍可用）
                 try:
-                    # 尝试设置默认locale然后获取
+                    system_locale, _ = locale.getdefaultlocale()
+                except Exception:
+                    pass
+            if not system_locale:
+                # 4. locale.setlocale后再试一次
+                try:
                     locale.setlocale(locale.LC_ALL, '')
                     system_locale, _ = locale.getlocale()
-                except:
+                except Exception:
                     pass
-            
+            if not system_locale:
+                # 5. 平台相关特别检测
+                import sys
+                if sys.platform == "win32":
+                    import ctypes
+                    try:
+                        # 使用Windows API检测用户界面语言
+                        windll = ctypes.windll
+                        GetUserDefaultUILanguage = windll.kernel32.GetUserDefaultUILanguage
+                        lang_id = GetUserDefaultUILanguage()
+                        if lang_id in (0x804, 0x404, 0xc04, 0x1004, 0x1404, 0x7c04): # zh-*
+                            return "zh_CN"
+                        elif lang_id in (0x411, 0x814): # ja-*
+                            return "ja_JP"
+                        elif lang_id in (0x409, 0x809): # en-*
+                            return "en_US"
+                    except Exception:
+                        pass
+
+            # 语言代码统一为小写
             if system_locale:
-                # 转换为小写
-                locale_lower = system_locale.lower()
-                
-                # 检查是否是中文（支持多种中文locale格式：zh_CN, zh_TW, zh_HK等）
+                locale_lower = system_locale.replace('-', '_').split('.')[0].lower()
                 if locale_lower.startswith('zh'):
                     return "zh_CN"
-                # 其他语言支持暂无
-            
-            # 如果检测不到，失败，或不在支持列表中，默认英语
+                if locale_lower.startswith('ja'):
+                    return "ja_JP"
+                if locale_lower.startswith('en'):
+                    return "en_US"
+
+            try:
+                import sys
+                preferred = sys.getdefaultencoding()
+                if preferred and 'ja' in preferred:
+                    return "ja_JP"
+                elif preferred and 'zh' in preferred:
+                    return "zh_CN"
+            except Exception:
+                pass
+
+            # 检测不到则默认英语
             return "en_US"
         except Exception:
             return "en_US"
@@ -242,6 +314,9 @@ class SavTool:
         popup.geometry("400x150")
         popup.transient(self.root)
         popup.grab_set()
+        
+        # 设置窗口图标
+        set_window_icon(popup)
         
         # 设置图标
         if icon == 'warning':
@@ -275,44 +350,17 @@ class SavTool:
         self.root.wait_window(popup)
         return confirmed
     
+    def show_save_analyzer(self):
+        """显示存档解析窗口"""
+        if not self.storage_dir:
+            messagebox.showwarning(self.t("warning"), self.t("select_dir_first"))
+            return
+        
+        SaveAnalyzer(self.root, self.storage_dir, self.translations, self.current_language)
+    
     def show_help(self):
-        """显示帮助窗口，展示README.md内容"""
-        help_window = Toplevel(self.root)
-        help_window.title("Help")
-        help_window.geometry("800x600")
-        
-        # 创建滚动文本框
-        text_frame = tk.Frame(help_window)
-        text_frame.pack(fill="both", expand=True, padx=10, pady=10)
-        
-        scrollbar = Scrollbar(text_frame)
-        scrollbar.pack(side="right", fill="y")
-        
-        text_widget = tk.Text(text_frame, wrap="word", yscrollcommand=scrollbar.set, 
-                             font=("Consolas", 10), bg="white", fg="black")
-        text_widget.pack(side="left", fill="both", expand=True)
-        scrollbar.config(command=text_widget.yview)
-        
-        # 读取并显示README.md
-        try:
-            # 获取项目根目录
-            script_dir = os.path.dirname(os.path.abspath(__file__))
-            readme_path = os.path.join(script_dir, "README.md")
-            if os.path.exists(readme_path):
-                with open(readme_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                text_widget.insert("1.0", content)
-            else:
-                text_widget.insert("1.0", "README.md file not found.")
-        except Exception as e:
-            text_widget.insert("1.0", f"Error reading README.md: {str(e)}")
-        
-        text_widget.config(state="disabled")  # 设置为只读
-        
-        # 关闭按钮
-        button_frame = tk.Frame(help_window)
-        button_frame.pack(pady=10)
-        ttk.Button(button_frame, text="Close", command=help_window.destroy).pack()
+        """浏览器打开GitHub页面"""
+        webbrowser.open("https://github.com/Hxueit/Devil-Connection-Screenshot-Tool")
     
     def update_ui_texts(self):
         """更新所有UI文本"""
@@ -323,6 +371,11 @@ class SavTool:
         # 更新菜单项标签
         self.directory_menu.delete(0, tk.END)
         self.directory_menu.add_command(label=self.t("browse_dir"), command=self.select_dir)
+        
+        # 更新Save Analyzer菜单
+        self.save_analyzer_menu.delete(0, tk.END)
+        self.save_analyzer_menu.add_command(label=self.t("save_analyzer_menu"), command=self.show_save_analyzer)
+        
         # 更新菜单栏标签 - 必须删除并重新插入才能更新标签
         try:
             # 查找所有Directory菜单的索引（可能有多个旧的）
@@ -354,6 +407,20 @@ class SavTool:
             
             # 重新插入Directory菜单到第一个位置
             self.menubar.insert_cascade(0, label=self.t("directory_menu"), menu=self.directory_menu)
+            
+            # 更新Save Analyzer菜单标签
+            try:
+                # 查找Save Analyzer菜单的索引
+                for i in range(self.menubar.index(tk.END) + 1):
+                    try:
+                        menu_obj = self.menubar.entrycget(i, "menu")
+                        if str(menu_obj) == str(self.save_analyzer_menu):
+                            self.menubar.entryconfig(i, label=self.t("save_analyzer_menu"))
+                            break
+                    except:
+                        continue
+            except:
+                pass
         except Exception as e:
             # 如果失败，尝试entryconfig
             try:
@@ -380,6 +447,7 @@ class SavTool:
         self.add_button.config(text=self.t("add_new"))
         self.replace_button.config(text=self.t("replace_selected"))
         self.delete_button.config(text=self.t("delete_selected"))
+        self.gallery_preview_button.config(text=self.t("gallery_preview"))
         self.export_button.config(text=self.t("export_image"))
         self.batch_export_button.config(text=self.t("batch_export"))
         
@@ -447,8 +515,20 @@ class SavTool:
             self.tree.delete(item)
         self.checkbox_vars.clear()
         
-        # 添加复选框和项目
-        for item in self.ids_data:
+        # 添加复选框和项目，每6个截图插入一个标题行
+        screenshot_count = 0
+        page_number = 1
+        
+        for idx, item in enumerate(self.ids_data):
+            # 每12个截图的开始（第0, 12, 24...个截图前）插入"页面X ←"标题行
+            if screenshot_count % 12 == 0:
+                # 插入"页面X ←"标题行
+                page_text_left = f"{self.t('page')} {page_number} ←"
+                header_item_id_left = self.tree.insert("", tk.END, text="", 
+                                                      values=("", page_text_left), 
+                                                      tags=("PageHeaderLeft",))
+                # 标题行不添加到checkbox_vars，不能被选择
+            
             id_str = item['id']
             date_str = item['date']
             main_file = self.sav_pairs.get(id_str, [None, None])[0] or self.t("missing_main_file")
@@ -464,6 +544,22 @@ class SavTool:
             
             # 更新复选框显示
             self.update_checkbox_display(item_id)
+            
+            screenshot_count += 1
+            
+            # 每6个截图后（第6, 18, 30...个截图后）插入"页面X →"标题行
+            # 如果是12的倍数，则跳过
+            if screenshot_count % 6 == 0 and screenshot_count % 12 != 0:
+                # 插入"页面X →"标题行
+                page_text_right = f"{self.t('page')} {page_number} →"
+                header_item_id_right = self.tree.insert("", tk.END, text="", 
+                                                       values=("", page_text_right), 
+                                                       tags=("PageHeaderRight",))
+                # 标题行不添加到checkbox_vars，不能被选择
+            
+            # 每12个截图后，页面号递增
+            if screenshot_count % 12 == 0:
+                page_number += 1
         
         # 更新全选标题显示
         self.update_select_all_header()
@@ -641,6 +737,12 @@ class SavTool:
             return
         
         item_id = selected[0]
+        # 检查是否是标题行，如果是则清除选择
+        item_tags = self.tree.item(item_id, "tags")
+        if item_tags and ("PageHeaderLeft" in item_tags or "PageHeaderRight" in item_tags):
+            self.tree.selection_remove(item_id)
+            return
+        
         if item_id in self.checkbox_vars:
             _, id_str = self.checkbox_vars[item_id]
             self.show_preview(id_str)
@@ -659,11 +761,16 @@ class SavTool:
             # 为了兼容性，也检查x坐标范围（select列宽度是40）
             if column == "#1" or (event.x < 40 and event.x > 0):
                 item_id = self.tree.identify_row(event.y)
-                if item_id and item_id in self.checkbox_vars:
-                    var, _ = self.checkbox_vars[item_id]
-                    var.set(not var.get())
-                    # 阻止后续事件处理（包括拖拽和选择）
-                    return "break"
+                if item_id:
+                    # 检查是否是标题行，标题行不能点击复选框
+                    item_tags = self.tree.item(item_id, "tags")
+                    if item_tags and ("PageHeaderLeft" in item_tags or "PageHeaderRight" in item_tags):
+                        return "break"
+                    if item_id in self.checkbox_vars:
+                        var, _ = self.checkbox_vars[item_id]
+                        var.set(not var.get())
+                        # 阻止后续事件处理（包括拖拽和选择）
+                        return "break"
         elif region == "heading":
             column = self.tree.identify_column(event.x)
             if column == "#1" or (event.x < 40 and event.x > 0): 
@@ -677,6 +784,11 @@ class SavTool:
         # 获取鼠标点击位置对应的列表项
         item = self.tree.identify_row(event.y)
         if item:
+            # 检查是否是标题行，标题行不能拖拽
+            item_tags = self.tree.item(item, "tags")
+            if item_tags and ("PageHeaderLeft" in item_tags or "PageHeaderRight" in item_tags):
+                self.drag_start_item = None
+                return
             self.drag_start_item = item
             self.drag_start_y = event.y
             self.is_dragging = False
@@ -708,6 +820,16 @@ class SavTool:
         end_item = self.tree.identify_row(event.y)
         
         if not end_item or end_item == self.drag_start_item:
+            self.drag_start_item = None
+            self.drag_start_y = None
+            self.is_dragging = False
+            return
+        
+        # 检查起始项和目标项是否是标题行，标题行不能拖拽
+        start_tags = self.tree.item(self.drag_start_item, "tags")
+        end_tags = self.tree.item(end_item, "tags")
+        if (start_tags and ("PageHeaderLeft" in start_tags or "PageHeaderRight" in start_tags)) or \
+           (end_tags and ("PageHeaderLeft" in end_tags or "PageHeaderRight" in end_tags)):
             self.drag_start_item = None
             self.drag_start_y = None
             self.is_dragging = False
@@ -1076,6 +1198,272 @@ class SavTool:
                 except:
                     pass
 
+    def show_gallery_preview(self):
+        """显示画廊预览窗口，按照特定方式排列图片"""
+        if not self.storage_dir or not self.ids_data:
+            messagebox.showwarning(self.t("warning"), self.t("select_dir_first"))
+            return
+        
+        # 创建新窗口
+        gallery_window = Toplevel(self.root)
+        gallery_window.title(self.t("gallery_preview"))
+        gallery_window.geometry("1000x700")
+        
+        # 设置窗口图标
+        set_window_icon(gallery_window)
+        
+        # 创建滚动区域
+        canvas = tk.Canvas(gallery_window, bg="white")
+        scrollbar = Scrollbar(gallery_window, orient="vertical", command=canvas.yview)
+        scrollable_frame = tk.Frame(canvas, bg="white")
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # 获取所有图片ID（按照ids_data的顺序）
+        image_ids = [item['id'] for item in self.ids_data]
+        total_images = len(image_ids)
+        
+        # 计算需要的行数（每行4列，每列3张图片，所以每行12张图片）
+        # 但实际上我们按照3行4列的方式排列，所以需要计算总行数
+        # 每3行显示12张图片（3行 × 4列）
+        rows_per_group = 3
+        cols_per_group = 4
+        images_per_group = rows_per_group * cols_per_group  # 12
+        
+        # 计算总组数
+        num_groups = (total_images + images_per_group - 1) // images_per_group
+        
+        # 存储所有图片引用，防止被垃圾回收
+        gallery_window.image_refs = []
+        # 存储占位符Label的映射 {id_str: (placeholder_label, col_frame)}
+        gallery_window.placeholders = {}
+        
+        # 为每个组创建显示区域
+        for group_idx in range(num_groups):
+            # 创建组框架
+            group_frame = tk.Frame(scrollable_frame, bg="white")
+            group_frame.pack(pady=20, padx=20, fill="both", expand=True)
+            
+            # 创建3行4列的网格
+            for row in range(rows_per_group):
+                row_frame = tk.Frame(group_frame, bg="white")
+                row_frame.pack(side="top", pady=5)
+                
+                for col in range(cols_per_group):
+                    # 计算图片索引：对于第row行，第col列，索引 = row + col * 3
+                    image_idx = group_idx * images_per_group + row + col * rows_per_group
+                    
+                    # 创建列框架（用于放置图片和分隔线）
+                    col_frame = tk.Frame(row_frame, bg="white")
+                    col_frame.pack(side="left", padx=5)
+                    
+                    if image_idx < total_images:
+                        id_str = image_ids[image_idx]
+                        # 先创建占位符，然后异步加载
+                        placeholder_container, placeholder_label = self.create_placeholder(col_frame)
+                        gallery_window.placeholders[id_str] = (placeholder_container, placeholder_label, col_frame)
+                    else:
+                        # 空白占位，显示N/A，大小和图片一样（150x112）
+                        # 创建一个固定大小的容器，模拟图片大小
+                        placeholder_container = tk.Frame(col_frame, bg="lightgray", width=150, height=112)
+                        placeholder_container.pack()
+                        placeholder_container.pack_propagate(False)
+                        
+                        # 创建N/A标签，居中显示
+                        placeholder_label = tk.Label(placeholder_container, text=self.t("not_available"), 
+                                                    bg="lightgray", fg="gray", font=("Arial", 14, "bold"),
+                                                    anchor="center", justify="center")
+                        placeholder_label.place(relx=0.5, rely=0.5, anchor="center")
+                        
+                        # 在下方添加一个空的文本标签，模拟图片下方的ID显示区域
+                        placeholder_id_label = tk.Label(col_frame, text="", bg="white", font=("Arial", 8))
+                        placeholder_id_label.pack()
+                    
+                    # 在第2列和第3列之间添加分隔线（col=1之后，即第2列之后）
+                    if col == 1:  # 第2列（索引1）之后
+                        separator = tk.Frame(row_frame, width=3, bg="gray", relief="sunken")
+                        separator.pack(side="left", fill="y", padx=5)
+            
+            # 在每页下面显示页面编号
+            page_label = tk.Label(group_frame, text=f"{self.t('page')} {group_idx + 1}", 
+                                 bg="white", font=("Arial", 12, "bold"), fg="gray")
+            page_label.pack(pady=10)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # 绑定鼠标滚轮（Windows和Linux）
+        def on_mousewheel(event):
+            # 检查 canvas 是否还存在
+            try:
+                if not canvas.winfo_exists():
+                    return
+            except tk.TclError:
+                return
+            
+            try:
+                if event.delta:
+                    # Windows
+                    canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+                else:
+                    # Linux
+                    if event.num == 4:
+                        canvas.yview_scroll(-1, "units")
+                    elif event.num == 5:
+                        canvas.yview_scroll(1, "units")
+            except tk.TclError:
+                # canvas 已被销毁，忽略错误
+                pass
+        
+        # Windows
+        canvas.bind_all("<MouseWheel>", on_mousewheel)
+        # Linux
+        canvas.bind_all("<Button-4>", on_mousewheel)
+        canvas.bind_all("<Button-5>", on_mousewheel)
+        
+        # 窗口关闭时解绑全局事件
+        def on_window_close():
+            try:
+                canvas.unbind_all("<MouseWheel>")
+                canvas.unbind_all("<Button-4>")
+                canvas.unbind_all("<Button-5>")
+            except:
+                pass
+            gallery_window.destroy()
+        
+        gallery_window.protocol("WM_DELETE_WINDOW", on_window_close)
+        
+        # 快速获取画廊
+        # 异步加载所有图片
+        self.load_gallery_images_async(gallery_window, image_ids)
+    
+    def create_placeholder(self, parent_frame):
+        """创建加载中的占位符"""
+        placeholder_container = tk.Frame(parent_frame, bg="lightgray", width=150, height=112)
+        placeholder_container.pack()
+        placeholder_container.pack_propagate(False)
+        
+        placeholder_label = tk.Label(placeholder_container, text="Loading...", 
+                                    bg="lightgray", fg="gray", font=("Arial", 10),
+                                    anchor="center", justify="center")
+        placeholder_label.place(relx=0.5, rely=0.5, anchor="center")
+        
+        placeholder_id_label = tk.Label(parent_frame, text="", bg="white", font=("Arial", 8))
+        placeholder_id_label.pack()
+        
+        # 返回容器和标签，方便后续销毁
+        return placeholder_container, placeholder_label
+    
+    def load_gallery_images_async(self, gallery_window, image_ids):
+        """异步加载所有图片"""
+        def load_single_image(id_str):
+            """在后台线程中加载单张图片，只处理图片解码，不创建PhotoImage（否则卡死）"""
+            # 检查缓存（缓存中存储的是PIL Image对象）
+            with self.cache_lock:
+                if id_str in self.image_cache:
+                    cached_img = self.image_cache[id_str]
+                    # 如果缓存的是PhotoImage，需要重新创建（不应该发生，但为了安全）
+                    if isinstance(cached_img, Image.Image):
+                        return id_str, cached_img
+            
+            if id_str not in self.sav_pairs:
+                return id_str, None
+            
+            main_file = self.sav_pairs[id_str][0]
+            if not main_file:
+                return id_str, None
+            
+            main_sav = os.path.join(self.storage_dir, main_file)
+            if not os.path.exists(main_sav):
+                return id_str, None
+            
+            try:
+                # 解码主 .sav 获取 PNG 数据
+                with open(main_sav, 'r', encoding='utf-8') as f:
+                    encoded = f.read().strip()
+                unquoted = urllib.parse.unquote(encoded)
+                data_uri = json.loads(unquoted)
+                b64_part = data_uri.split(';base64,', 1)[1]
+                img_data = base64.b64decode(b64_part)
+                
+                # 直接从内存加载图片，避免临时文件
+                img = Image.open(BytesIO(img_data))
+                # 调整大小以适应画廊预览
+                preview_img = img.resize((150, 112), Image.Resampling.LANCZOS)
+                img.close()
+                
+                # 存入缓存（存储PIL Image对象，不是PhotoImage）
+                with self.cache_lock:
+                    self.image_cache[id_str] = preview_img
+                
+                return id_str, preview_img
+            except Exception as e:
+                return id_str, None
+        
+        def update_image(id_str, pil_image):
+            """在主线程中更新UI，在这里创建PhotoImage"""
+            if id_str not in gallery_window.placeholders:
+                return
+            
+            placeholder_container, placeholder_label, col_frame = gallery_window.placeholders[id_str]
+            
+            if pil_image is None:
+                # 加载失败，显示错误信息
+                placeholder_label.config(text=self.t("preview_failed"), bg="lightgray", fg="red")
+                return
+            
+            try:
+                # 在主线程中创建PhotoImage（Tkinter不是线程安全的）
+                photo = ImageTk.PhotoImage(pil_image)
+                
+                # 保存引用
+                gallery_window.image_refs.append(photo)
+                
+                # 移除占位符容器（会自动销毁内部的所有组件）
+                placeholder_container.destroy()
+                
+                # 创建图片Label
+                img_label = tk.Label(col_frame, image=photo, bg="white", text=id_str, 
+                                    compound="top", font=("Arial", 8))
+                img_label.pack()
+            except Exception as e:
+                # 如果创建PhotoImage失败，显示错误
+                placeholder_label.config(text=self.t("preview_failed"), bg="lightgray", fg="red")
+        
+        # 使用线程池异步加载（非阻塞方式）
+        def process_results():
+            """在后台线程中处理结果，然后通过after在主线程中更新UI"""
+            max_workers = min(8, len(image_ids))  # 最多8个线程
+            executor = ThreadPoolExecutor(max_workers=max_workers)
+            
+            try:
+                # 提交所有任务
+                future_to_id = {executor.submit(load_single_image, id_str): id_str 
+                                for id_str in image_ids}
+                
+                # 处理完成的任务
+                for future in as_completed(future_to_id):
+                    try:
+                        id_str, pil_image = future.result()
+                        # 在主线程中更新UI
+                        gallery_window.after(0, update_image, id_str, pil_image)
+                    except Exception as e:
+                        # 处理单个任务失败的情况
+                        pass
+            finally:
+                # 关闭线程池
+                executor.shutdown(wait=False)
+        
+        # 在后台线程中启动处理
+        thread = threading.Thread(target=process_results, daemon=True)
+        thread.start()
+    
     def load_and_decode(self, sav_path):
         with open(sav_path, 'r', encoding='utf-8') as f:
             encoded = f.read().strip()
@@ -1138,6 +1526,9 @@ class SavTool:
         popup = Toplevel(self.root)
         popup.title(self.t("replace_warning"))
         
+        # 设置窗口图标
+        set_window_icon(popup)
+        
         # 如果不是常规图片格式，在窗口顶端显示警告
         if not is_valid_image:
             warning_label = tk.Label(popup, text=self.t("file_extension_warning", filename=filename), 
@@ -1181,8 +1572,7 @@ class SavTool:
         def yes():
             popup.destroy()
             nonlocal confirmed
-            confirmed = True 
-            self.replace_sav(main_sav, thumb_sav, new_png) 
+            confirmed = True
 
         def no():
             popup.destroy()
@@ -1262,16 +1652,49 @@ class SavTool:
         filename = os.path.basename(new_png)
         is_valid_image = file_ext in valid_image_extensions
 
+        # 检测图片分辨率是否为4:3
+        is_4_3_ratio = False
+        try:
+            if is_valid_image:
+                img = Image.open(new_png)
+                width, height = img.size
+                img.close()
+                
+                # 检查是否是4:3比例（容错±30像素）
+                # 如果宽度是w，高度应该是 w * 3 / 4
+                expected_height = width * 3 / 4
+                if abs(height - expected_height) <= 30:
+                    is_4_3_ratio = True
+        except Exception:
+            # 如果检测不出尺寸，is_4_3_ratio保持为False
+            pass
+
         # 弹出窗口输入 ID 和 date
         popup = Toplevel(self.root)
         popup.title(self.t("add_new_title"))
-        popup.geometry("400x200")
+        
+        # 设置窗口图标
+        set_window_icon(popup)
+        
+        # 根据是否有警告消息调整窗口高度
+        window_height = 200
+        if not is_valid_image:
+            window_height += 50
+        if not is_4_3_ratio and is_valid_image:
+            window_height += 50
+        popup.geometry(f"400x{window_height}")
 
         # 如果不是常规图片格式，在窗口顶端显示警告
         if not is_valid_image:
             warning_label = tk.Label(popup, text=self.t("file_extension_warning", filename=filename), 
                                     fg="#FF57FD", font=("Arial", 10), wraplength=380, justify="left")
             warning_label.pack(pady=5, padx=10, anchor="w")
+        
+        # 如果图片分辨率不是4:3或检测不出，显示警告
+        if not is_4_3_ratio and is_valid_image:
+            aspect_warning_label = tk.Label(popup, text=self.t("aspect_ratio_warning"), 
+                                           fg="#7CA294", font=("Arial", 10), wraplength=380, justify="left")
+            aspect_warning_label.pack(pady=5, padx=10, anchor="w")
 
         ttk.Label(popup, text=self.t("id_label")).pack(pady=5)
         id_entry = ttk.Entry(popup, width=50)
@@ -1400,6 +1823,10 @@ class SavTool:
         
         popup = Toplevel(self.root)
         popup.title(self.t("delete_confirm"))
+        
+        # 设置窗口图标
+        set_window_icon(popup)
+        
         ttk.Label(popup, text=confirm_msg).pack(pady=10)
 
         confirmed = False
@@ -1517,6 +1944,9 @@ class SavTool:
             format_window.title(self.t("select_export_format"))
             format_window.geometry("300x150")
             
+            # 设置窗口图标
+            set_window_icon(format_window)
+            
             selected_format = tk.StringVar(value="png")
             
             ttk.Label(format_window, text=self.t("select_image_format")).pack(pady=10)
@@ -1618,6 +2048,9 @@ class SavTool:
         format_window = Toplevel(self.root)
         format_window.title(self.t("select_export_format"))
         format_window.geometry("300x150")
+        
+        # 设置窗口图标
+        set_window_icon(format_window)
         
         selected_format = tk.StringVar(value="png")
         
