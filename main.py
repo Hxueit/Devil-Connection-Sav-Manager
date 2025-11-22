@@ -25,7 +25,24 @@ from translations import TRANSLATIONS
 from save_analyzer import SaveAnalyzer
 from utils import set_window_icon
 
-# Windows注册表支持
+# From the sky bereft of stars
+
+def get_cjk_font(size=10, weight="normal"):
+    """
+    获取适合中文和日文的字体
+    """
+    if platform.system() == "Windows":
+        font_name = "Microsoft YaHei"
+    elif platform.system() == "Darwin":  # macOS
+        font_name = "PingFang SC"
+    else:  # Linux
+        font_name = "Arial"
+    
+    if weight == "bold":
+        return (font_name, size, "bold")
+    return (font_name, size)
+
+# Windows注册表支持，查找Steam路径使用
 if platform.system() == "Windows":
     try:
         import winreg
@@ -48,6 +65,19 @@ class SavTool:
         # 应用 sun valley 亮色主题
         sv_ttk.set_theme("light")
 
+        style = ttk.Style()
+        style.configure("TNotebook", 
+                       borderwidth=0, 
+                       background="#fafafa")
+        style.configure("TNotebook.Tab", 
+                       padding=[16, 1],  # 左右，上下
+                       font=get_cjk_font(10),
+                       borderwidth=0)
+        # 配置 tab 的背景色和选中状态
+        style.map("TNotebook.Tab",
+                 background=[("selected", "#fafafa"), ("!selected", "#e8e8e8")],
+                 expand=[("selected", [1, 1, 1, 0])])
+
         # 创建菜单栏
         self.menubar = tk.Menu(root)
         root.config(menu=self.menubar)
@@ -57,11 +87,6 @@ class SavTool:
         self.menubar.add_cascade(label=self.t("directory_menu"), menu=self.directory_menu)
         self.directory_menu.add_command(label=self.t("browse_dir"), command=self.select_dir)
         self.directory_menu.add_command(label=self.t("auto_detect_steam"), command=self.auto_detect_steam)
-        
-        # Save Analyzer 菜单
-        self.save_analyzer_menu = tk.Menu(self.menubar, tearoff=0)
-        self.menubar.add_cascade(label=self.t("save_analyzer_menu"), menu=self.save_analyzer_menu)
-        self.save_analyzer_menu.add_command(label=self.t("save_analyzer_menu"), command=self.show_save_analyzer)
         
         # Language 菜单
         self.language_menu = tk.Menu(self.menubar, tearoff=0)
@@ -79,18 +104,41 @@ class SavTool:
         self.menubar.add_cascade(label="Help", menu=help_menu)
         help_menu.add_command(label="Help", command=self.show_help)
 
-        # 提示标签（当没有选择目录时显示）
-        self.hint_label = tk.Label(root, text=self.t("select_dir_hint"), 
-                                   fg="#D554BC", font=("Arial", 10))
+        # 创建 Notebook (Tab 容器)
+        self.notebook = ttk.Notebook(root)
+        self.notebook.pack(fill="both", expand=True, padx=0, pady=0)
+
+        # Tab 1: 存档分析界面（默认显示）
+        self.analyzer_frame = tk.Frame(self.notebook)
+        self.notebook.add(self.analyzer_frame, text=self.t("save_analyzer_tab"))
+        
+        # 在存档分析界面显示提示（如果还没有选择目录）
+        self.analyzer_hint_label = tk.Label(self.analyzer_frame, text=self.t("select_dir_hint"), 
+                                            fg="#D554BC", font=get_cjk_font(12))
+        self.analyzer_hint_label.pack(pady=50)
+        
+        # Tab 2: 截图管理界面
+        self.screenshot_frame = tk.Frame(self.notebook)
+        self.notebook.add(self.screenshot_frame, text=self.t("screenshot_management_tab"))
+
+        # 初始化存档分析界面（延迟到选择目录后）
+        self.save_analyzer = None
+        
+        # 绑定 tab 切换事件，切换到存档分析页面时自动刷新
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
+
+        # 没有选择目录时的提示标签（在截图管理界面）
+        self.hint_label = tk.Label(self.screenshot_frame, text=self.t("select_dir_hint"), 
+                                   fg="#D554BC", font=get_cjk_font(10))
         self.hint_label.pack(pady=10)
         
-        # 成功信息标签（当成功检测到Steam路径时显示）
-        self.success_label = tk.Label(root, text="", 
-                                      fg="#6DB8AC", font=("Arial", 10))
+        # 成功检测到Steam路径标签（在截图管理界面）
+        self.success_label = tk.Label(self.screenshot_frame, text="", 
+                                      fg="#6DB8AC", font=get_cjk_font(10))
         self.success_label_timer = None  # 用于存储定时器ID
 
-        # 截图列表
-        list_header_frame = tk.Frame(root)
+        # 截图列表（在截图管理界面）
+        list_header_frame = tk.Frame(self.screenshot_frame)
         list_header_frame.pack(pady=5, fill="x")
         list_header_frame.columnconfigure(0, weight=1)  
         list_header_frame.columnconfigure(2, weight=1)  
@@ -98,7 +146,7 @@ class SavTool:
         left_spacer = tk.Frame(list_header_frame)
         left_spacer.grid(row=0, column=0, sticky="ew")
         
-        # 左侧：标题（全选复选框会在Treeview的header中）
+        # 左侧：标题（全选复选框在Treeview的header中）
         left_header = tk.Frame(list_header_frame)
         left_header.grid(row=0, column=1)
         self.list_label = ttk.Label(left_header, text=self.t("screenshot_list"))
@@ -121,14 +169,14 @@ class SavTool:
         self.sort_desc_button = ttk.Button(button_container, text=self.t("sort_desc"), command=self.sort_descending)
         self.sort_desc_button.pack(side="left", padx=2)
         
-        # 创建包含预览和列表的容器
-        list_frame = tk.Frame(root)
+        # 创建包含预览和列表的容器（在截图管理界面）
+        list_frame = tk.Frame(self.screenshot_frame)
         list_frame.pack(pady=5)
         
         # 预览区域（左侧）
         preview_frame = tk.Frame(list_frame)
         preview_frame.pack(side="left", padx=5)
-        self.preview_label_text = ttk.Label(preview_frame, text=self.t("preview"), font=("Arial", 10))
+        self.preview_label_text = ttk.Label(preview_frame, text=self.t("preview"), font=get_cjk_font(10))
         self.preview_label_text.pack()
 
         # 限制预览Label的大小
@@ -153,7 +201,7 @@ class SavTool:
         list_right_frame = tk.Frame(list_frame)
         list_right_frame.pack(side="right")
         
-        # 使用Treeview替代Listbox，支持复选框
+        # 使用Treeview支持复选框
         tree_frame = tk.Frame(list_right_frame)
         tree_frame.pack(side="left", fill="both", expand=True)
         
@@ -180,8 +228,8 @@ class SavTool:
         self.tree.tag_configure("NewIndicator", foreground="#FED491")
         self.tree.tag_configure("ReplaceIndicator", foreground="#BDC9B2")
         # 配置页面标题行的tag样式
-        self.tree.tag_configure("PageHeaderLeft", foreground="#D26FAB", font=("Arial", 10, "bold"))
-        self.tree.tag_configure("PageHeaderRight", foreground="#85A9A5", font=("Arial", 10, "bold"))
+        self.tree.tag_configure("PageHeaderLeft", foreground="#D26FAB", font=get_cjk_font(10, "bold"))
+        self.tree.tag_configure("PageHeaderRight", foreground="#85A9A5", font=get_cjk_font(10, "bold"))
         # 配置拖动时的视觉反馈tag
         self.tree.tag_configure("Dragging", background="#E3F2FD", foreground="#1976D2")
         
@@ -218,8 +266,8 @@ class SavTool:
         self.tree.bind('<B1-Motion>', self.on_drag_motion)
         self.tree.bind('<ButtonRelease-1>', self.on_drag_end)
 
-        # 操作按钮
-        button_frame = ttk.Frame(root)
+        # 操作按钮（在截图管理界面）
+        button_frame = ttk.Frame(self.screenshot_frame)
         button_frame.pack(pady=5)
         self.add_button = ttk.Button(button_frame, text=self.t("add_new"), command=self.add_new)
         self.add_button.pack(side='left', padx=5)
@@ -238,63 +286,77 @@ class SavTool:
         # 添加图片缓存字典 {id_str: PhotoImage} | 快速获取画廊用
         self.image_cache = {}
         self.cache_lock = threading.Lock()  # 用于线程安全的缓存访问
+        
+        # 文件列表缓存，避免重复扫描
+        self._file_list_cache = None
+        self._file_list_cache_time = 0
+        self._file_list_cache_ttl = 5  # 缓存5秒
+        
+        # 默认显示存档分析 tab（索引 0）
+        self.notebook.select(0)
     
     def detect_system_language(self):
         """检测系统语言并返回支持的语言代码"""
+        # 优先使用 locale.getdefaultlocale 检测（虽然已弃用，但就经验来说更可靠）
         try:
-            # Debug用：检查自定义的环境变量
-            for env_key in ['APP_LANG', 'SCREENSHOT_TOOL_LANG', 'LANGUAGE']:
-                env_lang = os.environ.get(env_key)
-                if env_lang:
-                    env_lang = env_lang.strip().replace('-', '_').split('.')[0].lower()
-                    if env_lang.startswith('zh'):
-                        return "zh_CN"
-                    elif env_lang.startswith('ja'):
-                        return "ja_JP"
-                    elif env_lang.startswith('en'):
-                        return "en_US"
+            default_locale = locale.getdefaultlocale()
+            if default_locale[0]:
+                language_code = default_locale[0].split('_')[0]
+                if language_code == "zh":
+                    return "zh_CN"
+                elif language_code == "ja":
+                    return "ja_JP"
+                elif language_code == "en":
+                    return "en_US"
+        except Exception:
+            pass
+        
+        # 检查自定义环境变量
+        for env_key in ['APP_LANG', 'SCREENSHOT_TOOL_LANG', 'LANGUAGE']:
+            env_lang = os.environ.get(env_key)
+            if env_lang:
+                env_lang = env_lang.strip().replace('-', '_').split('.')[0].lower()
+                if env_lang.startswith('zh'):
+                    return "zh_CN"
+                elif env_lang.startswith('ja'):
+                    return "ja_JP"
+                elif env_lang.startswith('en'):
+                    return "en_US"
 
-            # 1. 标准locale.getlocale
+        # 标准locale.getlocale
+        try:
             system_locale, _ = locale.getlocale()
             if not system_locale:
-                # 2. 检查系统环境变量 LANG, LC_ALL, LC_MESSAGES，LANGUAGE
+                # 检查系统环境变量 LANG, LC_ALL, LC_MESSAGES，LANGUAGE
                 for env_key in ['LANG', 'LC_ALL', 'LC_MESSAGES', 'LANGUAGE']:
                     system_locale = os.environ.get(env_key)
                     if system_locale:
                         break
             if not system_locale:
-                # 3. locale.getdefaultlocale 尝试（已弃用但仍可用）
-                try:
-                    system_locale, _ = locale.getdefaultlocale()
-                except Exception:
-                    pass
-            if not system_locale:
-                # 4. locale.setlocale后再试一次
+                # 尝试设置默认locale后重新获取
                 try:
                     locale.setlocale(locale.LC_ALL, '')
                     system_locale, _ = locale.getlocale()
                 except Exception:
                     pass
+            # Windows平台使用系统API获取语言
             if not system_locale:
-                # 5. 平台相关特别检测
                 import sys
                 if sys.platform == "win32":
                     import ctypes
                     try:
-                        # 使用Windows API检测用户界面语言
                         windll = ctypes.windll
                         GetUserDefaultUILanguage = windll.kernel32.GetUserDefaultUILanguage
                         lang_id = GetUserDefaultUILanguage()
-                        if lang_id in (0x804, 0x404, 0xc04, 0x1004, 0x1404, 0x7c04): # zh-*
+                        if lang_id in (0x804, 0x404, 0xc04, 0x1004, 0x1404, 0x7c04):
                             return "zh_CN"
-                        elif lang_id in (0x411, 0x814): # ja-*
+                        elif lang_id in (0x411, 0x814):
                             return "ja_JP"
-                        elif lang_id in (0x409, 0x809): # en-*
+                        elif lang_id in (0x409, 0x809):
                             return "en_US"
                     except Exception:
                         pass
-
-            # 语言代码统一为小写
+            # 转换语言代码
             if system_locale:
                 locale_lower = system_locale.replace('-', '_').split('.')[0].lower()
                 if locale_lower.startswith('zh'):
@@ -303,21 +365,10 @@ class SavTool:
                     return "ja_JP"
                 if locale_lower.startswith('en'):
                     return "en_US"
-
-            try:
-                import sys
-                preferred = sys.getdefaultencoding()
-                if preferred and 'ja' in preferred:
-                    return "ja_JP"
-                elif preferred and 'zh' in preferred:
-                    return "zh_CN"
-            except Exception:
-                pass
-
-            # 检测不到则默认英语
-            return "en_US"
         except Exception:
-            return "en_US"
+            pass
+        # 默认返回英语
+        return "en_US"
     
     def t(self, key, **kwargs):
         """翻译函数，支持格式化字符串"""
@@ -329,9 +380,12 @@ class SavTool:
     def change_language(self, lang):
         """切换语言"""
         self.current_language = lang
-        self.language_var.set(lang)  # 更新菜单栏中的语言选项状态
+        self.language_var.set(lang)
         self.update_ui_texts()
-        # 注意：菜单栏是硬编码的，不需要更新文本
+        # 更新存档分析器的语言（如果已初始化）
+        if self.save_analyzer is not None:
+            self.save_analyzer.current_language = lang
+            self.save_analyzer.refresh()
     
     def ask_yesno(self, title, message, icon='question'):
         """自定义确认对话框，使用翻译的按钮文本"""
@@ -376,13 +430,41 @@ class SavTool:
         self.root.wait_window(popup)
         return confirmed
     
-    def show_save_analyzer(self):
-        """显示存档解析窗口"""
+    def init_save_analyzer(self):
+        """初始化存档分析界面"""
         if not self.storage_dir:
-            messagebox.showwarning(self.t("warning"), self.t("select_dir_first"))
             return
         
-        SaveAnalyzer(self.root, self.storage_dir, self.translations, self.current_language)
+        # 清除 analyzer_frame 中的所有子组件（包括提示标签）
+        for widget in self.analyzer_frame.winfo_children():
+            widget.destroy()
+        
+        # 创建新的存档分析界面
+        self.save_analyzer = SaveAnalyzer(self.analyzer_frame, self.storage_dir, 
+                                          self.translations, self.current_language)
+    
+    def on_tab_changed(self, event=None):
+        """处理 tab 切换事件，切换到存档分析页面时自动刷新"""
+        try:
+            # 获取当前选中的 tab 索引
+            current_tab = self.notebook.index(self.notebook.select())
+            # 如果切换到存档分析 tab（索引 0）且 save_analyzer 已初始化
+            if current_tab == 0 and self.save_analyzer is not None:
+                # 自动刷新存档分析页面
+                self.save_analyzer.refresh()
+        except Exception:
+            # 忽略错误，避免影响正常的 tab 切换
+            pass
+    
+    def show_save_analyzer(self):
+        """切换到存档分析 tab（保留此方法以兼容菜单，但菜单将被移除）"""
+        if not self.storage_dir:
+            messagebox.showerror(self.t("error"), self.t("select_dir_hint"))
+            return
+        
+        if self.save_analyzer is None:
+            self.init_save_analyzer()
+        self.notebook.select(0)
     
     def show_help(self):
         """浏览器打开GitHub页面"""
@@ -399,9 +481,12 @@ class SavTool:
         self.directory_menu.add_command(label=self.t("browse_dir"), command=self.select_dir)
         self.directory_menu.add_command(label=self.t("auto_detect_steam"), command=self.auto_detect_steam)
         
-        # 更新Save Analyzer菜单
-        self.save_analyzer_menu.delete(0, tk.END)
-        self.save_analyzer_menu.add_command(label=self.t("save_analyzer_menu"), command=self.show_save_analyzer)
+        # 更新Notebook tab标签
+        try:
+            self.notebook.tab(0, text=self.t("save_analyzer_tab"))
+            self.notebook.tab(1, text=self.t("screenshot_management_tab"))
+        except:
+            pass
         
         # 更新菜单栏标签 - 必须删除并重新插入才能更新标签
         try:
@@ -410,22 +495,19 @@ class SavTool:
             try:
                 menu_count = self.menubar.index(tk.END)
                 if menu_count is not None:
-                    menu_count = menu_count + 1  # index返回的是最后一个索引，+1得到数量
-                    # 遍历所有菜单项，找到所有Directory菜单
+                    menu_count = menu_count + 1
+                    directory_menu_str = str(self.directory_menu)
                     for i in range(menu_count):
                         try:
-                            # 检查这个菜单项是否是我们要找的Directory菜单
                             menu_obj = self.menubar.entrycget(i, "menu")
-                            # 比较菜单对象的字符串表示
-                            if str(menu_obj) == str(self.directory_menu):
+                            if str(menu_obj) == directory_menu_str:
                                 indices_to_delete.append(i)
                         except:
                             continue
             except:
                 pass
             
-            # 从后往前删除，避免索引变化的问题
-            indices_to_delete.sort(reverse=True)
+            indices_to_delete.sort(reverse=True)  # 从后往前删除，避免索引变化
             for idx in indices_to_delete:
                 try:
                     self.menubar.delete(idx)
@@ -434,50 +516,28 @@ class SavTool:
             
             # 重新插入Directory菜单到第一个位置
             self.menubar.insert_cascade(0, label=self.t("directory_menu"), menu=self.directory_menu)
-            
-            # 更新Save Analyzer菜单标签
-            try:
-                # 查找Save Analyzer菜单的索引
-                for i in range(self.menubar.index(tk.END) + 1):
-                    try:
-                        menu_obj = self.menubar.entrycget(i, "menu")
-                        if str(menu_obj) == str(self.save_analyzer_menu):
-                            self.menubar.entryconfig(i, label=self.t("save_analyzer_menu"))
-                            break
-                    except:
-                        continue
-            except:
-                pass
-        except Exception as e:
-            # 如果失败，尝试entryconfig
+        except Exception:
             try:
                 self.menubar.entryconfig(0, label=self.t("directory_menu"))
             except:
                 pass
         
-        # 更新提示标签
         self.hint_label.config(text=self.t("select_dir_hint"))
-        # 更新成功信息标签文本（如果正在显示）
         if self.storage_dir and self.success_label.winfo_viewable():
             success_text = self.t("steam_detect_success_text", path=self.storage_dir)
             self.success_label.config(text=success_text)
-        # 根据是否选择目录来显示/隐藏提示
         if self.storage_dir:
             self.hint_label.pack_forget()
         else:
             self.hint_label.pack(pady=10)
-            # 取消定时器并隐藏成功标签
             if self.success_label_timer is not None:
                 self.root.after_cancel(self.success_label_timer)
                 self.success_label_timer = None
             self.hide_success_label()
         
-        # 更新列表相关
         self.list_label.config(text=self.t("screenshot_list"))
         self.preview_label_text.config(text=self.t("preview"))
         self.tree.heading("info", text=self.t("list_header"))
-        
-        # 更新按钮
         self.sort_asc_button.config(text=self.t("sort_asc"))
         self.sort_desc_button.config(text=self.t("sort_desc"))
         self.add_button.config(text=self.t("add_new"))
@@ -487,30 +547,26 @@ class SavTool:
         self.export_button.config(text=self.t("export_image"))
         self.batch_export_button.config(text=self.t("batch_export"))
         
-        # 重新加载列表以更新显示文本
         if self.storage_dir:
             self.load_screenshots()
 
     def hide_success_label(self):
         """隐藏成功信息标签"""
+        if self.success_label_timer is not None:
+            self.root.after_cancel(self.success_label_timer)
+            self.success_label_timer = None
         self.success_label.pack_forget()
-        self.success_label_timer = None
     
     def select_dir(self):
         dir_path = filedialog.askdirectory()
         # 支持Windows和Unix路径分隔符
         if dir_path and (dir_path.endswith('/_storage') or dir_path.endswith('\\_storage')):
             self.storage_dir = dir_path
-            # 隐藏提示标签和成功标签
             self.hint_label.pack_forget()
-            # 取消定时器并隐藏成功标签
-            if self.success_label_timer is not None:
-                self.root.after_cancel(self.success_label_timer)
-                self.success_label_timer = None
             self.hide_success_label()
             self.load_screenshots()
-            # 更新批量导出按钮状态
             self.update_batch_export_button()
+            self.init_save_analyzer()
         else:
             messagebox.showerror(self.t("error"), self.t("dir_error"))
     
@@ -524,7 +580,7 @@ class SavTool:
                 winreg.CloseKey(key)
                 return steam_path
             except:
-                # 如果64位注册表失败，尝试32位
+                # 尝试32位注册表
                 try:
                     key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Valve\Steam")
                     steam_path = winreg.QueryValueEx(key, "InstallPath")[0]
@@ -616,15 +672,13 @@ class SavTool:
         if not os.path.exists(steamapps_common):
             return None
         
-        # 游戏文件夹名
         game_folder_name = "でびるコネクショん"
         game_folder_path = os.path.join(steamapps_common, game_folder_name)
         
-        # 先直接检查是否存在
         if os.path.exists(game_folder_path) and os.path.isdir(game_folder_path):
             return game_folder_path
         
-        # 如果没有，查找appmanifest文件
+        # 从appmanifest文件获取安装目录
         appmanifest_path = os.path.join(library_path, "steamapps", "appmanifest_3054820.acf")
         installdir = self.parse_appmanifest_acf(appmanifest_path)
         
@@ -678,6 +732,8 @@ class SavTool:
             self.load_screenshots()
             # 更新批量导出按钮状态
             self.update_batch_export_button()
+            # 初始化存档分析界面
+            self.init_save_analyzer()
         else:
             messagebox.showinfo(self.t("warning"), self.t("steam_detect_not_found"))
 
@@ -696,22 +752,44 @@ class SavTool:
         self.ids_data = self.load_and_decode(ids_path)
         self.all_ids_data = self.load_and_decode(all_ids_path)
 
-        # 扫描 sav 对
-        self.sav_pairs = {}
-        for file in os.listdir(self.storage_dir):
-            if file.startswith('DevilConnection_photo_') and file.endswith('.sav'):
-                base_name = file.rsplit('.sav', 1)[0] 
-                parts = base_name.split('_')
-                if len(parts) == 3:  
-                    id_str = parts[2]
-                    if id_str not in self.sav_pairs:
-                        self.sav_pairs[id_str] = [None, None]
-                    self.sav_pairs[id_str][0] = file
-                elif len(parts) == 4 and parts[3] == 'thumb': 
-                    id_str = parts[2]
-                    if id_str not in self.sav_pairs:
-                        self.sav_pairs[id_str] = [None, None]
-                    self.sav_pairs[id_str][1] = file
+        # 扫描 sav 对（使用缓存优化）
+        import time
+        current_time = time.time()
+        
+        # 检查缓存是否有效
+        if (self._file_list_cache is None or 
+            current_time - self._file_list_cache_time > self._file_list_cache_ttl or
+            self._file_list_cache[0] != self.storage_dir):
+            # 缓存失效，重新扫描
+            self.sav_pairs = {}
+            try:
+                file_list = os.listdir(self.storage_dir)
+                for file in file_list:
+                    if file.startswith('DevilConnection_photo_') and file.endswith('.sav'):
+                        base_name = file.rsplit('.sav', 1)[0] 
+                        parts = base_name.split('_')
+                        if len(parts) == 3:  
+                            id_str = parts[2]
+                            if id_str not in self.sav_pairs:
+                                self.sav_pairs[id_str] = [None, None]
+                            self.sav_pairs[id_str][0] = file
+                        elif len(parts) == 4 and parts[3] == 'thumb': 
+                            id_str = parts[2]
+                            if id_str not in self.sav_pairs:
+                                self.sav_pairs[id_str] = [None, None]
+                            self.sav_pairs[id_str][1] = file
+                
+                # 更新缓存
+                self._file_list_cache = (self.storage_dir, self.sav_pairs.copy())
+                self._file_list_cache_time = current_time
+            except OSError:
+                # 如果目录访问失败，清空缓存
+                self.sav_pairs = {}
+                self._file_list_cache = None
+        else:
+            # 使用缓存
+            _, self.sav_pairs = self._file_list_cache
+            self.sav_pairs = self.sav_pairs.copy()  # 创建副本，避免修改缓存
 
         # 更新列表
         # 清除所有状态指示器的定时器
@@ -733,7 +811,7 @@ class SavTool:
         page_number = 1
         
         for idx, item in enumerate(self.ids_data):
-            # 每12个截图的开始（第0, 12, 24...个截图前）插入"页面X ←"标题行
+            # 每12个截图的开始插入"页面X ←"标题行
             if screenshot_count % 12 == 0:
                 # 插入"页面X ←"标题行
                 page_text_left = f"{self.t('page')} {page_number} ←"
@@ -760,8 +838,9 @@ class SavTool:
             
             screenshot_count += 1
             
-            # 每6个截图后（第6, 18, 30...个截图后）插入"页面X →"标题行
+            # 每6个截图后插入"页面X →"标题行
             # 如果是12的倍数，则跳过
+            # （第6, 18, 30...个截图后）
             if screenshot_count % 6 == 0 and screenshot_count % 12 != 0:
                 # 插入"页面X →"标题行
                 page_text_right = f"{self.t('page')} {page_number} →"
@@ -780,7 +859,7 @@ class SavTool:
     def sort_ascending(self):
         """按时间正序排序"""
         if not self.storage_dir:
-            messagebox.showerror(self.t("error"), self.t("select_dir_first"))
+            messagebox.showerror(self.t("error"), self.t("select_dir_hint"))
             return
         
         # 确认对话框
@@ -813,7 +892,7 @@ class SavTool:
     def sort_descending(self):
         """按时间倒序排序"""
         if not self.storage_dir:
-            messagebox.showerror(self.t("error"), self.t("select_dir_first"))
+            messagebox.showerror(self.t("error"), self.t("select_dir_hint"))
             return
         
         # 确认对话框
@@ -1566,15 +1645,19 @@ class SavTool:
             
             # 加载图片
             img = Image.open(temp_png)
-            # 拉伸到4:3比例(实际游戏内显示也会拉成这样)
-            preview_img = img.resize((160, 120), Image.Resampling.LANCZOS)
-            photo = ImageTk.PhotoImage(preview_img)
-            
-            # 更新预览Label
-            self.preview_label.config(image=photo, bg="white", text="")
-            self.preview_photo = photo 
-            
-            img.close()
+            try:
+                # 拉伸到4:3比例(实际游戏内显示也会拉成这样)
+                # 使用BILINEAR而不是LANCZOS，速度更快，预览质量足够
+                preview_img = img.resize((160, 120), Image.Resampling.BILINEAR)
+                photo = ImageTk.PhotoImage(preview_img)
+                
+                # 更新预览Label
+                self.preview_label.config(image=photo, bg="white", text="")
+                self.preview_photo = photo 
+            finally:
+                # 确保图片对象被正确关闭
+                img.close()
+                preview_img.close()
         except Exception as e:
             # 出错时显示错误信息
             self.preview_label.config(image='', bg="lightgray", text=self.t("preview_failed"))
@@ -1590,7 +1673,7 @@ class SavTool:
     def show_gallery_preview(self):
         """显示画廊预览窗口，按照特定方式排列图片"""
         if not self.storage_dir or not self.ids_data:
-            messagebox.showwarning(self.t("warning"), self.t("select_dir_first"))
+            messagebox.showerror(self.t("error"), self.t("select_dir_first"))
             return
         
         # 创建新窗口
@@ -1666,12 +1749,12 @@ class SavTool:
                         
                         # 创建N/A标签，居中显示
                         placeholder_label = tk.Label(placeholder_container, text=self.t("not_available"), 
-                                                    bg="lightgray", fg="gray", font=("Arial", 14, "bold"),
+                                                    bg="lightgray", fg="gray", font=get_cjk_font(14, "bold"),
                                                     anchor="center", justify="center")
                         placeholder_label.place(relx=0.5, rely=0.5, anchor="center")
                         
                         # 在下方添加一个空的文本标签，模拟图片下方的ID显示区域
-                        placeholder_id_label = tk.Label(col_frame, text="", bg="white", font=("Arial", 8))
+                        placeholder_id_label = tk.Label(col_frame, text="", bg="white", font=get_cjk_font(8))
                         placeholder_id_label.pack()
                     
                     # 在第2列和第3列之间添加分隔线（col=1之后，即第2列之后）
@@ -1681,7 +1764,7 @@ class SavTool:
             
             # 在每页下面显示页面编号
             page_label = tk.Label(group_frame, text=f"{self.t('page')} {group_idx + 1}", 
-                                 bg="white", font=("Arial", 12, "bold"), fg="gray")
+                                 bg="white", font=get_cjk_font(12, "bold"), fg="gray")
             page_label.pack(pady=10)
         
         canvas.pack(side="left", fill="both", expand=True)
@@ -1739,11 +1822,11 @@ class SavTool:
         placeholder_container.pack_propagate(False)
         
         placeholder_label = tk.Label(placeholder_container, text="Loading...", 
-                                    bg="lightgray", fg="gray", font=("Arial", 10),
+                                    bg="lightgray", fg="gray", font=get_cjk_font(10),
                                     anchor="center", justify="center")
         placeholder_label.place(relx=0.5, rely=0.5, anchor="center")
         
-        placeholder_id_label = tk.Label(parent_frame, text="", bg="white", font=("Arial", 8))
+        placeholder_id_label = tk.Label(parent_frame, text="", bg="white", font=get_cjk_font(8))
         placeholder_id_label.pack()
         
         # 返回容器和标签，方便后续销毁
@@ -1783,15 +1866,19 @@ class SavTool:
                 
                 # 直接从内存加载图片，避免临时文件
                 img = Image.open(BytesIO(img_data))
-                # 调整大小以适应画廊预览
-                preview_img = img.resize((150, 112), Image.Resampling.LANCZOS)
-                img.close()
-                
-                # 存入缓存（存储PIL Image对象，不是PhotoImage）
-                with self.cache_lock:
-                    self.image_cache[id_str] = preview_img
-                
-                return id_str, preview_img
+                try:
+                    # 调整大小以适应画廊预览
+                    # 使用BILINEAR而不是LANCZOS，速度更快，预览质量足够
+                    preview_img = img.resize((150, 112), Image.Resampling.BILINEAR)
+                    
+                    # 存入缓存（存储PIL Image对象，不是PhotoImage）
+                    with self.cache_lock:
+                        self.image_cache[id_str] = preview_img.copy()  # 复制一份，避免原图被关闭后缓存失效
+                    
+                    return id_str, preview_img
+                finally:
+                    # 确保原图被关闭
+                    img.close()
             except Exception as e:
                 return id_str, None
         
@@ -1819,7 +1906,7 @@ class SavTool:
                 
                 # 创建图片Label
                 img_label = tk.Label(col_frame, image=photo, bg="white", text=id_str, 
-                                    compound="top", font=("Arial", 8))
+                                    compound="top", font=get_cjk_font(8))
                 img_label.pack()
             except Exception as e:
                 # 如果创建PhotoImage失败，显示错误
@@ -1921,10 +2008,10 @@ class SavTool:
         # 如果不是常规图片格式，在窗口顶端显示警告
         if not is_valid_image:
             warning_label = tk.Label(popup, text=self.t("file_extension_warning", filename=filename), 
-                                    fg="#FF57FD", font=("Arial", 10), wraplength=600, justify="left")
+                                    fg="#FF57FD", font=get_cjk_font(10), wraplength=600, justify="left")
             warning_label.pack(pady=5, padx=10, anchor="w")
         
-        ttk.Label(popup, text=self.t("replace_confirm_text"), font=("Arial", 12)).pack(pady=10)
+        ttk.Label(popup, text=self.t("replace_confirm_text"), font=get_cjk_font(12)).pack(pady=10)
         
         # 图片对比区域
         image_frame = tk.Frame(popup)
@@ -1932,27 +2019,35 @@ class SavTool:
         
         # 原图片（左侧）
         orig_img = Image.open(temp_png)
-        orig_preview = orig_img.resize((400, 300), Image.Resampling.LANCZOS)  
-        orig_photo = ImageTk.PhotoImage(orig_preview)
-        orig_label = Label(image_frame, image=orig_photo)  # 显示图片的Label保持tk.Label
-        orig_label.pack(side="left", padx=10)
-        popup.orig_photo = orig_photo 
-        orig_img.close()
+        try:
+            # 使用BILINEAR而不是LANCZOS，速度更快，预览质量足够
+            orig_preview = orig_img.resize((400, 300), Image.Resampling.BILINEAR)  
+            orig_photo = ImageTk.PhotoImage(orig_preview)
+            orig_label = Label(image_frame, image=orig_photo)  # 显示图片的Label保持tk.Label
+            orig_label.pack(side="left", padx=10)
+            popup.orig_photo = orig_photo 
+        finally:
+            orig_img.close()
+            orig_preview.close()
         
-        ttk.Label(image_frame, text="→", font=("Arial", 24)).pack(side="left", padx=10)
+        ttk.Label(image_frame, text="→", font=get_cjk_font(24)).pack(side="left", padx=10)
         
         # 新图片（右侧）
         try:
             new_img = Image.open(new_png)
-            new_preview = new_img.resize((400, 300), Image.Resampling.LANCZOS) 
-            new_photo = ImageTk.PhotoImage(new_preview)
-            new_label = Label(image_frame, image=new_photo)  # 显示图片的Label保持tk.Label
-            new_label.pack(side="left", padx=10)
-            popup.new_photo = new_photo 
-            new_img.close()
+            try:
+                # 使用BILINEAR而不是LANCZOS，速度更快，预览质量足够
+                new_preview = new_img.resize((400, 300), Image.Resampling.BILINEAR) 
+                new_photo = ImageTk.PhotoImage(new_preview)
+                new_label = Label(image_frame, image=new_photo)  # 显示图片的Label保持tk.Label
+                new_label.pack(side="left", padx=10)
+                popup.new_photo = new_photo 
+            finally:
+                new_img.close()
+                new_preview.close()
         except Exception as e:
             # 如果无法打开图片，显示错误信息
-            error_label = Label(image_frame, text=self.t("preview_failed"), fg="red", font=("Arial", 12))
+            error_label = Label(image_frame, text=self.t("preview_failed"), fg="red", font=get_cjk_font(12))
             error_label.pack(side="left", padx=10)
             popup.new_photo = None
 
@@ -1993,8 +2088,10 @@ class SavTool:
             with open(temp_thumb, 'wb') as f:
                 f.write(img_data)
             thumb_orig = Image.open(temp_thumb)
-            thumb_size = thumb_orig.size
-            thumb_orig.close()  
+            try:
+                thumb_size = thumb_orig.size
+            finally:
+                thumb_orig.close()  
 
             # 新主sav (PNG)
             with open(new_png, 'rb') as f:
@@ -2007,10 +2104,15 @@ class SavTool:
 
             # 新thumb JPEG
             main_img = Image.open(new_png)
-            new_thumb = main_img.resize(thumb_size, Image.Resampling.LANCZOS)
-            new_thumb = new_thumb.convert('RGB')
-            new_thumb.save(temp_thumb, 'JPEG', quality=90, optimize=True)
-            main_img.close()  # 显式关闭图像对象，释放文件句柄
+            try:
+                # 使用BILINEAR而不是LANCZOS，速度更快，缩略图质量足够
+                new_thumb = main_img.resize(thumb_size, Image.Resampling.BILINEAR)
+                new_thumb = new_thumb.convert('RGB')
+                new_thumb.save(temp_thumb, 'JPEG', quality=90, optimize=True)
+            finally:
+                # 显式关闭图像对象，释放文件句柄
+                main_img.close()
+                new_thumb.close()
             with open(temp_thumb, 'rb') as f:
                 jpeg_b64 = base64.b64encode(f.read()).decode('utf-8')
             new_thumb_uri = f"data:image/jpeg;base64,{jpeg_b64}"
@@ -2028,7 +2130,7 @@ class SavTool:
     def add_new(self):
         # 检查是否已选择目录
         if not self.storage_dir:
-            messagebox.showwarning(self.t("warning"), self.t("select_dir_hint"))
+            messagebox.showerror(self.t("error"), self.t("select_dir_hint"))
             return
         
         new_png = filedialog.askopenfilename(title=self.t("select_new_png"))
@@ -2046,8 +2148,10 @@ class SavTool:
         try:
             if is_valid_image:
                 img = Image.open(new_png)
-                width, height = img.size
-                img.close()
+                try:
+                    width, height = img.size
+                finally:
+                    img.close()
                 
                 # 检查是否是4:3比例（容错±30像素）
                 # 如果宽度是w，高度应该是 w * 3 / 4
@@ -2076,13 +2180,13 @@ class SavTool:
         # 如果不是常规图片格式，在窗口顶端显示警告
         if not is_valid_image:
             warning_label = tk.Label(popup, text=self.t("file_extension_warning", filename=filename), 
-                                    fg="#FF57FD", font=("Arial", 10), wraplength=380, justify="left")
+                                    fg="#FF57FD", font=get_cjk_font(10), wraplength=380, justify="left")
             warning_label.pack(pady=5, padx=10, anchor="w")
         
         # 如果图片分辨率不是4:3或检测不出，显示警告
         if not is_4_3_ratio and is_valid_image:
             aspect_warning_label = tk.Label(popup, text=self.t("aspect_ratio_warning"), 
-                                           fg="#7CA294", font=("Arial", 10), wraplength=380, justify="left")
+                                           fg="#7CA294", font=get_cjk_font(10), wraplength=380, justify="left")
             aspect_warning_label.pack(pady=5, padx=10, anchor="w")
 
         ttk.Label(popup, text=self.t("id_label")).pack(pady=5)
@@ -2138,8 +2242,10 @@ class SavTool:
                     with open(temp_thumb_size, 'wb') as f:
                         f.write(img_data)
                     thumb_orig = Image.open(temp_thumb_size)
-                    thumb_size = thumb_orig.size
-                    thumb_orig.close() 
+                    try:
+                        thumb_size = thumb_orig.size
+                    finally:
+                        thumb_orig.close() 
                     os.remove(temp_thumb_size)
                     valid_thumb_found = True
                     break
@@ -2159,9 +2265,12 @@ class SavTool:
                 # 新thumb JPEG
                 try:
                     main_img = Image.open(new_png)
-                    new_thumb = main_img.resize(thumb_size, Image.Resampling.LANCZOS)
-                    new_thumb = new_thumb.convert('RGB')
-                    main_img.close() 
+                    try:
+                        # 使用BILINEAR而不是LANCZOS，速度更快，缩略图质量足够
+                        new_thumb = main_img.resize(thumb_size, Image.Resampling.BILINEAR)
+                        new_thumb = new_thumb.convert('RGB')
+                    finally:
+                        main_img.close() 
                     temp_thumb = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False).name
                     new_thumb.save(temp_thumb, 'JPEG', quality=90, optimize=True)
                 except Exception as e:
@@ -2327,7 +2436,6 @@ class SavTool:
             
             # 打开图片
             img = Image.open(temp_png)
-            
             # 弹出格式选择对话框
             format_window = Toplevel(self.root)
             format_window.title(self.t("select_export_format"))
@@ -2430,7 +2538,7 @@ class SavTool:
             return
         
         if not self.storage_dir:
-            messagebox.showerror(self.t("error"), self.t("select_dir_first"))
+            messagebox.showerror(self.t("error"), self.t("select_dir_hint"))
             return
         
         # 弹出格式选择对话框
@@ -2515,22 +2623,27 @@ class SavTool:
                         
                         # 打开图片并转换格式
                         img = Image.open(temp_png)
-                        
-                        # 根据格式保存
-                        output_filename = f"{id_str}.{file_ext}"
-                        output_path = os.path.join(temp_dir, output_filename)
-                        
-                        if format == "png":
-                            img.save(output_path, "PNG")
-                        elif format == "jpeg":
-                            if img.mode != "RGB":
-                                img = img.convert("RGB")
-                            img.save(output_path, "JPEG", quality=95)
-                        else:  # webp
-                            img.save(output_path, "WebP", quality=95)
-                        
-                        img.close()
-                        os.remove(temp_png)  # 删除临时PNG
+                        try:
+                            # 根据格式保存
+                            output_filename = f"{id_str}.{file_ext}"
+                            output_path = os.path.join(temp_dir, output_filename)
+                            
+                            if format == "png":
+                                img.save(output_path, "PNG")
+                            elif format == "jpeg":
+                                if img.mode != "RGB":
+                                    img = img.convert("RGB")
+                                img.save(output_path, "JPEG", quality=95)
+                            else:  # webp
+                                img.save(output_path, "WebP", quality=95)
+                        finally:
+                            img.close()
+                            # 删除临时PNG
+                            if os.path.exists(temp_png):
+                                try:
+                                    os.remove(temp_png)
+                                except:
+                                    pass
                         exported_count += 1
                     except Exception as e:
                         failed_count += 1
