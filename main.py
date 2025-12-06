@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import filedialog, messagebox, Scrollbar, Toplevel, Entry, Label
+from tkinter import filedialog, messagebox, Scrollbar, Toplevel, Entry, Label, simpledialog
 from tkinter import ttk
 from PIL import Image
 from PIL import ImageTk
@@ -13,19 +13,32 @@ from datetime import datetime
 import tempfile
 import zipfile
 import shutil
-import sv_ttk
 import locale
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from io import BytesIO
 import webbrowser
 import re
 import platform
+import hashlib
+import traceback
+from typing import Optional, Dict, List, Tuple, Any, Set, Union
 from translations import TRANSLATIONS
 from save_analyzer import SaveAnalyzer
 from utils import set_window_icon
+from backup_restore import BackupRestore
+from toast import Toast
+from styles import get_cjk_font, get_parent_bg, init_styles, Colors, Debouncer
+from screenshot_manager import ScreenshotManager, ScreenshotManagerUI
+from others import OthersTab
 
-# Windows注册表支持
+# 类型别名定义
+PathType = Union[str, bytes, os.PathLike]
+JSONType = Union[Dict[str, Any], List[Any], str, int, float, bool, None]
+
+# From the sky bereft of stars
+
 if platform.system() == "Windows":
     try:
         import winreg
@@ -40,298 +53,281 @@ class SavTool:
         self.translations = TRANSLATIONS
         self.current_language = self.detect_system_language()
         self.root.title(self.t("window_title"))
-        self.root.geometry("800x550")
+        self.root.geometry("850x600")
+        self.root.minsize(750, 600)  # 设置最小窗口大小
         
         # 设置窗口图标
         set_window_icon(self.root)
         
-        # 应用 sun valley 亮色主题
-        sv_ttk.set_theme("light")
+        # 初始化统一样式
+        init_styles(self.root)
 
         # 创建菜单栏
-        self.menubar = tk.Menu(root)
-        root.config(menu=self.menubar)
+        self._create_menubar()
         
-        # Directory 菜单
+        # 创建主界面
+        self._create_main_interface()
+        
+        # 初始化组件状态
+        self._initialize_components()
+        
+        # 绑定事件
+        self._bind_events()
+        
+        # 默认显示存档分析 tab（索引 0）
+        self.notebook.select(0)
+    
+    def _create_menubar(self) -> None:
+        """创建菜单栏"""
+        self.menubar = tk.Menu(self.root)
+        self.root.config(menu=self.menubar)
+        
+        # 目录菜单
         self.directory_menu = tk.Menu(self.menubar, tearoff=0)
         self.menubar.add_cascade(label=self.t("directory_menu"), menu=self.directory_menu)
         self.directory_menu.add_command(label=self.t("browse_dir"), command=self.select_dir)
         self.directory_menu.add_command(label=self.t("auto_detect_steam"), command=self.auto_detect_steam)
         
-        # Save Analyzer 菜单
-        self.save_analyzer_menu = tk.Menu(self.menubar, tearoff=0)
-        self.menubar.add_cascade(label=self.t("save_analyzer_menu"), menu=self.save_analyzer_menu)
-        self.save_analyzer_menu.add_command(label=self.t("save_analyzer_menu"), command=self.show_save_analyzer)
-        
-        # Language 菜单
+        # 语言菜单
         self.language_menu = tk.Menu(self.menubar, tearoff=0)
         self.menubar.add_cascade(label="Language", menu=self.language_menu)
         self.language_var = tk.StringVar(value=self.current_language)
-        self.language_menu.add_radiobutton(label="日本語", variable=self.language_var, 
-                                          value="ja_JP", command=lambda: self.change_language("ja_JP"))
-        self.language_menu.add_radiobutton(label="中文", variable=self.language_var, 
-                                           value="zh_CN", command=lambda: self.change_language("zh_CN"))
-        self.language_menu.add_radiobutton(label="English", variable=self.language_var, 
-                                          value="en_US", command=lambda: self.change_language("en_US"))
         
-        # Help 菜单
+        language_options = [
+            ("日本語", "ja_JP"),
+            ("中文", "zh_CN"),
+            ("English", "en_US")
+        ]
+        
+        for label, value in language_options:
+            self.language_menu.add_radiobutton(
+                label=label,
+                variable=self.language_var,
+                value=value,
+                command=lambda v=value: self.change_language(v)
+            )
+        
+        # 帮助菜单
         help_menu = tk.Menu(self.menubar, tearoff=0)
         self.menubar.add_cascade(label="Help", menu=help_menu)
         help_menu.add_command(label="Help", command=self.show_help)
-
-        # 提示标签（当没有选择目录时显示）
-        self.hint_label = tk.Label(root, text=self.t("select_dir_hint"), 
-                                   fg="#D554BC", font=("Arial", 10))
-        self.hint_label.pack(pady=10)
-        
-        # 成功信息标签（当成功检测到Steam路径时显示）
-        self.success_label = tk.Label(root, text="", 
-                                      fg="#6DB8AC", font=("Arial", 10))
-        self.success_label_timer = None  # 用于存储定时器ID
-
-        # 截图列表
-        list_header_frame = tk.Frame(root)
-        list_header_frame.pack(pady=5, fill="x")
-        list_header_frame.columnconfigure(0, weight=1)  
-        list_header_frame.columnconfigure(2, weight=1)  
-        
-        left_spacer = tk.Frame(list_header_frame)
-        left_spacer.grid(row=0, column=0, sticky="ew")
-        
-        # 左侧：标题（全选复选框会在Treeview的header中）
-        left_header = tk.Frame(list_header_frame)
-        left_header.grid(row=0, column=1)
-        self.list_label = ttk.Label(left_header, text=self.t("screenshot_list"))
-        self.list_label.pack(side="left", padx=5)
-        
-        # 右侧区域
-        right_area = tk.Frame(list_header_frame)
-        right_area.grid(row=0, column=2, sticky="ew")
-        right_area.columnconfigure(0, weight=1) 
-        
-        right_spacer = tk.Frame(right_area)
-        right_spacer.grid(row=0, column=0, sticky="ew")
-        
-        # 右侧按钮区域
-        button_container = tk.Frame(right_area)
-        button_container.grid(row=0, column=1, sticky="e")
-        ttk.Button(button_container, text=self.t("refresh"), command=self.load_screenshots, width=3).pack(side="left", padx=2)
-        self.sort_asc_button = ttk.Button(button_container, text=self.t("sort_asc"), command=self.sort_ascending)
-        self.sort_asc_button.pack(side="left", padx=2)
-        self.sort_desc_button = ttk.Button(button_container, text=self.t("sort_desc"), command=self.sort_descending)
-        self.sort_desc_button.pack(side="left", padx=2)
-        
-        # 创建包含预览和列表的容器
-        list_frame = tk.Frame(root)
-        list_frame.pack(pady=5)
-        
-        # 预览区域（左侧）
-        preview_frame = tk.Frame(list_frame)
-        preview_frame.pack(side="left", padx=5)
-        self.preview_label_text = ttk.Label(preview_frame, text=self.t("preview"), font=("Arial", 10))
-        self.preview_label_text.pack()
-
-        # 限制预览Label的大小
-        preview_container = tk.Frame(preview_frame, width=160, height=120, bg="lightgray", relief="sunken")
-        preview_container.pack()
-        preview_container.pack_propagate(False) 
-        self.preview_label = Label(preview_container, bg="lightgray")
-        self.preview_label.pack(fill="both", expand=True)
-        self.preview_photo = None
-        
-        # 导出图片按钮（初始隐藏）
-        self.export_button = ttk.Button(preview_frame, text=self.t("export_image"), command=self.export_image)
-        self.export_button.pack(pady=5)
-        self.export_button.pack_forget()
-        
-        # 批量导出图片按钮（初始隐藏）
-        self.batch_export_button = ttk.Button(preview_frame, text=self.t("batch_export"), command=self.batch_export_images)
-        self.batch_export_button.pack(pady=5)
-        self.batch_export_button.pack_forget() 
-        
-        # 列表区域（右侧）
-        list_right_frame = tk.Frame(list_frame)
-        list_right_frame.pack(side="right")
-        
-        # 使用Treeview替代Listbox，支持复选框
-        tree_frame = tk.Frame(list_right_frame)
-        tree_frame.pack(side="left", fill="both", expand=True)
-        
-        scrollbar = Scrollbar(tree_frame, orient="vertical")
-        scrollbar.pack(side="right", fill="y")
-        
-        # 使用两列：select列用于复选框，info列用于信息
-        self.tree = ttk.Treeview(tree_frame, columns=("select", "info"), show="headings", height=15)
-        # 隐藏#0列（tree列）
-        self.tree.heading("#0", text="", anchor="w")
-        self.tree.column("#0", width=0, stretch=False, minwidth=0)
-        
-        # 复选框列（标题是全选复选框）
-        self.tree.heading("select", text="☐", anchor="center", command=self.toggle_select_all)
-        self.tree.column("select", width=40, stretch=False, anchor="center")
-        
-        # 信息列
-        self.tree.heading("info", text=self.t("list_header"), anchor="w")
-        self.tree.column("info", width=600, stretch=True)
-        
-        # 配置tag样式用于显示带颜色的箭头指示器，使用tag_configure来设置不同tag的颜色
-        self.tree.tag_configure("DragIndicatorUp", foreground="#85A9A5")
-        self.tree.tag_configure("DragIndicatorDown", foreground="#D06CAA")
-        self.tree.tag_configure("NewIndicator", foreground="#FED491")
-        self.tree.tag_configure("ReplaceIndicator", foreground="#BDC9B2")
-        # 配置页面标题行的tag样式
-        self.tree.tag_configure("PageHeaderLeft", foreground="#D26FAB", font=("Arial", 10, "bold"))
-        self.tree.tag_configure("PageHeaderRight", foreground="#85A9A5", font=("Arial", 10, "bold"))
-        # 配置拖动时的视觉反馈tag
-        self.tree.tag_configure("Dragging", background="#E3F2FD", foreground="#1976D2")
-        
-        scrollbar.config(command=self.tree.yview)
-        self.tree.config(yscrollcommand=scrollbar.set)
-        self.tree.pack(side="left", fill="both", expand=True)
-        
-        # 创建拖动指示线（使用Frame，通过place定位）
-        self.drag_indicator_line = tk.Frame(tree_frame, bg="black", height=3)
-        self.drag_indicator_line.place_forget()  # 初始隐藏
-        
-        # 存储复选框状态 {item_id: BooleanVar}
-        self.checkbox_vars = {}
-        
-        # 绑定选择事件（用于预览）
-        self.tree.bind('<<TreeviewSelect>>', self.on_tree_select)
-        
-        # 拖拽相关变量
-        self.drag_start_item = None
-        self.drag_start_y = None
-        self.is_dragging = False
-        self.drag_target_item = None  # 当前拖动目标位置
-        self.current_indicator_target = None  # 当前显示指示线的目标项（用于避免重复更新）
-        self.current_indicator_position = None  # 当前指示线的位置（用于避免重复更新）
-        
-        # 箭头指示器相关变量
-        self.drag_indicators = []  # 存储当前显示的指示器信息 [(item_id, original_text, after_id), ...]
-        
-        # 新截图和替换截图的标记相关变量
-        self.status_indicators = []  # 存储当前显示的状态指示器信息 [(item_id, original_text, after_id, indicator_type), ...]
-        
-        # 绑定事件：统一处理点击事件，先检查复选框，再处理拖拽
-        self.tree.bind('<Button-1>', self.on_button1_click)
-        self.tree.bind('<B1-Motion>', self.on_drag_motion)
-        self.tree.bind('<ButtonRelease-1>', self.on_drag_end)
-
-        # 操作按钮
-        button_frame = ttk.Frame(root)
-        button_frame.pack(pady=5)
-        self.add_button = ttk.Button(button_frame, text=self.t("add_new"), command=self.add_new)
-        self.add_button.pack(side='left', padx=5)
-        self.replace_button = ttk.Button(button_frame, text=self.t("replace_selected"), command=self.replace_selected)
-        self.replace_button.pack(side='left', padx=5)
-        self.delete_button = ttk.Button(button_frame, text=self.t("delete_selected"), command=self.delete_selected)
-        self.delete_button.pack(side='left', padx=5)
-        self.gallery_preview_button = ttk.Button(button_frame, text=self.t("gallery_preview"), command=self.show_gallery_preview)
-        self.gallery_preview_button.pack(side='left', padx=5)
-
-        self.storage_dir = None
-        self.ids_data = []
-        self.all_ids_data = []
-        self.sav_pairs = {}  # {id: (main_sav, thumb_sav)}
-        
-        # 添加图片缓存字典 {id_str: PhotoImage} | 快速获取画廊用
-        self.image_cache = {}
-        self.cache_lock = threading.Lock()  # 用于线程安全的缓存访问
     
-    def detect_system_language(self):
+    def _create_main_interface(self) -> None:
+        """创建主界面"""
+        self.notebook = ttk.Notebook(self.root)
+        self.notebook.pack(fill="both", expand=True, padx=0, pady=0)
+        
+        # 创建各个标签页的框架
+        tab_configs = [
+            ("save_analyzer_tab", "analyzer_frame", "analyzer_hint_label"),
+            ("screenshot_management_tab", "screenshot_frame", "screenshot_hint_label"),
+            ("backup_restore_tab", "backup_restore_frame", "backup_restore_hint_label"),
+            ("others_tab", "others_frame", "others_hint_label")
+        ]
+        
+        for tab_text, frame_attr, hint_attr in tab_configs:
+            frame = tk.Frame(self.notebook)
+            self.notebook.add(frame, text=self.t(tab_text))
+            setattr(self, frame_attr, frame)
+            
+            # 创建提示标签
+            hint_label = tk.Label(
+                frame,
+                text=self.t("select_dir_hint"),
+                fg="#D554BC",
+                font=get_cjk_font(12)
+            )
+            hint_label.pack(pady=50)
+            setattr(self, hint_attr, hint_label)
+    
+    def _initialize_components(self) -> None:
+        """初始化组件状态"""
+        self.save_analyzer: Optional[SaveAnalyzer] = None
+        self.backup_restore: Optional[BackupRestore] = None
+        self.others_tab: Optional[OthersTab] = None
+        self.screenshot_manager_ui: Optional[ScreenshotManagerUI] = None
+        
+        # 存档文件监控相关
+        self.storage_dir: Optional[str] = None
+        self.save_file_path: Optional[str] = None
+        self.temp_file_path: Optional[str] = None
+        self.monitor_thread: Optional[threading.Thread] = None
+        self.monitor_running: bool = False
+        self.active_toasts: List[Toast] = []
+        self.variable_change_chains: Dict[str, Dict[str, Any]] = {}
+        self.ab_initio_triggered: bool = False
+        
+        # Toast功能控制
+        self.toast_enabled: bool = True
+        self.toast_ignore_record: str = "record, initialVars"
+    
+    def _bind_events(self) -> None:
+        """绑定事件"""
+        self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+    
+    def detect_system_language(self) -> str:
         """检测系统语言并返回支持的语言代码"""
+        language_detectors = [
+            self._detect_from_locale_getdefaultlocale,
+            self._detect_from_environment_vars,
+            self._detect_from_locale_getlocale,
+            self._detect_from_windows_api,
+            self._detect_from_system_locale
+        ]
+        
+        for detector in language_detectors:
+            try:
+                result = detector()
+                if result:
+                    return result
+            except Exception:
+                continue
+        
+        # 默认返回英语
+        return "en_US"
+    
+    def _detect_from_locale_getdefaultlocale(self) -> Optional[str]:
+        """从locale.getdefaultlocale检测语言"""
         try:
-            # Debug用：检查自定义的环境变量
-            for env_key in ['APP_LANG', 'SCREENSHOT_TOOL_LANG', 'LANGUAGE']:
-                env_lang = os.environ.get(env_key)
-                if env_lang:
-                    env_lang = env_lang.strip().replace('-', '_').split('.')[0].lower()
-                    if env_lang.startswith('zh'):
-                        return "zh_CN"
-                    elif env_lang.startswith('ja'):
-                        return "ja_JP"
-                    elif env_lang.startswith('en'):
-                        return "en_US"
-
-            # 1. 标准locale.getlocale
+            default_locale = locale.getdefaultlocale()
+            if default_locale and default_locale[0]:
+                language_code = default_locale[0].split('_')[0]
+                return self._map_language_code(language_code)
+        except Exception:
+            pass
+        return None
+    
+    def _detect_from_environment_vars(self) -> Optional[str]:
+        """从环境变量检测语言"""
+        env_keys = ['APP_LANG', 'SCREENSHOT_TOOL_LANG', 'LANGUAGE', 'LANG', 'LC_ALL', 'LC_MESSAGES']
+        
+        for env_key in env_keys:
+            env_lang = os.environ.get(env_key)
+            if env_lang:
+                try:
+                    # 规范化语言代码
+                    normalized_lang = env_lang.strip().replace('-', '_').split('.')[0].lower()
+                    return self._map_language_code(normalized_lang)
+                except Exception:
+                    continue
+        return None
+    
+    def _detect_from_locale_getlocale(self) -> Optional[str]:
+        """从locale.getlocale检测语言"""
+        try:
             system_locale, _ = locale.getlocale()
             if not system_locale:
-                # 2. 检查系统环境变量 LANG, LC_ALL, LC_MESSAGES，LANGUAGE
-                for env_key in ['LANG', 'LC_ALL', 'LC_MESSAGES', 'LANGUAGE']:
-                    system_locale = os.environ.get(env_key)
-                    if system_locale:
-                        break
-            if not system_locale:
-                # 3. locale.getdefaultlocale 尝试（已弃用但仍可用）
-                try:
-                    system_locale, _ = locale.getdefaultlocale()
-                except Exception:
-                    pass
-            if not system_locale:
-                # 4. locale.setlocale后再试一次
+                # 尝试设置默认locale后重新获取
                 try:
                     locale.setlocale(locale.LC_ALL, '')
                     system_locale, _ = locale.getlocale()
                 except Exception:
                     pass
-            if not system_locale:
-                # 5. 平台相关特别检测
-                import sys
-                if sys.platform == "win32":
-                    import ctypes
-                    try:
-                        # 使用Windows API检测用户界面语言
-                        windll = ctypes.windll
-                        GetUserDefaultUILanguage = windll.kernel32.GetUserDefaultUILanguage
-                        lang_id = GetUserDefaultUILanguage()
-                        if lang_id in (0x804, 0x404, 0xc04, 0x1004, 0x1404, 0x7c04): # zh-*
-                            return "zh_CN"
-                        elif lang_id in (0x411, 0x814): # ja-*
-                            return "ja_JP"
-                        elif lang_id in (0x409, 0x809): # en-*
-                            return "en_US"
-                    except Exception:
-                        pass
-
-            # 语言代码统一为小写
+            
             if system_locale:
                 locale_lower = system_locale.replace('-', '_').split('.')[0].lower()
-                if locale_lower.startswith('zh'):
-                    return "zh_CN"
-                if locale_lower.startswith('ja'):
-                    return "ja_JP"
-                if locale_lower.startswith('en'):
-                    return "en_US"
-
-            try:
-                import sys
-                preferred = sys.getdefaultencoding()
-                if preferred and 'ja' in preferred:
-                    return "ja_JP"
-                elif preferred and 'zh' in preferred:
-                    return "zh_CN"
-            except Exception:
-                pass
-
-            # 检测不到则默认英语
-            return "en_US"
+                return self._map_language_code(locale_lower)
         except Exception:
-            return "en_US"
+            pass
+        return None
     
-    def t(self, key, **kwargs):
+    def _detect_from_windows_api(self) -> Optional[str]:
+        """从Windows API检测语言"""
+        if platform.system() != "Windows":
+            return None
+            
+        try:
+            import ctypes
+            windll = ctypes.windll
+            GetUserDefaultUILanguage = windll.kernel32.GetUserDefaultUILanguage
+            lang_id = GetUserDefaultUILanguage()
+            
+            # 中文语言ID
+            chinese_ids = {0x804, 0x404, 0xc04, 0x1004, 0x1404, 0x7c04}
+            # 日文语言ID
+            japanese_ids = {0x411, 0x814}
+            # 英文语言ID
+            english_ids = {0x409, 0x809}
+            
+            if lang_id in chinese_ids:
+                return "zh_CN"
+            elif lang_id in japanese_ids:
+                return "ja_JP"
+            elif lang_id in english_ids:
+                return "en_US"
+        except Exception:
+            pass
+        return None
+    
+    def _detect_from_system_locale(self) -> Optional[str]:
+        """从系统locale检测语言"""
+        try:
+            system_locale = locale.getlocale()[0]
+            if system_locale:
+                locale_lower = system_locale.replace('-', '_').split('.')[0].lower()
+                return self._map_language_code(locale_lower)
+        except Exception:
+            pass
+        return None
+    
+    def _map_language_code(self, language_code: str) -> Optional[str]:
+        """映射语言代码到支持的语言"""
+        language_mapping = {
+            'zh': 'zh_CN',
+            'ja': 'ja_JP',
+            'en': 'en_US'
+        }
+        
+        # 检查精确匹配
+        if language_code in language_mapping:
+            return language_mapping[language_code]
+        
+        # 检查前缀匹配
+        for prefix, lang in language_mapping.items():
+            if language_code.startswith(prefix):
+                return lang
+        
+        return None
+    
+    def t(self, key: str, **kwargs) -> str:
         """翻译函数，支持格式化字符串"""
-        text = self.translations[self.current_language].get(key, key)
-        if kwargs:
-            return text.format(**kwargs)
-        return text
+        try:
+            lang_dict = self.translations.get(self.current_language, {})
+            text = lang_dict.get(key, key)
+            
+            if kwargs:
+                try:
+                    return text.format(**kwargs)
+                except (KeyError, ValueError, IndexError):
+                    # 格式化失败时返回原始文本
+                    return text
+            return text
+        except Exception:
+            # 发生任何异常时返回key本身
+            return key
     
-    def change_language(self, lang):
+    def change_language(self, lang: str) -> None:
         """切换语言"""
+        if lang not in self.translations:
+            return
+            
         self.current_language = lang
-        self.language_var.set(lang)  # 更新菜单栏中的语言选项状态
-        self.update_ui_texts()
-        # 注意：菜单栏是硬编码的，不需要更新文本
+        self.language_var.set(lang)
+        
+        try:
+            self.update_ui_texts()
+        except Exception as e:
+            # 语言切换失败时记录错误但继续运行
+            print(f"Language switch error: {e}")
+        
+        # 更新存档分析器的语言（如果已初始化）
+        if self.save_analyzer is not None:
+            try:
+                self.save_analyzer.current_language = lang
+                self.save_analyzer.refresh()
+            except Exception as e:
+                print(f"Save analyzer language update error: {e}")
     
     def ask_yesno(self, title, message, icon='question'):
         """自定义确认对话框，使用翻译的按钮文本"""
@@ -376,13 +372,1404 @@ class SavTool:
         self.root.wait_window(popup)
         return confirmed
     
-    def show_save_analyzer(self):
-        """显示存档解析窗口"""
+    def init_save_analyzer(self):
+        """初始化存档分析界面"""
         if not self.storage_dir:
-            messagebox.showwarning(self.t("warning"), self.t("select_dir_first"))
             return
         
-        SaveAnalyzer(self.root, self.storage_dir, self.translations, self.current_language)
+        # 清除 analyzer_frame 中的所有子组件（包括提示标签）
+        for widget in self.analyzer_frame.winfo_children():
+            widget.destroy()
+        
+        # 创建新的存档分析界面
+        self.save_analyzer = SaveAnalyzer(self.analyzer_frame, self.storage_dir, 
+                                          self.translations, self.current_language)
+    
+    def init_others_tab(self):
+        """初始化其他功能标签页"""
+        if not self.storage_dir:
+            return
+        
+        # 隐藏其他tab的提示标签
+        self.others_hint_label.pack_forget()
+        # 清除 others_frame 中的所有子组件
+        for widget in self.others_frame.winfo_children():
+            widget.destroy()
+        
+        # 创建新的其他功能界面
+        self.others_tab = OthersTab(self.others_frame, self.storage_dir, 
+                                    self.translations, self.current_language, self)
+    
+    def init_backup_restore(self):
+        """初始化备份/还原界面"""
+        if not self.storage_dir:
+            return
+        
+        # 清除 backup_restore_frame 中的所有子组件（包括提示标签）
+        for widget in self.backup_restore_frame.winfo_children():
+            widget.destroy()
+        
+        # 创建BackupRestore实例
+        self.backup_restore = BackupRestore(self.storage_dir)
+        
+        # 创建UI布局（上下布局）
+        # 上方：备份按钮区域
+        backup_frame = tk.Frame(self.backup_restore_frame, bg=Colors.WHITE)
+        backup_frame.pack(pady=20, fill="x")
+        
+        self.backup_button = ttk.Button(backup_frame, text=self.t("backup_button"), 
+                                   command=self.create_backup)
+        self.backup_button.pack(pady=10)
+        
+        # 进度条（初始隐藏）
+        self.backup_progress = ttk.Progressbar(backup_frame, mode='determinate', length=300)
+        self.backup_progress.pack(pady=5)
+        self.backup_progress.pack_forget()
+        
+        # 进度标签（初始隐藏）
+        self.backup_progress_label = tk.Label(backup_frame, text="", bg=Colors.WHITE, fg="#666")
+        self.backup_progress_label.pack(pady=2)
+        self.backup_progress_label.pack_forget()
+        
+        # 下方：还原列表区域
+        restore_frame = tk.Frame(self.backup_restore_frame, bg=Colors.WHITE)
+        restore_frame.pack(fill="both", expand=True, padx=10, pady=10)
+        
+        # 还原列表标题和刷新按钮
+        restore_header = tk.Frame(restore_frame, bg=Colors.WHITE)
+        restore_header.pack(fill="x", pady=5)
+        
+        self.backup_list_title = ttk.Label(restore_header, text=self.t("backup_list_title"), 
+                                 font=get_cjk_font(12, "bold"))
+        self.backup_list_title.pack(side="left", padx=5)
+        
+        self.backup_refresh_button = ttk.Button(restore_header, text=self.t("refresh"), 
+                                    command=self.refresh_backup_list)
+        self.backup_refresh_button.pack(side="right", padx=5)
+        
+        # 创建Treeview显示备份列表
+        list_container = tk.Frame(restore_frame, bg=Colors.WHITE)
+        list_container.pack(fill="both", expand=True)
+        
+        restore_scrollbar = Scrollbar(list_container, orient="vertical")
+        restore_scrollbar.pack(side="right", fill="y")
+        
+        self.backup_tree = ttk.Treeview(list_container, 
+                                        columns=("timestamp", "filename", "size", "status"), 
+                                        show="headings", height=15,
+                                        yscrollcommand=restore_scrollbar.set)
+        
+        self.backup_tree.heading("timestamp", text=self.t("backup_timestamp"))
+        self.backup_tree.column("timestamp", width=180)
+        
+        self.backup_tree.heading("filename", text=self.t("backup_filename"))
+        self.backup_tree.column("filename", width=250)
+        
+        self.backup_tree.heading("size", text=self.t("backup_size"))
+        self.backup_tree.column("size", width=100)
+        
+        self.backup_tree.heading("status", text=self.t("backup_status"))
+        self.backup_tree.column("status", width=150)
+        
+        restore_scrollbar.config(command=self.backup_tree.yview)
+        self.backup_tree.pack(side="left", fill="both", expand=True)
+        
+        # 绑定选择事件
+        self.backup_tree.bind('<<TreeviewSelect>>', self.on_backup_select)
+        
+        # 按钮区域
+        button_area = tk.Frame(restore_frame, bg=Colors.WHITE)
+        button_area.pack(pady=10)
+        
+        # 还原按钮（初始隐藏）
+        self.restore_button = ttk.Button(button_area, text=self.t("restore_button"), 
+                                         command=self.restore_backup)
+        self.restore_button.pack(side="left", padx=5)
+        self.restore_button.pack_forget()
+        
+        # 删除按钮（初始隐藏）
+        self.delete_backup_button = ttk.Button(button_area, text=self.t("delete_backup_button"), 
+                                                command=self.delete_backup)
+        self.delete_backup_button.pack(side="left", padx=5)
+        self.delete_backup_button.pack_forget()
+        
+        # 重命名按钮（初始隐藏）
+        self.rename_backup_button = ttk.Button(button_area, text=self.t("rename_backup_button"), 
+                                                command=self.rename_backup)
+        self.rename_backup_button.pack(side="left", padx=5)
+        self.rename_backup_button.pack_forget()
+        
+        # 存储选中的备份路径
+        self.selected_backup_path = None
+        
+        # 刷新备份列表
+        self.refresh_backup_list()
+    
+    def create_backup(self):
+        """创建备份"""
+        if not self.storage_dir or not self.backup_restore:
+            messagebox.showerror(self.t("error"), self.t("select_dir_hint"))
+            return
+        
+        # 估算压缩后大小
+        estimated_size = self.backup_restore.estimate_compressed_size(self.storage_dir)
+        if estimated_size is None:
+            messagebox.showerror(self.t("error"), self.t("backup_estimate_failed"))
+            return
+        
+        # 格式化大小
+        size_str = self.backup_restore.format_size(estimated_size)
+        
+        # 确认对话框
+        result = self.ask_yesno(
+            self.t("backup_confirm_title"),
+            self.t("backup_confirm_text", size=size_str),
+            icon='question'
+        )
+        
+        if not result:
+            return
+        
+        # 显示进度条
+        self.backup_progress.pack(pady=5)
+        self.backup_progress_label.pack(pady=2)
+        self.backup_progress['value'] = 0
+        self.backup_progress_label.config(text="0%")
+        self.root.update()
+        
+        # 定义进度回调函数
+        def progress_callback(current, total):
+            progress = int((current / total) * 100)
+            self.root.after(0, lambda: self._update_backup_progress(progress, current, total))
+        
+        # 在后台线程中执行备份
+        def backup_thread():
+            try:
+                result = self.backup_restore.create_backup(self.storage_dir, progress_callback)
+                self.root.after(0, lambda: self._backup_completed(result))
+            except Exception as e:
+                self.root.after(0, lambda: self._backup_completed(None))
+        
+        threading.Thread(target=backup_thread, daemon=True).start()
+    
+    def _update_backup_progress(self, progress, current, total):
+        """更新备份进度条"""
+        self.backup_progress['value'] = progress
+        self.backup_progress_label.config(text=f"{progress}% ({current}/{total})")
+        self.root.update()
+    
+    def _backup_completed(self, result):
+        """备份完成回调"""
+        # 隐藏进度条
+        self.backup_progress.pack_forget()
+        self.backup_progress_label.pack_forget()
+        
+        if result is None:
+            messagebox.showerror(self.t("error"), self.t("backup_failed"))
+            return
+        
+        backup_path, actual_size, abs_path = result
+        
+        # 格式化实际大小
+        actual_size_str = self.backup_restore.format_size(actual_size)
+        
+        # 显示成功消息
+        filename = os.path.basename(backup_path)
+        success_msg = self.t("backup_success_text", 
+                            filename=filename, 
+                            size=actual_size_str, 
+                            path=abs_path)
+        messagebox.showinfo(self.t("backup_success_title"), success_msg)
+        
+        # 刷新备份列表
+        self.refresh_backup_list()
+    
+    def refresh_backup_list(self):
+        """刷新备份列表"""
+        if not self.backup_restore:
+            return
+        
+        # 清除现有项目
+        for item in self.backup_tree.get_children():
+            self.backup_tree.delete(item)
+        
+        # 获取备份目录
+        backup_dir = self.backup_restore.get_backup_dir()
+        if not backup_dir:
+            return
+        
+        # 扫描备份
+        backups = self.backup_restore.scan_backups(backup_dir)
+        
+        # 添加到列表
+        for zip_path, timestamp, has_info, file_size in backups:
+            filename = os.path.basename(zip_path)
+            size_str = self.backup_restore.format_size(file_size)
+            
+            if timestamp:
+                timestamp_str = timestamp.strftime('%Y-%m-%d %H:%M:%S')
+            else:
+                timestamp_str = ""
+            
+            if has_info:
+                status = ""
+            else:
+                status = self.t("no_info_file")
+            
+            self.backup_tree.insert("", tk.END, 
+                                   values=(timestamp_str, filename, size_str, status),
+                                   tags=(zip_path,))
+    
+    def on_backup_select(self, event):
+        """处理备份列表选择事件"""
+        selected = self.backup_tree.selection()
+        if selected:
+            item_id = selected[0]
+            tags = self.backup_tree.item(item_id, "tags")
+            if tags:
+                self.selected_backup_path = tags[0]
+                self.restore_button.pack(side="left", padx=5)
+                self.delete_backup_button.pack(side="left", padx=5)
+                self.rename_backup_button.pack(side="left", padx=5)
+        else:
+            self.selected_backup_path = None
+            self.restore_button.pack_forget()
+            self.delete_backup_button.pack_forget()
+            self.rename_backup_button.pack_forget()
+    
+    def delete_backup(self):
+        """删除备份"""
+        if not self.selected_backup_path:
+            return
+        
+        if not self.backup_restore:
+            return
+        
+        # 确认删除
+        filename = os.path.basename(self.selected_backup_path)
+        result = self.ask_yesno(
+            self.t("delete_backup_confirm_title"),
+            self.t("delete_backup_confirm_text", filename=filename),
+            icon='warning'
+        )
+        
+        if not result:
+            return
+        
+        # 执行删除
+        success = self.backup_restore.delete_backup(self.selected_backup_path)
+        
+        if success:
+            messagebox.showinfo(self.t("success"), self.t("delete_backup_success"))
+            # 清除选择
+            self.selected_backup_path = None
+            self.restore_button.pack_forget()
+            self.delete_backup_button.pack_forget()
+            self.rename_backup_button.pack_forget()
+            # 刷新备份列表
+            self.refresh_backup_list()
+        else:
+            messagebox.showerror(self.t("error"), self.t("delete_backup_failed"))
+    
+    def rename_backup(self):
+        """重命名备份"""
+        if not self.selected_backup_path:
+            return
+        
+        if not self.backup_restore:
+            return
+        
+        # 获取当前文件名（不含扩展名）
+        current_filename = os.path.basename(self.selected_backup_path)
+        current_name_without_ext = os.path.splitext(current_filename)[0]
+        
+        # 创建自定义输入对话框
+        popup = Toplevel(self.root)
+        popup.title(self.t("rename_backup_title"))
+        popup.geometry("450x150")
+        popup.transient(self.root)
+        popup.grab_set()
+        
+        # 设置窗口图标
+        set_window_icon(popup)
+        
+        new_filename = None
+        
+        # 显示提示信息
+        prompt_text = self.t("rename_backup_prompt", filename=current_filename)
+        ttk.Label(popup, text=prompt_text, wraplength=400, justify="left").pack(pady=10, padx=20)
+        
+        # 创建输入框
+        entry_frame = tk.Frame(popup)
+        entry_frame.pack(pady=10, padx=20, fill="x")
+        
+        entry = Entry(entry_frame, width=40)
+        entry.pack(side="left", fill="x", expand=True)
+        entry.insert(0, current_name_without_ext)
+        entry.select_range(0, tk.END)
+        entry.focus()
+        
+        def confirm():
+            nonlocal new_filename
+            new_filename = entry.get()
+            popup.destroy()
+        
+        def cancel():
+            popup.destroy()
+        
+        # 按钮框架
+        button_frame = tk.Frame(popup)
+        button_frame.pack(pady=10)
+        
+        ttk.Button(button_frame, text=self.t("yes_button"), command=confirm).pack(side="left", padx=10)
+        ttk.Button(button_frame, text=self.t("no_button"), command=cancel).pack(side="right", padx=10)
+        
+        # 绑定回车键和ESC键
+        popup.bind('<Return>', lambda e: confirm())
+        popup.bind('<Escape>', lambda e: cancel())
+        
+        # 等待窗口关闭
+        self.root.wait_window(popup)
+        
+        if not new_filename:
+            return
+        
+        # 去除首尾空格
+        new_filename = new_filename.strip()
+        
+        if not new_filename:
+            messagebox.showerror(self.t("error"), self.t("rename_backup_empty"))
+            return
+        
+        # 检查文件名是否包含非法字符
+        invalid_chars = '<>:"/\\|?*'
+        if any(char in new_filename for char in invalid_chars):
+            messagebox.showerror(self.t("error"), self.t("rename_backup_invalid_chars"))
+            return
+        
+        # 执行重命名
+        result = self.backup_restore.rename_backup(self.selected_backup_path, new_filename)
+        
+        if result:
+            new_path, old_filename = result
+            messagebox.showinfo(self.t("success"), self.t("rename_backup_success", 
+                                                         old_filename=old_filename,
+                                                         new_filename=os.path.basename(new_path)))
+            # 更新选中的备份路径
+            self.selected_backup_path = new_path
+            # 刷新备份列表
+            self.refresh_backup_list()
+        else:
+            messagebox.showerror(self.t("error"), self.t("rename_backup_failed"))
+    
+    def restore_backup(self):
+        """还原备份"""
+        if not self.selected_backup_path:
+            return
+        
+        if not self.backup_restore:
+            return
+        
+        # 第一次确认
+        result = self.ask_yesno(
+            self.t("restore_confirm_title"),
+            self.t("restore_confirm_text"),
+            icon='warning'
+        )
+        
+        if not result:
+            return
+        
+        # 检查必需文件
+        missing_files = self.backup_restore.check_required_files(self.selected_backup_path)
+        
+        if missing_files:
+            # 第二次确认（如果有缺失文件）
+            files_str = ", ".join(missing_files)
+            result = self.ask_yesno(
+                self.t("restore_missing_files_title"),
+                self.t("restore_missing_files_text", files=files_str),
+                icon='warning'
+            )
+            
+            if not result:
+                return
+        
+        # 执行还原
+        success = self.backup_restore.restore_backup(self.selected_backup_path, self.storage_dir)
+        
+        if success:
+            messagebox.showinfo(self.t("success"), self.t("restore_success"))
+            # 刷新其他tab的数据
+            if self.storage_dir:
+                self.load_screenshots()
+                if self.save_analyzer:
+                    self.save_analyzer.refresh()
+        else:
+            messagebox.showerror(self.t("error"), self.t("restore_failed"))
+    
+    def on_tab_changed(self, event=None):
+        """处理 tab 切换事件，切换到存档分析页面时自动刷新"""
+        try:
+            # 获取当前选中的 tab 索引
+            current_tab = self.notebook.index(self.notebook.select())
+            # 如果切换到存档分析 tab（索引 0）且 save_analyzer 已初始化
+            if current_tab == 0 and self.save_analyzer is not None:
+                # 自动刷新存档分析页面
+                self.save_analyzer.refresh()
+            # 如果切换到备份/还原 tab（索引 2）且 backup_restore 已初始化
+            elif current_tab == 2 and self.backup_restore is not None:
+                # 刷新备份列表
+                self.refresh_backup_list()
+        except Exception:
+            # 忽略错误，避免影响正常的 tab 切换
+            pass
+    
+    def _start_file_monitor(self):
+        """启动存档文件监控"""
+        if not self.storage_dir:
+            return
+        
+        # 停止之前的监控（如果存在）
+        self._stop_file_monitor()
+        
+        # 设置存档文件路径和临时文件路径
+        self.save_file_path = os.path.join(self.storage_dir, 'DevilConnection_sf.sav')
+        self.temp_file_path = os.path.join(self.storage_dir, '.temp_sf.sav')
+        
+        # 清理可能存在的旧临时文件（防止上次异常退出遗留）
+        self._cleanup_temp_file()
+        
+        # 初始化临时文件：如果不存在或已存在，都尝试写入当前存档内容
+        self._initialize_temp_file()
+        
+        # 启动监控线程
+        self.monitor_running = True
+        self.monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        self.monitor_thread.start()
+    
+    def _initialize_temp_file(self):
+        """初始化临时文件：读取当前存档并写入临时文件"""
+        try:
+            # 检查路径有效性
+            if not self.save_file_path or not isinstance(self.save_file_path, str):
+                return
+            
+            if not os.path.exists(self.save_file_path):
+                # 如果存档文件不存在，删除临时文件（如果存在）
+                if self.temp_file_path and isinstance(self.temp_file_path, str) and os.path.exists(self.temp_file_path):
+                    try:
+                        os.remove(self.temp_file_path)
+                    except Exception:
+                        pass
+                return
+            
+            # 尝试读取当前存档文件（可能需要重试）
+            save_content = None
+            for retry in range(5):
+                save_content = self._read_file_raw(self.save_file_path)
+                if save_content is not None:
+                    break
+                time.sleep(0.2)
+            
+            # 如果成功读取，写入临时文件
+            if save_content is not None:
+                self._write_temp_file(save_content)
+        except Exception as e:
+            # 捕获初始化过程中的异常
+            try:
+                import traceback
+                print(f"临时文件初始化异常: {e}")
+                print(traceback.format_exc())
+            except:
+                pass
+    
+    def _read_file_raw(self, file_path: Optional[str]) -> Optional[str]:
+        """读取文件的原始内容（未解码的字符串）"""
+        if not self._is_valid_file_path(file_path):
+            return None
+        
+        # 尝试多种读取策略
+        read_strategies = [
+            self._read_utf8_text,
+            self._read_binary_decode,
+            self._read_with_retry
+        ]
+        
+        for strategy in read_strategies:
+            try:
+                content = strategy(file_path)
+                if content is not None:
+                    return content.strip()
+            except Exception:
+                continue
+        
+        return None
+    
+    def _is_valid_file_path(self, file_path: Optional[str]) -> bool:
+        """检查文件路径是否有效"""
+        if not file_path or not isinstance(file_path, str):
+            return False
+        
+        try:
+            return os.path.exists(file_path) and os.path.isfile(file_path)
+        except (OSError, TypeError):
+            return False
+    
+    def _read_utf8_text(self, file_path: str) -> Optional[str]:
+        """以UTF-8文本模式读取文件"""
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='strict') as f:
+                return f.read()
+        except (IOError, OSError, PermissionError, UnicodeDecodeError):
+            return None
+    
+    def _read_binary_decode(self, file_path: str) -> Optional[str]:
+        """以二进制模式读取并解码"""
+        try:
+            with open(file_path, 'rb') as f:
+                raw_data = f.read()
+            return raw_data.decode('utf-8', errors='ignore')
+        except (IOError, OSError, PermissionError, UnicodeDecodeError):
+            return None
+    
+    def _read_with_retry(self, file_path: str, max_retries: int = 3) -> Optional[str]:
+        """带重试的文件读取"""
+        for attempt in range(max_retries):
+            try:
+                # 先检查文件是否可读
+                if not os.access(file_path, os.R_OK):
+                    time.sleep(0.1 * (attempt + 1))
+                    continue
+                
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    return f.read()
+            except (IOError, OSError, PermissionError):
+                if attempt < max_retries - 1:
+                    time.sleep(0.1 * (attempt + 1))
+                continue
+        return None
+    
+    def _write_temp_file(self, content: Optional[str]) -> bool:
+        """写入临时文件，返回是否成功"""
+        if not self._is_valid_temp_file_path() or content is None:
+            return False
+        
+        try:
+            # 确保目录存在
+            temp_dir = os.path.dirname(self.temp_file_path)
+            if temp_dir and not os.path.exists(temp_dir):
+                os.makedirs(temp_dir, exist_ok=True)
+            
+            # 使用原子写入避免文件损坏
+            temp_fd, temp_path = tempfile.mkstemp(
+                dir=os.path.dirname(self.temp_file_path),
+                prefix='.temp_sf_',
+                suffix='.sav'
+            )
+            
+            try:
+                with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
+                    f.write(content)
+                
+                # 原子替换文件
+                if os.path.exists(self.temp_file_path):
+                    os.replace(temp_path, self.temp_file_path)
+                else:
+                    os.rename(temp_path, self.temp_file_path)
+                
+                return True
+            except Exception:
+                # 清理临时文件
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+                return False
+        except Exception:
+            return False
+    
+    def _is_valid_temp_file_path(self) -> bool:
+        """检查临时文件路径是否有效"""
+        return (self.temp_file_path is not None and
+                isinstance(self.temp_file_path, str) and
+                len(self.temp_file_path) > 0)
+    
+    def _read_temp_file(self) -> Optional[str]:
+        """读取临时文件内容"""
+        if not self._is_valid_temp_file_path():
+            return None
+        
+        return self._read_file_raw(self.temp_file_path)
+    
+    def _get_file_content_hash(self, content: Optional[str]) -> Optional[str]:
+        """获取文件内容的哈希值"""
+        if content is None:
+            return None
+        
+        try:
+            if isinstance(content, str):
+                # 使用更快的哈希算法，避免大文件性能问题
+                return hashlib.md5(content.encode('utf-8')).hexdigest()
+            return None
+        except Exception:
+            return None
+    
+    def _stop_file_monitor(self) -> None:
+        """停止存档文件监控"""
+        self.monitor_running = False
+        
+        # 优雅停止监控线程
+        if self.monitor_thread is not None and self.monitor_thread.is_alive():
+            try:
+                # 设置超时，避免无限等待
+                self.monitor_thread.join(timeout=2.0)
+                if self.monitor_thread.is_alive():
+                    # 线程未在超时内结束，记录警告
+                    print("Warning: Monitor thread did not stop gracefully")
+            except Exception as e:
+                print(f"Error stopping monitor thread: {e}")
+            finally:
+                self.monitor_thread = None
+        
+        # 清理临时文件
+        self._cleanup_temp_file()
+    
+    def _cleanup_temp_file(self) -> None:
+        """清理临时文件"""
+        if not self._is_valid_temp_file_path():
+            return
+        
+        try:
+            if os.path.exists(self.temp_file_path):
+                # 尝试多次删除，处理文件锁定问题
+                for attempt in range(3):
+                    try:
+                        os.remove(self.temp_file_path)
+                        break  # 删除成功，退出循环
+                    except (OSError, PermissionError):
+                        if attempt < 2:  # 不是最后一次尝试
+                            time.sleep(0.1)
+                        continue
+        except Exception as e:
+            # 记录错误但不中断程序
+            print(f"临时文件清理异常: {e}")
+    
+    def _monitor_loop(self):
+        """监控循环（在后台线程中运行）"""
+        while self.monitor_running:
+            try:
+                self._check_file_changes()
+                time.sleep(0.3) # 轮询间隔
+            except Exception as e:
+                # 出错继续监控，但记录异常信息
+                try:
+                    # 记录异常但不停止监控
+                    import traceback
+                    print(f"监控线程异常: {e}")
+                    print(traceback.format_exc())
+                    time.sleep(1)  # 异常后稍作等待再继续
+                except:
+                    # 如果记录也失败，简单等待后继续
+                    time.sleep(1)
+    
+    def _check_file_changes(self):
+        """检查文件是否有变动（通过比较真实文件和临时文件）"""
+        try:
+            # 添加路径有效性检查
+            if not self.storage_dir or not isinstance(self.storage_dir, str):
+                return
+            
+            # 使用更安全的文件存在性检查
+            def safe_path_exists(path):
+                try:
+                    return path and isinstance(path, str) and os.path.exists(path)
+                except (OSError, TypeError, ValueError, AttributeError):
+                    return False
+            
+            save_file_exists = safe_path_exists(self.save_file_path)
+            temp_file_exists = safe_path_exists(self.temp_file_path)
+            storage_dir_exists = safe_path_exists(self.storage_dir)
+            
+            # 如果两个文件同时消失，检查_storage文件夹是否也消失
+            if not save_file_exists and not temp_file_exists:
+                if self.storage_dir and not storage_dir_exists:
+                    # 文件夹也消失了，则触发弹窗
+                    if not self.ab_initio_triggered:
+                        self.root.after(0, self._trigger_ab_initio)
+                    return
+            
+            if not save_file_exists:
+                return
+            
+            # 获取当前文件修改时间（用于日志/调试，但不作为跳过检查的依据）
+            try:
+                current_mtime = os.path.getmtime(self.save_file_path)
+            except (OSError, IOError, TypeError, AttributeError):
+                current_mtime = 0
+            
+            # 读取临时文件（应该总是成功，因为是我们自己创建的）
+            temp_content = self._read_temp_file()
+            if temp_content is None:
+                # 如果临时文件不存在，重新初始化
+                self._initialize_temp_file()
+                return
+            
+            # 尝试读取真实存档文件（可能需要重试，因为可能被游戏锁定）
+            save_content = None
+            for retry in range(3):
+                save_content = self._read_file_raw(self.save_file_path)
+                if save_content is not None:
+                    break
+                time.sleep(0.1)
+            
+            # 如果读取失败，跳过本次检查（下次再试）
+            if save_content is None:
+                return
+            
+            # 比较两个文件的内容（始终进行哈希比较，不依赖mtime）
+            temp_hash = self._get_file_content_hash(temp_content)
+            save_hash = self._get_file_content_hash(save_content)
+            
+            # 如果内容不同，说明文件有变动
+            if temp_hash is not None and save_hash is not None and temp_hash != save_hash:
+                # 解析两个文件的数据并比较差异
+                try:
+                    # 解析临时文件数据
+                    temp_data = self._parse_save_content(temp_content)
+                    # 解析真实文件数据
+                    save_data = self._parse_save_content(save_content)
+                    
+                    if temp_data is not None and save_data is not None:
+                        # 直接使用深度比较（更可靠）
+                        changes = self._deep_compare_data(temp_data, save_data)
+                        
+                        if changes and self.toast_enabled:
+                            # 使用 after() 安全地更新 UI（tkinter 不是线程安全的）
+                            # 使用默认参数避免lambda闭包问题
+                            self.root.after(0, lambda c=changes: self._show_change_notification(c))
+                        
+                        # 无论是否检测到变化，都更新临时文件（因为文件哈希已经不同）
+                        self._write_temp_file(save_content)
+                    elif temp_data is None or save_data is None:
+                        # 如果解析失败，至少更新临时文件内容（避免重复检测）
+                        self._write_temp_file(save_content)
+                except Exception as e:
+                    # 如果解析失败，至少更新临时文件内容
+                    self._write_temp_file(save_content)
+        except Exception as e:
+            # 捕获整个检查过程中的任何异常，防止监控线程崩溃
+            try:
+                import traceback
+                print(f"文件变化检查异常: {e}")
+                print(traceback.format_exc())
+            except:
+                pass
+    
+    def _parse_save_content(self, content):
+        """解析存档文件内容为JSON对象"""
+        if not content:
+            return None
+        
+        try:
+            unquoted = urllib.parse.unquote(content)
+            data = json.loads(unquoted)
+            if isinstance(data, dict):
+                return data
+        except (json.JSONDecodeError, ValueError):
+            pass
+        return None
+    
+    def _trigger_ab_initio(self):
+        """触发AB INITIO事件：显示红色toast并将应用变为乱码"""
+        if self.ab_initio_triggered:
+            return
+        
+        self.ab_initio_triggered = True
+        
+        toast_message = "AB INITIO"
+        toast = Toast(
+            self.root,
+            toast_message,
+            duration=30000,  # 显示30秒
+            fade_in=200,
+            fade_out=200
+        )
+        toast.message_text.config(state="normal")
+        toast.message_text.delete("1.0", "end")
+        toast.message_text.tag_configure("ab_initio_blue", foreground="#00bfff", font=get_cjk_font(12, "bold"))
+        toast.message_text.insert("1.0", toast_message, "ab_initio_blue")
+        toast.message_text.config(state="disabled")
+        
+        self._corrupt_all_text()
+    
+    def _generate_random_gibberish(self, original_text):
+        """动态生成随机乱码文本（英文、中文、日文字符混合）"""
+        if not original_text:
+            return original_text
+        
+        # 定义字符集：英文、中文、日文
+        english_chars = string.ascii_letters + string.digits + string.punctuation + " "
+        chinese_chars = "".join([chr(i) for i in range(0x4e00, 0x9fff)])  # 常用汉字范围
+        japanese_chars = "".join([chr(i) for i in range(0x3040, 0x309f)]) + "".join([chr(i) for i in range(0x30a0, 0x30ff)])  # 平假名和片假名
+        
+        # 混合字符集
+        all_chars = english_chars + chinese_chars + japanese_chars
+        
+        # 生成与原文本长度相同的随机乱码
+        result = []
+        for char in original_text:
+            if char.isspace():
+                # 保留空格
+                result.append(char)
+            else:
+                result.append(random.choice(all_chars))
+        
+        return ''.join(result)
+    
+    def _corrupt_all_text(self):
+        """将整个应用的所有文本永久性变为随机乱码"""
+        # 备份/还原相关的翻译键，不进行乱码处理
+        backup_restore_keys = {
+            "backup_restore_tab", "backup_button", "restore_button",
+            "backup_confirm_title", "backup_confirm_text", "backup_success_title",
+            "backup_success_text", "restore_confirm_title", "restore_confirm_text",
+            "restore_missing_files_title", "restore_missing_files_text", "restore_success",
+            "backup_list_title", "backup_timestamp", "backup_filename", "backup_size",
+            "backup_status", "no_info_file", "backup_estimate_failed", "backup_failed",
+            "restore_failed", "delete_backup_button", "delete_backup_confirm_title",
+            "delete_backup_confirm_text", "delete_backup_success", "delete_backup_failed",
+            "rename_backup_button", "rename_backup_title", "rename_backup_prompt",
+            "rename_backup_empty", "rename_backup_invalid_chars", "rename_backup_success",
+            "rename_backup_failed", "yes_button", "no_button"
+        }
+        
+        for lang in self.translations:
+            for key in self.translations[lang]:
+                # 跳过备份/还原相关的翻译键
+                if key not in backup_restore_keys:
+                    original_text = self.translations[lang][key]
+                    self.translations[lang][key] = self._generate_random_gibberish(original_text)
+        
+        self.update_ui_texts()
+        
+        self._corrupt_widget_texts(self.root)
+    
+    def _corrupt_widget_texts(self, widget):
+        """递归更新widget及其子widget的文本为乱码"""
+        try:
+            # 跳过备份/还原tab，不对其进行乱码处理
+            if widget == self.backup_restore_frame:
+                return
+            
+            # 获取widget类型
+            widget_type = widget.winfo_class()
+            
+            # 根据widget类型更新文本
+            if widget_type == "Label" or widget_type == "TLabel":
+                try:
+                    current_text = widget.cget("text")
+                    if current_text:
+                        widget.config(text=self._generate_random_gibberish(current_text))
+                except:
+                    pass
+            elif widget_type == "Button" or widget_type == "TButton":
+                try:
+                    current_text = widget.cget("text")
+                    if current_text:
+                        widget.config(text=self._generate_random_gibberish(current_text))
+                except:
+                    pass
+            elif widget_type == "Menu":
+                # Menu需要特殊处理
+                try:
+                    menu_items = widget.index(tk.END)
+                    if menu_items is not None:
+                        for i in range(menu_items + 1):
+                            try:
+                                label = widget.entrycget(i, "label")
+                                if label:
+                                    widget.entryconfig(i, label=self._generate_random_gibberish(label))
+                            except:
+                                pass
+                except:
+                    pass
+            elif widget_type == "Treeview":
+                # Treeview的列标题
+                try:
+                    columns = widget.cget("columns")
+                    if columns:
+                        for col in columns:
+                            try:
+                                heading_info = widget.heading(col)
+                                if heading_info:
+                                    heading_text = heading_info.get("text", "")
+                                    if heading_text:
+                                        widget.heading(col, text=self._generate_random_gibberish(heading_text))
+                            except:
+                                pass
+                    # 也处理#0列
+                    try:
+                        heading_info = widget.heading("#0")
+                        if heading_info:
+                            heading_text = heading_info.get("text", "")
+                            if heading_text:
+                                widget.heading("#0", text=self._generate_random_gibberish(heading_text))
+                    except:
+                        pass
+                except:
+                    pass
+            
+            # 递归处理子widget
+            for child in widget.winfo_children():
+                self._corrupt_widget_texts(child)
+        except:
+            pass
+    
+    def _load_save_file(self) -> Optional[Dict[str, Any]]:
+        """加载存档文件（处理文件锁定问题）"""
+        if not self._is_valid_file_path(self.save_file_path):
+            return None
+        
+        # 尝试多种读取策略
+        read_strategies = [
+            self._read_save_file_direct,
+            self._read_save_file_binary,
+            self._read_save_file_copy
+        ]
+        
+        for strategy in read_strategies:
+            try:
+                encoded = strategy()
+                if encoded:
+                    return self._parse_encoded_content(encoded)
+            except Exception:
+                continue
+        
+        return None
+    
+    def _read_save_file_direct(self) -> Optional[str]:
+        """直接读取存档文件"""
+        try:
+            with open(self.save_file_path, 'r', encoding='utf-8') as f:
+                return f.read().strip()
+        except (IOError, OSError, PermissionError, UnicodeDecodeError):
+            return None
+    
+    def _read_save_file_binary(self) -> Optional[str]:
+        """以二进制模式读取存档文件"""
+        try:
+            with open(self.save_file_path, 'rb') as f:
+                raw_data = f.read()
+            return raw_data.decode('utf-8', errors='ignore').strip()
+        except (IOError, OSError, PermissionError, UnicodeDecodeError):
+            return None
+    
+    def _read_save_file_copy(self) -> Optional[str]:
+        """通过创建副本读取存档文件（Windows特有）"""
+        if platform.system() != "Windows":
+            return None
+        
+        try:
+            # 创建临时副本
+            temp_fd, temp_path = tempfile.mkstemp(suffix='.sav')
+            try:
+                os.close(temp_fd)
+                shutil.copy2(self.save_file_path, temp_path)
+                
+                with open(temp_path, 'r', encoding='utf-8') as f:
+                    return f.read().strip()
+                    
+            finally:
+                # 清理临时文件
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    pass
+        except Exception:
+            return None
+    
+    def _parse_encoded_content(self, encoded: str) -> Optional[Dict[str, Any]]:
+        """解析编码后的内容"""
+        if not encoded:
+            return None
+        
+        try:
+            unquoted = urllib.parse.unquote(encoded)
+            data = json.loads(unquoted)
+            
+            if isinstance(data, dict):
+                return data
+            return None
+        except (json.JSONDecodeError, ValueError, TypeError):
+            return None
+    
+    def _values_equal(self, old_val: Any, new_val: Any) -> bool:
+        """比较两个值是否相等（处理类型转换问题）"""
+        # None值处理
+        if old_val is None and new_val is None:
+            return True
+        if old_val is None or new_val is None:
+            return False
+        
+        # 类型相同，直接比较
+        if type(old_val) == type(new_val):
+            return self._compare_same_type(old_val, new_val)
+        
+        # 处理数字类型比较
+        if isinstance(old_val, (int, float)) and isinstance(new_val, (int, float)):
+            return self._compare_numbers(old_val, new_val)
+        
+        # 处理布尔值比较
+        if isinstance(old_val, bool) and isinstance(new_val, (int, float)):
+            return old_val == (new_val != 0)
+        if isinstance(new_val, bool) and isinstance(old_val, (int, float)):
+            return new_val == (old_val != 0)
+        
+        # 处理字符串比较
+        if isinstance(old_val, str) and isinstance(new_val, str):
+            return old_val.strip() == new_val.strip()
+        
+        # 其他情况，转换为字符串比较（排除复杂类型）
+        if not isinstance(old_val, (dict, list)) and not isinstance(new_val, (dict, list)):
+            return str(old_val) == str(new_val)
+        
+        return False
+    
+    def _compare_same_type(self, old_val: Any, new_val: Any) -> bool:
+        """比较相同类型的值"""
+        if isinstance(old_val, (list, dict)):
+            return old_val == new_val
+        return old_val == new_val
+    
+    def _compare_numbers(self, old_val: Union[int, float], new_val: Union[int, float]) -> bool:
+        """比较数字值"""
+        # 排除布尔值
+        if isinstance(old_val, bool) or isinstance(new_val, bool):
+            return False
+        
+        # 整数比较
+        if isinstance(old_val, int) and isinstance(new_val, int):
+            return old_val == new_val
+        
+        # 浮点数比较
+        old_float = float(old_val)
+        new_float = float(new_val)
+        
+        # 检查是否为整数值
+        old_is_int = isinstance(old_val, int) or (isinstance(old_val, float) and old_val.is_integer())
+        new_is_int = isinstance(new_val, int) or (isinstance(new_val, float) and new_val.is_integer())
+        
+        if old_is_int and new_is_int:
+            return int(old_float) == int(new_float)
+        
+        # 浮点数比较（带容差）
+        return abs(old_float - new_float) < 1e-10
+    
+    def _deep_compare_data(self, old_data, new_data, prefix=""):
+        """深度比较数据，找出所有差异（使用严格比较）"""
+        changes = []
+        
+        # 需要忽略的字段（这些字段变化频繁但不重要）
+        # 根据toast_ignore_record设置解析忽略变量列表
+        ignored_vars = set()
+        if self.toast_ignore_record and self.toast_ignore_record.strip():
+            # 解析逗号分割的字符串，去除空格并过滤空字符串
+            ignored_vars = {var.strip() for var in self.toast_ignore_record.split(",") if var.strip()}
+        
+        # 确保都是字典
+        if not isinstance(old_data, dict):
+            old_data = {}
+        if not isinstance(new_data, dict):
+            new_data = {}
+        
+        # 比较所有字段
+        all_keys = set(old_data.keys()) | set(new_data.keys())
+        
+        for key in all_keys:
+            full_key = f"{prefix}.{key}" if prefix else key
+            
+            # 1. 检查顶层key是否在忽略列表中（精确匹配）
+            # 2. 检查完整路径是否在忽略列表中（精确匹配）
+            # 3. 检查完整路径是否以某个忽略变量开头（用于忽略整个子树，如"record"会忽略"record.xxx"）
+            should_ignore = False
+            if ignored_vars:
+                if key in ignored_vars or full_key in ignored_vars:
+                    should_ignore = True
+                else:
+                    # 检查full_key是否以某个忽略变量开头（用于忽略整个子树）
+                    for ignored_var in ignored_vars:
+                        if full_key == ignored_var or full_key.startswith(ignored_var + "."):
+                            should_ignore = True
+                            break
+            
+            # 跳过忽略的字段
+            if should_ignore:
+                continue
+            
+            old_value = old_data.get(key)
+            new_value = new_data.get(key)
+            
+            # 字段被删除
+            if key in old_data and key not in new_data:
+                changes.append(f"-{full_key}")
+            # 字段被新增
+            elif key not in old_data and key in new_data:
+                if isinstance(new_value, dict):
+                    nested_changes = self._deep_compare_data({}, new_value, full_key)
+                    changes.extend(nested_changes)
+                else:
+                    changes.append(f"+{full_key} = {self._format_value(new_value)}")
+            # 字段值发生变化
+            else:
+                # 先检查值是否相等（使用_values_equal进行智能比较）
+                if not self._values_equal(old_value, new_value):
+                    if isinstance(old_value, dict) and isinstance(new_value, dict):
+                        nested_changes = self._deep_compare_data(old_value, new_value, full_key)
+                        changes.extend(nested_changes)
+                    elif isinstance(old_value, list) and isinstance(new_value, list):
+                        list_changes = self._compare_lists(full_key, old_value, new_value)
+                        changes.extend(list_changes)
+                    else:
+                        # 普通值变化
+                        changes.append(f"{full_key} {self._format_value(old_value)}→{self._format_value(new_value)}")
+                # 如果值相等但类型不同，也记录变化（可能是游戏写入时的类型变化）
+                elif type(old_value) != type(new_value):
+                    # 对于数值类型，如果数值相同但类型不同，也记录
+                    if isinstance(old_value, (int, float)) and isinstance(new_value, (int, float)):
+                        if float(old_value) == float(new_value):
+                            # 数值相同但类型不同，也记录（比如int(7) vs float(7.0)）
+                            changes.append(f"{full_key} {self._format_value(old_value)} ({type(old_value).__name__})→{self._format_value(new_value)} ({type(new_value).__name__})")
+        
+        return changes
+    
+    def _compare_save_data(self, old_data, new_data, prefix=""):
+        """比较两个存档数据，返回变更列表"""
+        changes = []
+        
+        # 确保都是字典
+        if not isinstance(old_data, dict):
+            old_data = {}
+        if not isinstance(new_data, dict):
+            new_data = {}
+        
+        # 比较所有字段
+        all_keys = set(old_data.keys()) | set(new_data.keys())
+        
+        for key in all_keys:
+            # 构建完整键名（支持嵌套）
+            full_key = f"{prefix}.{key}" if prefix else key
+            
+            old_value = old_data.get(key)
+            new_value = new_data.get(key)
+            
+            # 字段被删除
+            if key in old_data and key not in new_data:
+                changes.append(f"- {full_key}")
+            # 字段被新增
+            elif key not in old_data and key in new_data:
+                if isinstance(new_value, dict):
+                    # 如果是字典，递归比较
+                    nested_changes = self._compare_save_data({}, new_value, full_key)
+                    changes.extend(nested_changes)
+                else:
+                    changes.append(f"+ {full_key} = {self._format_value(new_value)}")
+            # 字段值发生变化
+            else:
+                # 先使用严格比较（直接 !=）
+                if old_value != new_value:
+                    # 如果是字典，递归比较
+                    if isinstance(old_value, dict) and isinstance(new_value, dict):
+                        nested_changes = self._compare_save_data(old_value, new_value, full_key)
+                        changes.extend(nested_changes)
+                    # 如果是列表，比较列表差异
+                    elif isinstance(old_value, list) and isinstance(new_value, list):
+                        list_changes = self._compare_lists(full_key, old_value, new_value)
+                        changes.extend(list_changes)
+                    else:
+                        # 普通值变化（使用严格比较，确保所有变化都能检测到）
+                        changes.append(f"{full_key} {self._format_value(old_value)}→{self._format_value(new_value)}")
+                # 如果严格比较相等，但类型不同，也记录变化（可能是游戏写入时的类型变化）
+                elif type(old_value) != type(new_value):
+                    # 对于数字类型，如果数值相同但类型不同，也记录
+                    if isinstance(old_value, (int, float)) and isinstance(new_value, (int, float)):
+                        if float(old_value) == float(new_value):
+                            # 数值相同但类型不同，也记录（比如int(7) vs float(7.0)）
+                            changes.append(f"{full_key} {self._format_value(old_value)} ({type(old_value).__name__})→{self._format_value(new_value)} ({type(new_value).__name__})")
+        
+        return changes
+    
+    def _compare_lists(self, key, old_list, new_list):
+        """比较两个列表的差异（支持包含不可哈希元素的列表）"""
+        changes = []
+        
+        # 将元素转换为可比较的形式（用于处理嵌套列表/字典）
+        def make_comparable(item):
+            """将元素转换为可用于比较的形式"""
+            if isinstance(item, (list, dict)):
+                return json.dumps(item, sort_keys=True, ensure_ascii=False)
+            return item
+        
+        def find_item_in_list(item, lst):
+            """检查元素是否在列表中（支持复杂类型）"""
+            item_cmp = make_comparable(item)
+            for other in lst:
+                if make_comparable(other) == item_cmp:
+                    return True
+            return False
+        
+        # 查找添加的元素（在new_list中但不在old_list中）
+        for item in new_list:
+            if not find_item_in_list(item, old_list):
+                changes.append(f"{key}.append({self._format_value(item)})")
+        
+        # 查找移除的元素（在old_list中但不在new_list中）
+        for item in old_list:
+            if not find_item_in_list(item, new_list):
+                changes.append(f"{key}.remove({self._format_value(item)})")
+        
+        return changes
+    
+    def _format_value(self, value):
+        """格式化值用于显示"""
+        if isinstance(value, (dict, list)):
+            return str(value)
+        elif isinstance(value, str):
+            return f'"{value}"'
+        elif isinstance(value, float):
+            # 如果是浮点数，检查是否为整数
+            if value.is_integer():
+                return str(int(value))
+            return str(value)
+        elif isinstance(value, bool):
+            return str(value)
+        else:
+            return str(value)
+    
+    def _show_change_notification(self, changes):
+        """显示存档文件变动通知（支持合并连续变化）"""
+        # 解析变化，区分可合并的和不可合并的
+        mergeable_changes = {}  # {变量名: (旧值, 新值)}
+        other_changes = []
+        
+        for change in changes:
+            # 检测格式：变量名 旧值→新值
+            if "→" in change and not change.startswith("+") and not change.startswith("-"):
+                # 尝试解析：变量名 旧值→新值
+                arrow_pos = change.find("→")
+                # 从箭头往前找空格，确定变量名
+                prefix = change[:arrow_pos]
+                last_space = prefix.rfind(" ")
+                if last_space > 0:
+                    var_name = prefix[:last_space].strip()
+                    old_val = prefix[last_space+1:].strip()
+                    new_val = change[arrow_pos+1:].strip()
+                    mergeable_changes[var_name] = (old_val, new_val)
+                else:
+                    other_changes.append(change)
+            else:
+                other_changes.append(change)
+        
+        # 处理可合并的变化
+        updated_toasts = set()
+        new_changes_for_toast = []
+        
+        for var_name, (old_val, new_val) in mergeable_changes.items():
+            if var_name in self.variable_change_chains:
+                # 该变量已有活跃的变化链，尝试追加
+                chain_info = self.variable_change_chains[var_name]
+                toast = chain_info.get("toast")
+                if toast and toast.window.winfo_exists():
+                    # Toast 仍然存在，追加变化
+                    chain_info["chain"].append(new_val)
+                    updated_toasts.add(var_name)
+                    # 重置定时器
+                    toast.reset_timer()
+                else:
+                    # Toast 已经消失，创建新的变化链
+                    self.variable_change_chains[var_name] = {"chain": [old_val, new_val], "toast": None}
+                    new_changes_for_toast.append(f"{var_name} {old_val}→{new_val}")
+            else:
+                # 新的变量变化
+                self.variable_change_chains[var_name] = {"chain": [old_val, new_val], "toast": None}
+                new_changes_for_toast.append(f"{var_name} {old_val}→{new_val}")
+        
+        # 更新已有的toast
+        for var_name in updated_toasts:
+            chain_info = self.variable_change_chains[var_name]
+            chain = chain_info["chain"]
+            toast = chain_info["toast"]
+            if toast and toast.window.winfo_exists():
+                # 重建该toast的消息
+                chain_str = "→".join(str(v) for v in chain)
+                new_line = f"{var_name} {chain_str}"
+                # 获取当前消息，更新对应行
+                current_msg = toast.message
+                lines = current_msg.split("\n")
+                updated_lines = []
+                found = False
+                for line in lines:
+                    if line.startswith(var_name + " ") and "→" in line:
+                        updated_lines.append(new_line)
+                        found = True
+                    else:
+                        updated_lines.append(line)
+                if not found:
+                    updated_lines.append(new_line)
+                new_msg = "\n".join(updated_lines)
+                toast.update_message(new_msg)
+        
+        # 如果有新的变化或其他变化，创建新的toast
+        all_new_changes = new_changes_for_toast + other_changes
+        if all_new_changes:
+            # 构建消息
+            message_lines = [self.t("sf_sav_changes_notification")]
+            message_lines.extend(all_new_changes)
+            message = "\n".join(message_lines)
+            
+            # 创建新的通知
+            toast = Toast(
+                self.root,
+                message,
+                duration=15000,  # 显示时间
+                fade_in=200,     # 淡入
+                fade_out=200     # 淡出
+            )
+            
+            # 将新的toast关联到变量变化链
+            for var_name in mergeable_changes:
+                if var_name not in updated_toasts:
+                    if var_name in self.variable_change_chains:
+                        self.variable_change_chains[var_name]["toast"] = toast
+            
+            # 添加到活跃列表
+            self.active_toasts.append(toast)
+        
+        # 清理已经消失的变化链
+        to_remove = []
+        for var_name, chain_info in self.variable_change_chains.items():
+            toast = chain_info.get("toast")
+            if toast and not toast.window.winfo_exists():
+                to_remove.append(var_name)
+        for var_name in to_remove:
+            del self.variable_change_chains[var_name]
+    
+    def on_closing(self):
+        """窗口关闭事件处理"""
+        # 停止文件监控（会清理临时文件）
+        self._stop_file_monitor()
+        # 关闭窗口
+        self.root.destroy()
+    
+    def show_save_analyzer(self):
+        """切换到存档分析 tab（保留此方法以兼容菜单，但菜单将被移除）"""
+        if not self.storage_dir:
+            messagebox.showerror(self.t("error"), self.t("select_dir_hint"))
+            return
+        
+        if self.save_analyzer is None:
+            self.init_save_analyzer()
+        self.notebook.select(0)
     
     def show_help(self):
         """浏览器打开GitHub页面"""
@@ -399,9 +1786,40 @@ class SavTool:
         self.directory_menu.add_command(label=self.t("browse_dir"), command=self.select_dir)
         self.directory_menu.add_command(label=self.t("auto_detect_steam"), command=self.auto_detect_steam)
         
-        # 更新Save Analyzer菜单
-        self.save_analyzer_menu.delete(0, tk.END)
-        self.save_analyzer_menu.add_command(label=self.t("save_analyzer_menu"), command=self.show_save_analyzer)
+        # 更新Notebook tab标签
+        try:
+            self.notebook.tab(0, text=self.t("save_analyzer_tab"))
+            self.notebook.tab(1, text=self.t("screenshot_management_tab"))
+            self.notebook.tab(2, text=self.t("backup_restore_tab"))
+            self.notebook.tab(3, text=self.t("others_tab"))
+        except:
+            pass
+        
+        # 更新所有tab的提示标签文本（只有在widget存在且未被销毁时才更新）
+        try:
+            if hasattr(self, 'analyzer_hint_label') and self.analyzer_hint_label:
+                if self.analyzer_hint_label.winfo_exists():
+                    self.analyzer_hint_label.config(text=self.t("select_dir_hint"))
+        except:
+            pass
+        try:
+            if hasattr(self, 'screenshot_hint_label') and self.screenshot_hint_label:
+                if self.screenshot_hint_label.winfo_exists():
+                    self.screenshot_hint_label.config(text=self.t("select_dir_hint"))
+        except:
+            pass
+        try:
+            if hasattr(self, 'backup_restore_hint_label') and self.backup_restore_hint_label:
+                if self.backup_restore_hint_label.winfo_exists():
+                    self.backup_restore_hint_label.config(text=self.t("select_dir_hint"))
+        except:
+            pass
+        try:
+            if hasattr(self, 'others_hint_label') and self.others_hint_label:
+                if self.others_hint_label.winfo_exists():
+                    self.others_hint_label.config(text=self.t("select_dir_hint"))
+        except:
+            pass
         
         # 更新菜单栏标签 - 必须删除并重新插入才能更新标签
         try:
@@ -410,22 +1828,19 @@ class SavTool:
             try:
                 menu_count = self.menubar.index(tk.END)
                 if menu_count is not None:
-                    menu_count = menu_count + 1  # index返回的是最后一个索引，+1得到数量
-                    # 遍历所有菜单项，找到所有Directory菜单
+                    menu_count = menu_count + 1
+                    directory_menu_str = str(self.directory_menu)
                     for i in range(menu_count):
                         try:
-                            # 检查这个菜单项是否是我们要找的Directory菜单
                             menu_obj = self.menubar.entrycget(i, "menu")
-                            # 比较菜单对象的字符串表示
-                            if str(menu_obj) == str(self.directory_menu):
+                            if str(menu_obj) == directory_menu_str:
                                 indices_to_delete.append(i)
                         except:
                             continue
             except:
                 pass
             
-            # 从后往前删除，避免索引变化的问题
-            indices_to_delete.sort(reverse=True)
+            indices_to_delete.sort(reverse=True)  # 从后往前删除，避免索引变化
             for idx in indices_to_delete:
                 try:
                     self.menubar.delete(idx)
@@ -434,85 +1849,73 @@ class SavTool:
             
             # 重新插入Directory菜单到第一个位置
             self.menubar.insert_cascade(0, label=self.t("directory_menu"), menu=self.directory_menu)
-            
-            # 更新Save Analyzer菜单标签
-            try:
-                # 查找Save Analyzer菜单的索引
-                for i in range(self.menubar.index(tk.END) + 1):
-                    try:
-                        menu_obj = self.menubar.entrycget(i, "menu")
-                        if str(menu_obj) == str(self.save_analyzer_menu):
-                            self.menubar.entryconfig(i, label=self.t("save_analyzer_menu"))
-                            break
-                    except:
-                        continue
-            except:
-                pass
-        except Exception as e:
-            # 如果失败，尝试entryconfig
+        except Exception:
             try:
                 self.menubar.entryconfig(0, label=self.t("directory_menu"))
             except:
                 pass
         
-        # 更新提示标签
-        self.hint_label.config(text=self.t("select_dir_hint"))
-        # 更新成功信息标签文本（如果正在显示）
-        if self.storage_dir and self.success_label.winfo_viewable():
-            success_text = self.t("steam_detect_success_text", path=self.storage_dir)
-            self.success_label.config(text=success_text)
-        # 根据是否选择目录来显示/隐藏提示
-        if self.storage_dir:
-            self.hint_label.pack_forget()
-        else:
-            self.hint_label.pack(pady=10)
-            # 取消定时器并隐藏成功标签
-            if self.success_label_timer is not None:
-                self.root.after_cancel(self.success_label_timer)
-                self.success_label_timer = None
-            self.hide_success_label()
+        # 更新截图管理UI文本（如果已初始化）
+        if self.screenshot_manager_ui is not None:
+            self.screenshot_manager_ui.update_ui_texts()
         
-        # 更新列表相关
-        self.list_label.config(text=self.t("screenshot_list"))
-        self.preview_label_text.config(text=self.t("preview"))
-        self.tree.heading("info", text=self.t("list_header"))
+        # 更新备份/还原界面文本（如果已初始化）
+        if hasattr(self, 'backup_button') and self.backup_button:
+            self.backup_button.config(text=self.t("backup_button"))
+        if hasattr(self, 'backup_list_title') and self.backup_list_title:
+            self.backup_list_title.config(text=self.t("backup_list_title"))
+        if hasattr(self, 'backup_refresh_button') and self.backup_refresh_button:
+            self.backup_refresh_button.config(text=self.t("refresh"))
+        if hasattr(self, 'backup_tree') and self.backup_tree:
+            self.backup_tree.heading("timestamp", text=self.t("backup_timestamp"))
+            self.backup_tree.heading("filename", text=self.t("backup_filename"))
+            self.backup_tree.heading("size", text=self.t("backup_size"))
+            self.backup_tree.heading("status", text=self.t("backup_status"))
+        if hasattr(self, 'restore_button') and self.restore_button:
+            self.restore_button.config(text=self.t("restore_button"))
+        if hasattr(self, 'delete_backup_button') and self.delete_backup_button:
+            self.delete_backup_button.config(text=self.t("delete_backup_button"))
+        if hasattr(self, 'rename_backup_button') and self.rename_backup_button:
+            self.rename_backup_button.config(text=self.t("rename_backup_button"))
         
-        # 更新按钮
-        self.sort_asc_button.config(text=self.t("sort_asc"))
-        self.sort_desc_button.config(text=self.t("sort_desc"))
-        self.add_button.config(text=self.t("add_new"))
-        self.replace_button.config(text=self.t("replace_selected"))
-        self.delete_button.config(text=self.t("delete_selected"))
-        self.gallery_preview_button.config(text=self.t("gallery_preview"))
-        self.export_button.config(text=self.t("export_image"))
-        self.batch_export_button.config(text=self.t("batch_export"))
+        if self.storage_dir and self.screenshot_manager_ui is not None:
+            self.screenshot_manager_ui.load_screenshots()
         
-        # 重新加载列表以更新显示文本
-        if self.storage_dir:
-            self.load_screenshots()
+        # 更新其他功能标签页文本（如果已初始化）
+        if self.others_tab is not None:
+            self.others_tab.update_language(self.current_language)
 
     def hide_success_label(self):
         """隐藏成功信息标签"""
+        if self.success_label_timer is not None:
+            self.root.after_cancel(self.success_label_timer)
+            self.success_label_timer = None
         self.success_label.pack_forget()
-        self.success_label_timer = None
     
     def select_dir(self):
         dir_path = filedialog.askdirectory()
-        # 支持Windows和Unix路径分隔符
-        if dir_path and (dir_path.endswith('/_storage') or dir_path.endswith('\\_storage')):
+        if dir_path:
+            # 检查是否以_storage结尾，如果不是则显示警告
+            if not (dir_path.endswith('/_storage') or dir_path.endswith('\\_storage')):
+                messagebox.showwarning(self.t("warning"), self.t("dir_warning"))
+            # 无论是否以_storage结尾，都允许继续
             self.storage_dir = dir_path
-            # 隐藏提示标签和成功标签
-            self.hint_label.pack_forget()
-            # 取消定时器并隐藏成功标签
-            if self.success_label_timer is not None:
-                self.root.after_cancel(self.success_label_timer)
-                self.success_label_timer = None
-            self.hide_success_label()
-            self.load_screenshots()
-            # 更新批量导出按钮状态
-            self.update_batch_export_button()
-        else:
-            messagebox.showerror(self.t("error"), self.t("dir_error"))
+            # 隐藏截图管理tab的提示标签
+            self.screenshot_hint_label.pack_forget()
+            # 初始化截图管理UI
+            if self.screenshot_manager_ui is None:
+                self.screenshot_manager_ui = ScreenshotManagerUI(
+                    self.screenshot_frame, self.root, self.storage_dir,
+                    self.translations, self.current_language, self.t
+                )
+            else:
+                self.screenshot_manager_ui.set_storage_dir(self.storage_dir)
+                self.screenshot_manager_ui.load_screenshots()
+            self.init_save_analyzer()
+            self.init_backup_restore()
+            self.init_others_tab()
+            # 启动文件监控
+            self._start_file_monitor()
     
     def get_steam_path(self):
         """从Windows注册表获取Steam主路径，如果不是Windows则使用默认路径"""
@@ -524,7 +1927,7 @@ class SavTool:
                 winreg.CloseKey(key)
                 return steam_path
             except:
-                # 如果64位注册表失败，尝试32位
+                # 尝试32位注册表
                 try:
                     key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Valve\Steam")
                     steam_path = winreg.QueryValueEx(key, "InstallPath")[0]
@@ -616,15 +2019,13 @@ class SavTool:
         if not os.path.exists(steamapps_common):
             return None
         
-        # 游戏文件夹名
         game_folder_name = "でびるコネクショん"
         game_folder_path = os.path.join(steamapps_common, game_folder_name)
         
-        # 先直接检查是否存在
         if os.path.exists(game_folder_path) and os.path.isdir(game_folder_path):
             return game_folder_path
         
-        # 如果没有，查找appmanifest文件
+        # 从appmanifest文件获取安装目录
         appmanifest_path = os.path.join(library_path, "steamapps", "appmanifest_3054820.acf")
         installdir = self.parse_appmanifest_acf(appmanifest_path)
         
@@ -663,1905 +2064,27 @@ class SavTool:
         
         if storage_path:
             self.storage_dir = storage_path
-            # 隐藏提示标签
-            self.hint_label.pack_forget()
-            # 取消之前的定时器（如果存在）
-            if self.success_label_timer is not None:
-                self.root.after_cancel(self.success_label_timer)
-                self.success_label_timer = None
-            # 显示成功信息
-            success_text = self.t("steam_detect_success_text", path=storage_path)
-            self.success_label.config(text=success_text)
-            self.success_label.pack(anchor="nw", padx=10, pady=10)
-            # 15秒后自动隐藏
-            self.success_label_timer = self.root.after(15000, self.hide_success_label)
-            self.load_screenshots()
-            # 更新批量导出按钮状态
-            self.update_batch_export_button()
+            # 隐藏截图管理tab的提示标签
+            self.screenshot_hint_label.pack_forget()
+            # 初始化截图管理UI
+            if self.screenshot_manager_ui is None:
+                self.screenshot_manager_ui = ScreenshotManagerUI(
+                    self.screenshot_frame, self.root, self.storage_dir,
+                    self.translations, self.current_language, self.t
+                )
+            else:
+                self.screenshot_manager_ui.set_storage_dir(self.storage_dir)
+                self.screenshot_manager_ui.load_screenshots(silent=True)
+            # 初始化存档分析界面
+            self.init_save_analyzer()
+            # 初始化备份/还原界面
+            self.init_backup_restore()
+            # 初始化其他功能标签页
+            self.init_others_tab()
+            # 启动文件监控
+            self._start_file_monitor()
         else:
             messagebox.showinfo(self.t("warning"), self.t("steam_detect_not_found"))
-
-    def load_screenshots(self):
-        if not self.storage_dir:
-            return
-
-        ids_path = os.path.join(self.storage_dir, 'DevilConnection_photo_ids.sav')
-        all_ids_path = os.path.join(self.storage_dir, 'DevilConnection_photo_all_ids.sav')
-
-        if not (os.path.exists(ids_path) and os.path.exists(all_ids_path)):
-            messagebox.showerror(self.t("error"), self.t("missing_files"))
-            return
-
-        # 加载 ids 和 all_ids
-        self.ids_data = self.load_and_decode(ids_path)
-        self.all_ids_data = self.load_and_decode(all_ids_path)
-
-        # 扫描 sav 对
-        self.sav_pairs = {}
-        for file in os.listdir(self.storage_dir):
-            if file.startswith('DevilConnection_photo_') and file.endswith('.sav'):
-                base_name = file.rsplit('.sav', 1)[0] 
-                parts = base_name.split('_')
-                if len(parts) == 3:  
-                    id_str = parts[2]
-                    if id_str not in self.sav_pairs:
-                        self.sav_pairs[id_str] = [None, None]
-                    self.sav_pairs[id_str][0] = file
-                elif len(parts) == 4 and parts[3] == 'thumb': 
-                    id_str = parts[2]
-                    if id_str not in self.sav_pairs:
-                        self.sav_pairs[id_str] = [None, None]
-                    self.sav_pairs[id_str][1] = file
-
-        # 更新列表
-        # 清除所有状态指示器的定时器
-        for item_id, original_text, after_id, indicator_type in self.status_indicators:
-            try:
-                if after_id:
-                    self.root.after_cancel(after_id)
-            except:
-                pass
-        self.status_indicators.clear()
-        
-        # 清除所有项目
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-        self.checkbox_vars.clear()
-        
-        # 添加复选框和项目，每6个截图插入一个标题行
-        screenshot_count = 0
-        page_number = 1
-        
-        for idx, item in enumerate(self.ids_data):
-            # 每12个截图的开始（第0, 12, 24...个截图前）插入"页面X ←"标题行
-            if screenshot_count % 12 == 0:
-                # 插入"页面X ←"标题行
-                page_text_left = f"{self.t('page')} {page_number} ←"
-                header_item_id_left = self.tree.insert("", tk.END, text="", 
-                                                      values=("", page_text_left), 
-                                                      tags=("PageHeaderLeft",))
-                # 标题行不添加到checkbox_vars，不能被选择
-            
-            id_str = item['id']
-            date_str = item['date']
-            main_file = self.sav_pairs.get(id_str, [None, None])[0] or self.t("missing_main_file")
-            display = f"{id_str} - {main_file} - {date_str}"
-            
-            # 创建复选框变量
-            var = tk.BooleanVar()
-            var.trace('w', lambda *args, v=var, iid=id_str: self.on_checkbox_change(v, iid))
-            
-            # 插入Treeview项目（select列显示复选框，info列显示信息）
-            item_id = self.tree.insert("", tk.END, text="", values=("", display), tags=(id_str,))
-            self.checkbox_vars[item_id] = (var, id_str)
-            
-            # 更新复选框显示
-            self.update_checkbox_display(item_id)
-            
-            screenshot_count += 1
-            
-            # 每6个截图后（第6, 18, 30...个截图后）插入"页面X →"标题行
-            # 如果是12的倍数，则跳过
-            if screenshot_count % 6 == 0 and screenshot_count % 12 != 0:
-                # 插入"页面X →"标题行
-                page_text_right = f"{self.t('page')} {page_number} →"
-                header_item_id_right = self.tree.insert("", tk.END, text="", 
-                                                       values=("", page_text_right), 
-                                                       tags=("PageHeaderRight",))
-                # 标题行不添加到checkbox_vars，不能被选择
-            
-            # 每12个截图后，页面号递增
-            if screenshot_count % 12 == 0:
-                page_number += 1
-        
-        # 更新全选标题显示
-        self.update_select_all_header()
-
-    def sort_ascending(self):
-        """按时间正序排序"""
-        if not self.storage_dir:
-            messagebox.showerror(self.t("error"), self.t("select_dir_first"))
-            return
-        
-        # 确认对话框
-        result = self.ask_yesno(
-            self.t("confirm_sort"),
-            self.t("sort_warning"),
-            icon='warning'
-        )
-        
-        if not result:
-            return
-        
-        # 按时间正序排序
-        self.ids_data.sort(key=lambda x: datetime.strptime(x['date'], '%Y/%m/%d %H:%M:%S'), reverse=False)
-        
-        # 更新all_ids_data的顺序
-        self.all_ids_data = [item['id'] for item in self.ids_data]
-        
-        # 保存到文件
-        ids_path = os.path.join(self.storage_dir, 'DevilConnection_photo_ids.sav')
-        all_ids_path = os.path.join(self.storage_dir, 'DevilConnection_photo_all_ids.sav')
-        self.encode_and_save(self.ids_data, ids_path)
-        self.encode_and_save(self.all_ids_data, all_ids_path)
-        
-        # 重新加载列表以更新显示
-        self.load_screenshots()
-        
-        messagebox.showinfo(self.t("success"), self.t("sort_asc_success"))
-
-    def sort_descending(self):
-        """按时间倒序排序"""
-        if not self.storage_dir:
-            messagebox.showerror(self.t("error"), self.t("select_dir_first"))
-            return
-        
-        # 确认对话框
-        result = self.ask_yesno(
-            self.t("confirm_sort"),
-            self.t("sort_warning"),
-            icon='warning'
-        )
-        
-        if not result:
-            return
-        
-        # 按时间倒序排序
-        self.ids_data.sort(key=lambda x: datetime.strptime(x['date'], '%Y/%m/%d %H:%M:%S'), reverse=True)
-        
-        # 更新all_ids_data的顺序
-        self.all_ids_data = [item['id'] for item in self.ids_data]
-        
-        # 保存到文件
-        ids_path = os.path.join(self.storage_dir, 'DevilConnection_photo_ids.sav')
-        all_ids_path = os.path.join(self.storage_dir, 'DevilConnection_photo_all_ids.sav')
-        self.encode_and_save(self.ids_data, ids_path)
-        self.encode_and_save(self.all_ids_data, all_ids_path)
-        
-        # 重新加载列表以更新显示
-        self.load_screenshots()
-        
-        messagebox.showinfo(self.t("success"), self.t("sort_desc_success"))
-
-    def update_checkbox_display(self, item_id):
-        """更新复选框显示"""
-        if item_id in self.checkbox_vars:
-            var, id_str = self.checkbox_vars[item_id]
-            checkbox_text = "☑" if var.get() else "☐"
-            # 更新select列的值
-            current_values = list(self.tree.item(item_id, "values"))
-            if len(current_values) >= 2:
-                current_values[0] = checkbox_text
-                self.tree.item(item_id, values=tuple(current_values))
-    
-    def on_checkbox_change(self, var, id_str):
-        """复选框状态变化时的处理"""
-        # 更新显示
-        for item_id, (v, iid) in self.checkbox_vars.items():
-            if iid == id_str:
-                self.update_checkbox_display(item_id)
-                break
-        
-        # 更新全选复选框状态
-        self.update_select_all_state()
-        
-        # 更新按钮状态
-        self.update_button_states()
-        
-        # 更新批量导出按钮显示
-        self.update_batch_export_button()
-    
-    def update_select_all_state(self):
-        """更新全选复选框状态"""
-        # 更新标题显示
-        self.update_select_all_header()
-    
-    def toggle_select_all(self):
-        """全选/取消全选"""
-        # 检查当前是否全选
-        if not self.checkbox_vars:
-            return
-        
-        all_selected = all(var.get() for var, _ in self.checkbox_vars.values())
-        select_all = not all_selected  # 切换状态
-        
-        for var, _ in self.checkbox_vars.values():
-            var.set(select_all)
-        # 更新所有复选框显示
-        for item_id in self.checkbox_vars.keys():
-            self.update_checkbox_display(item_id)
-        # 更新标题显示
-        self.update_select_all_header()
-        self.update_button_states()
-        self.update_batch_export_button()
-    
-    def update_select_all_header(self):
-        """更新全选标题显示"""
-        if not self.checkbox_vars:
-            self.tree.heading("select", text="☐", anchor="center", command=self.toggle_select_all)
-            return
-        
-        all_selected = all(var.get() for var, _ in self.checkbox_vars.values())
-        checkbox_text = "☑" if all_selected else "☐"
-        self.tree.heading("select", text=checkbox_text, anchor="center", command=self.toggle_select_all)
-    
-    def get_selected_ids(self):
-        """获取所有选中的ID列表"""
-        selected_ids = []
-        for var, id_str in self.checkbox_vars.values():
-            if var.get():
-                selected_ids.append(id_str)
-        return selected_ids
-    
-    def get_selected_count(self):
-        """获取选中的数量"""
-        return len(self.get_selected_ids())
-    
-    def update_button_states(self):
-        """更新按钮状态"""
-        selected_count = self.get_selected_count()
-        # 如果选择了大于等于2个，禁用替换按钮
-        if selected_count >= 2:
-            self.replace_button.config(state="disabled")
-        else:
-            self.replace_button.config(state="normal")
-    
-    def update_batch_export_button(self):
-        """更新批量导出按钮显示"""
-        if not self.storage_dir:
-            self.batch_export_button.pack_forget()
-            return
-        
-        selected_count = self.get_selected_count()
-        if selected_count > 0:
-            self.batch_export_button.pack(pady=5)
-        else:
-            self.batch_export_button.pack_forget()
-    
-    def on_tree_select(self, event):
-        """处理Treeview选择事件，显示预览"""
-        selected = self.tree.selection()
-        if not selected:
-            # 清空预览
-            self.preview_label.config(image='', bg="lightgray")
-            self.preview_photo = None
-            # 隐藏导出按钮
-            self.export_button.pack_forget()
-            return
-        
-        item_id = selected[0]
-        # 检查是否是标题行，如果是则清除选择
-        item_tags = self.tree.item(item_id, "tags")
-        if item_tags and ("PageHeaderLeft" in item_tags or "PageHeaderRight" in item_tags):
-            self.tree.selection_remove(item_id)
-            return
-        
-        if item_id in self.checkbox_vars:
-            _, id_str = self.checkbox_vars[item_id]
-            self.show_preview(id_str)
-            # 显示导出按钮
-            self.export_button.pack(pady=5)
-    
-    def on_button1_click(self, event):
-        """统一处理Button-1点击事件：先检查复选框，再处理拖拽"""
-        region = self.tree.identify_region(event.x, event.y)
-        
-        # 检查是否是复选框点击
-        if region == "cell":
-            column = self.tree.identify_column(event.x)  # 只传x坐标
-            # 检查是否是select列（复选框列）
-            # ***即使#0列被隐藏，仍然存在，所以select列是#1*** ★
-            # 为了兼容性，也检查x坐标范围（select列宽度是40）
-            if column == "#1" or (event.x < 40 and event.x > 0):
-                item_id = self.tree.identify_row(event.y)
-                if item_id:
-                    # 检查是否是标题行，标题行不能点击复选框
-                    item_tags = self.tree.item(item_id, "tags")
-                    if item_tags and ("PageHeaderLeft" in item_tags or "PageHeaderRight" in item_tags):
-                        return "break"
-                    if item_id in self.checkbox_vars:
-                        var, _ = self.checkbox_vars[item_id]
-                        var.set(not var.get())
-                        # 阻止后续事件处理（包括拖拽和选择）
-                        return "break"
-        elif region == "heading":
-            column = self.tree.identify_column(event.x)
-            if column == "#1" or (event.x < 40 and event.x > 0): 
-                # toggle_select_all 已经在 heading 的 command 中处理了
-                # 不返回 "break"，让 command 回调正常执行
-                # 但阻止拖拽
-                self.drag_start_item = None
-                self.drag_target_item = None
-                return
-        
-        # 如果不是复选框点击，则处理拖拽
-        # 获取鼠标点击位置对应的列表项
-        item = self.tree.identify_row(event.y)
-        if item:
-            # 检查是否是标题行，标题行不能拖拽
-            item_tags = self.tree.item(item, "tags")
-            if item_tags and ("PageHeaderLeft" in item_tags or "PageHeaderRight" in item_tags):
-                self.drag_start_item = None
-                self.drag_target_item = None
-                return
-            self.drag_start_item = item
-            self.drag_start_y = event.y
-            self.drag_target_item = None
-            self.is_dragging = False
-
-    def on_drag_motion(self, event):
-        """拖拽过程中，检测是否真的在拖拽，并显示视觉反馈"""
-        if self.drag_start_item is None:
-            return
-        
-        # 检测鼠标是否移动了至少5像素
-        if abs(event.y - self.drag_start_y) > 5:
-            self.is_dragging = True
-            
-            # 高亮显示被拖动的行
-            if self.tree.exists(self.drag_start_item):
-                current_tags = list(self.tree.item(self.drag_start_item, "tags"))
-                if "Dragging" not in current_tags:
-                    current_tags.append("Dragging")
-                    self.tree.item(self.drag_start_item, tags=tuple(current_tags))
-            
-            # 获取当前鼠标位置对应的列表项（目标位置）
-            target_item = self.tree.identify_row(event.y)
-            
-            
-            # 更新目标位置
-            self.drag_target_item = target_item
-            
-            # 计算拖动方向（从上向下还是从下向上）
-            children = list(self.tree.get_children())
-            if self.drag_start_item in children and target_item in children:
-                start_index = children.index(self.drag_start_item)
-                target_index = children.index(target_item)
-                is_dragging_down = target_index > start_index
-            else:
-                # 如果无法确定，根据鼠标Y坐标判断
-                if self.tree.exists(self.drag_start_item):
-                    start_bbox = self.tree.bbox(self.drag_start_item)
-                    if start_bbox:
-                        is_dragging_down = event.y > start_bbox[1] + start_bbox[3] / 2
-                    else:
-                        is_dragging_down = True
-                else:
-                    is_dragging_down = True
-            
-            # 显示指示线
-            if target_item and target_item != self.drag_start_item:
-                # 检查是否是标题行，标题行不能作为目标
-                target_tags = self.tree.item(target_item, "tags")
-                if target_tags and ("PageHeaderLeft" in target_tags or "PageHeaderRight" in target_tags):
-                    # 如果是标题行，清除指示线
-                    self.drag_target_item = None
-                    self.drag_indicator_line.place_forget()
-                    self.current_indicator_target = None
-                    self.current_indicator_position = None
-                else:
-                    # 显示指示线
-                    self.show_drag_indicator_line(target_item, is_dragging_down)
-            else:
-                # 没有有效目标，清除指示线
-                self.drag_target_item = None
-                self.drag_indicator_line.place_forget()
-                self.current_indicator_target = None
-                self.current_indicator_position = None
-
-    def show_drag_indicator_line(self, target_item, is_dragging_down):
-        """显示拖动指示线"""
-        if not self.tree.exists(target_item):
-            self.drag_indicator_line.place_forget()
-            self.current_indicator_target = None
-            self.current_indicator_position = None
-            return
-        
-        # 先清除指示线，确保旧位置被清除
-        self.drag_indicator_line.place_forget()
-        
-        # 获取目标行的位置和大小
-        bbox = self.tree.bbox(target_item)
-        if not bbox:
-            self.current_indicator_target = None
-            self.current_indicator_position = None
-            return
-        
-        x, y, width, height = bbox
-        
-        # 获取Treeview在父容器中的位置
-        tree_x = self.tree.winfo_x()
-        tree_y = self.tree.winfo_y()
-        
-        # 计算指示线的位置
-        # 如果从上向下拖动，线显示在行的下方
-        # 如果从下向上拖动，线显示在行的上方
-        if is_dragging_down:
-            # 显示在行下方
-            line_y = tree_y + y + height
-        else:
-            # 显示在行上方
-            line_y = tree_y + y
-        
-        # 检查目标是否改变，如果目标项和位置都相同，则不需要更新
-        if (self.current_indicator_target == target_item and 
-            self.current_indicator_position == line_y):
-            # 目标未改变，恢复显示（因为上面已经place_forget了）
-            tree_width = self.tree.winfo_width()
-            self.drag_indicator_line.place(x=tree_x, y=line_y, width=tree_width, height=3)
-            self.drag_indicator_line.lift()
-            return
-        
-        # 目标改变了，更新指示线
-        self.current_indicator_target = target_item
-        self.current_indicator_position = line_y
-        
-        # 获取Treeview的宽度
-        tree_width = self.tree.winfo_width()
-        
-        # 显示指示线，并提升到最前面确保可见
-        self.drag_indicator_line.place(x=tree_x, y=line_y, width=tree_width, height=3)
-        self.drag_indicator_line.lift()
-    
-    def on_drag_end(self, event):
-        """结束拖拽，移动项目并保存顺序"""
-        # 清除拖动时的视觉反馈
-        if self.drag_start_item and self.tree.exists(self.drag_start_item):
-            start_tags = list(self.tree.item(self.drag_start_item, "tags"))
-            if "Dragging" in start_tags:
-                start_tags.remove("Dragging")
-                self.tree.item(self.drag_start_item, tags=tuple(start_tags))
-        
-        # 清除指示线
-        self.drag_indicator_line.place_forget()
-        self.current_indicator_target = None
-        self.current_indicator_position = None
-        
-        if self.drag_start_item is None:
-            self.drag_target_item = None
-            return
-        
-        # 如果没有真正拖拽（只是单击），不执行移动操作
-        if not self.is_dragging:
-            self.drag_start_item = None
-            self.drag_start_y = None
-            self.drag_target_item = None
-            self.is_dragging = False
-            return
-        
-        # 获取目标位置（优先使用drag_target_item，如果没有则使用鼠标位置）
-        end_item = self.drag_target_item if self.drag_target_item else self.tree.identify_row(event.y)
-        
-        if not end_item or end_item == self.drag_start_item:
-            self.drag_start_item = None
-            self.drag_start_y = None
-            self.drag_target_item = None
-            self.is_dragging = False
-            return
-        
-        # 检查起始项和目标项是否是标题行，标题行不能拖拽
-        start_tags = self.tree.item(self.drag_start_item, "tags")
-        end_tags = self.tree.item(end_item, "tags")
-        if (start_tags and ("PageHeaderLeft" in start_tags or "PageHeaderRight" in start_tags)) or \
-           (end_tags and ("PageHeaderLeft" in end_tags or "PageHeaderRight" in end_tags)):
-            self.drag_start_item = None
-            self.drag_start_y = None
-            self.drag_target_item = None
-            self.is_dragging = False
-            return
-        
-        # 获取起始和目标索引
-        children = list(self.tree.get_children())
-        
-        # 将Treeview索引转换为ids_data索引（排除标题行）
-        def get_data_index(tree_index):
-            """将Treeview中的索引转换为ids_data中的索引（排除标题行）"""
-            data_index = 0
-            for i in range(tree_index):
-                item_id = children[i]
-                item_tags = self.tree.item(item_id, "tags")
-                # 如果不是标题行，则计入数据索引
-                if item_tags and ("PageHeaderLeft" not in item_tags and "PageHeaderRight" not in item_tags):
-                    data_index += 1
-            return data_index
-        
-        start_tree_index = children.index(self.drag_start_item)
-        end_tree_index = children.index(end_item)
-        
-        # 转换为数据索引
-        start_index = get_data_index(start_tree_index)
-        end_index = get_data_index(end_tree_index)
-        
-        # 清除之前的箭头指示器
-        self.clear_drag_indicators()
-        
-        # 移动Treeview中的项目
-        item_values = self.tree.item(self.drag_start_item)
-        moved_item_id = item_values['tags'][0] if item_values['tags'] else None
-        
-        # 获取目标位置原来的item ID（用于显示箭头）
-        target_original_id = None
-        if end_item:
-            target_item_values = self.tree.item(end_item)
-            target_original_id = target_item_values['tags'][0] if target_item_values['tags'] else None
-        
-        # 保存复选框状态和值
-        checkbox_data = None
-        checkbox_text = ""
-        if self.drag_start_item in self.checkbox_vars:
-            checkbox_data = self.checkbox_vars.pop(self.drag_start_item)
-            var, _ = checkbox_data
-            checkbox_text = "☑" if var.get() else "☐"
-        
-        # 保存当前值
-        current_values = list(item_values['values'])
-        
-        # 删除项目
-        self.tree.delete(self.drag_start_item)
-        
-        # 重新获取children列表（因为删除了一个项目，索引会变化）
-        children = list(self.tree.get_children())
-        
-        # 重新插入到目标位置
-        # 注意：删除后，如果向下移动，end_tree_index需要调整（因为删除了start_tree_index的项目）
-        if end_tree_index > start_tree_index:
-            # 向下移动：删除start_tree_index的项目后，end_tree_index对应的项目位置变成了end_tree_index-1
-            # 如果要插入到目标项目之后（"拖到底下"），应该插入到位置end_tree_index
-            # 因为insert是在指定位置之前插入，所以如果要插入到end_tree_index位置之后，应该用end_tree_index+1
-            # 但删除后，end_tree_index位置的项目现在在end_tree_index-1，所以插入到end_tree_index就是插入到它之后
-            insert_index = end_tree_index
-            if insert_index < 0:
-                insert_index = 0
-            if insert_index <= len(children):
-                # 在指定位置插入（会插入到该位置之前，但由于我们用的是end_tree_index，正好是目标位置之后）
-                new_item = self.tree.insert("", insert_index, text=item_values['text'], values=tuple(current_values), tags=item_values['tags'])
-            else:
-                # 插入到末尾
-                new_item = self.tree.insert("", tk.END, text=item_values['text'], values=tuple(current_values), tags=item_values['tags'])
-        else:
-            # 向上移动：目标位置不变（因为删除的是后面的项目，不影响前面的索引）
-            if end_tree_index <= len(children):
-                new_item = self.tree.insert("", end_tree_index, text=item_values['text'], values=tuple(current_values), tags=item_values['tags'])
-            else:
-                new_item = self.tree.insert("", tk.END, text=item_values['text'], values=tuple(current_values), tags=item_values['tags'])
-        
-        # 恢复复选框状态
-        if checkbox_data:
-            self.checkbox_vars[new_item] = checkbox_data
-            self.update_checkbox_display(new_item)
-        
-        # 同步更新ids_data和all_ids_data的顺序
-        moved_item = self.ids_data.pop(start_index)
-        self.ids_data.insert(end_index, moved_item)
-        
-        # 更新all_ids_data的顺序
-        new_all_ids_order = [item['id'] for item in self.ids_data]
-        self.all_ids_data = new_all_ids_order
-        
-        # 保存更新后的顺序到文件
-        ids_path = os.path.join(self.storage_dir, 'DevilConnection_photo_ids.sav')
-        all_ids_path = os.path.join(self.storage_dir, 'DevilConnection_photo_all_ids.sav')
-        self.encode_and_save(self.ids_data, ids_path)
-        self.encode_and_save(self.all_ids_data, all_ids_path)
-        
-        # 保存移动的item的ID（用于重新加载后恢复选择）
-        moved_id = moved_item_id  
-        
-        # 记录移动方向（用于显示箭头指示器）
-        is_moving_down = end_index > start_index
-        
-        # 计算填补被移动项原位置的项的ID（用于显示箭头）
-        # 注意：这里需要使用Treeview索引，因为children是Treeview列表
-        # 需要将数据索引转换为Treeview索引
-        def get_tree_index(data_index):
-            """将ids_data中的索引转换为Treeview中的索引（包含标题行）"""
-            tree_index = 0
-            data_count = 0
-            for i, item_id in enumerate(children):
-                item_tags = self.tree.item(item_id, "tags")
-                # 如果不是标题行，则计入数据计数
-                if item_tags and ("PageHeaderLeft" not in item_tags and "PageHeaderRight" not in item_tags):
-                    if data_count == data_index:
-                        return i
-                    data_count += 1
-            return len(children)  # 如果找不到，返回末尾
-        
-        # 计算填补被移动项原位置的项的ID（用于显示箭头）
-        # 当向下移动时，start_index+1位置的项会向上移动到start_index位置（填补空位）
-        # 当向上移动时，start_index-1位置的项会向下移动到start_index位置（填补空位）
-        # 注意：这个项在移动后位于start_index位置（被移动项的原位置）
-        affected_item_id = None
-        # 使用Treeview索引来访问children列表
-        start_tree_idx_for_children = get_tree_index(start_index)
-        if is_moving_down and start_tree_idx_for_children + 1 < len(children):
-            # 向下移动：start_tree_idx_for_children+1位置的项会向上移动到start_tree_idx_for_children位置
-            affected_item = children[start_tree_idx_for_children + 1]
-            affected_item_values = self.tree.item(affected_item)
-            affected_item_id = affected_item_values['tags'][0] if affected_item_values['tags'] else None
-        elif not is_moving_down and start_tree_idx_for_children > 0:
-            # 向上移动：start_tree_idx_for_children-1位置的项会向下移动到start_tree_idx_for_children位置
-            affected_item = children[start_tree_idx_for_children - 1]
-            affected_item_values = self.tree.item(affected_item)
-            affected_item_id = affected_item_values['tags'][0] if affected_item_values['tags'] else None
-        
-        # 重新加载列表以更新显示
-        self.load_screenshots()
-        
-        # 恢复选择：根据ID找到新的item
-        moved_item = None
-        if moved_id:
-            children = list(self.tree.get_children())
-            for tree_item_id in children:
-                item_tags = self.tree.item(tree_item_id, "tags")
-                if item_tags and item_tags[0] == moved_id:
-                    moved_item = tree_item_id
-                    self.tree.selection_set(tree_item_id)
-                    # 滚动到选中项
-                    self.tree.see(tree_item_id)
-                    break
-        
-        # 显示箭头指示器
-        # 移动后，被移动的项位于end_index位置，填补原位置的项位于start_index位置
-        children = list(self.tree.get_children())
-        
-        if moved_item:
-            # 被移动的项：向下移动显示↓↓↓（绿色），向上移动显示↑↑↑（粉色）
-            self.show_drag_indicator_on_item(moved_item, not is_moving_down)
-        
-        # 将数据索引转换为Treeview索引（重新加载后的列表）
-        def get_tree_index_after_reload(data_index):
-            """将ids_data中的索引转换为重新加载后Treeview中的索引（包含标题行）"""
-            tree_index = 0
-            data_count = 0
-            for i, item_id in enumerate(children):
-                item_tags = self.tree.item(item_id, "tags")
-                # 如果不是标题行，则计入数据计数
-                if item_tags and ("PageHeaderLeft" not in item_tags and "PageHeaderRight" not in item_tags):
-                    if data_count == data_index:
-                        return i
-                    data_count += 1
-            return len(children)  # 如果找不到，返回末尾
-        
-        start_tree_idx_after_reload = get_tree_index_after_reload(start_index)
-        if start_tree_idx_after_reload < len(children):
-            item_at_start_pos = children[start_tree_idx_after_reload]
-            item_tags = self.tree.item(item_at_start_pos, "tags")
-            # 确保不是被移动的项本身
-            if item_tags and item_tags[0] != moved_id:
-                self.show_drag_indicator_on_item(item_at_start_pos, is_moving_down)
-        
-        self.drag_start_item = None
-        self.drag_start_y = None
-        self.drag_target_item = None
-        self.is_dragging = False
-    
-    def clear_drag_indicators(self):
-        """清除所有箭头指示器"""
-        for item_id, original_text, after_id in self.drag_indicators:
-            try:
-                # 取消定时器
-                if after_id:
-                    self.root.after_cancel(after_id)
-                # 恢复原始文本
-                if self.tree.exists(item_id):
-                    current_values = list(self.tree.item(item_id, "values"))
-                    if len(current_values) >= 2:
-                        # 移除箭头前缀，恢复原始文本
-                        info_text = current_values[1]
-                        # 移除箭头前缀（↑↑↑或↓↓↓）
-                        if info_text.startswith("↑↑↑"):
-                            info_text = info_text[3:].lstrip()
-                        elif info_text.startswith("↓↓↓"):
-                            info_text = info_text[3:].lstrip()
-                        current_values[1] = info_text
-                        self.tree.item(item_id, values=tuple(current_values))
-                        # 移除tag
-                        current_tags = list(self.tree.item(item_id, "tags"))
-                        if "DragIndicatorUp" in current_tags:
-                            current_tags.remove("DragIndicatorUp")
-                        if "DragIndicatorDown" in current_tags:
-                            current_tags.remove("DragIndicatorDown")
-                        self.tree.item(item_id, tags=tuple(current_tags))
-            except:
-                pass
-        self.drag_indicators.clear()
-    
-    def show_drag_indicator_on_item(self, item_id, show_up_arrows):
-        """在指定item的名字前显示箭头指示器"""
-        if not self.tree.exists(item_id):
-            return
-        
-        # 获取当前值
-        current_values = list(self.tree.item(item_id, "values"))
-        if len(current_values) < 2:
-            return
-        
-        original_text = current_values[1]  # 保存原始文本
-        
-        # 确定箭头符号和颜色
-        if show_up_arrows:
-            # 显示↑↑↑（粉色 #D06CAA）
-            arrow_prefix = "↑↑↑"
-            style_tag = "DragIndicatorDown" 
-        else:
-            # 显示↓↓↓（绿色 #85A9A5）
-            arrow_prefix = "↓↓↓"
-            style_tag = "DragIndicatorUp" 
-        
-        # 在名字前添加箭头
-        new_text = f"{arrow_prefix} {original_text}"
-        current_values[1] = new_text
-        
-        # 更新item
-        current_tags = list(self.tree.item(item_id, "tags"))
-        if style_tag not in current_tags:
-            current_tags.append(style_tag)
-        self.tree.item(item_id, values=tuple(current_values), tags=tuple(current_tags))
-        
-        # 设置15秒后自动清除
-        def remove_indicator():
-            try:
-                if self.tree.exists(item_id):
-                    current_values = list(self.tree.item(item_id, "values"))
-                    if len(current_values) >= 2:
-                        info_text = current_values[1]
-                        # 移除箭头前缀
-                        if info_text.startswith("↑↑↑"):
-                            info_text = info_text[3:].lstrip()
-                        elif info_text.startswith("↓↓↓"):
-                            info_text = info_text[3:].lstrip()
-                        current_values[1] = info_text
-                        self.tree.item(item_id, values=tuple(current_values))
-                        # 移除tag
-                        current_tags = list(self.tree.item(item_id, "tags"))
-                        if "DragIndicatorUp" in current_tags:
-                            current_tags.remove("DragIndicatorUp")
-                        if "DragIndicatorDown" in current_tags:
-                            current_tags.remove("DragIndicatorDown")
-                        self.tree.item(item_id, tags=tuple(current_tags))
-                # 从列表中移除
-                self.drag_indicators = [(iid, orig, aid) for iid, orig, aid in self.drag_indicators if iid != item_id]
-            except:
-                pass
-        
-        after_id = self.root.after(15000, remove_indicator)  # 15秒后移除
-        
-        # 记录指示器信息
-        self.drag_indicators.append((item_id, original_text, after_id))
-
-    def show_status_indicator(self, id_str, is_new=True):
-        """在指定ID的截图名称前显示状态指示器（新截图或替换截图）"""
-        # 找到对应的item_id
-        item_id = None
-        for tree_item_id in self.tree.get_children():
-            item_tags = self.tree.item(tree_item_id, "tags")
-            if item_tags and item_tags[0] == id_str:
-                item_id = tree_item_id
-                break
-        
-        if not item_id or not self.tree.exists(item_id):
-            return
-        
-        # 获取当前值
-        current_values = list(self.tree.item(item_id, "values"))
-        if len(current_values) < 2:
-            return
-        
-        original_text = current_values[1]  # 保存原始文本
-        
-        # 确定标记符号和颜色tag
-        if is_new:
-            # 新截图：显示"⚝ "
-            indicator_prefix = "⚝ "
-            style_tag = "NewIndicator"
-        else:
-            # 替换截图：显示"✧ "
-            indicator_prefix = "✧ "
-            style_tag = "ReplaceIndicator"
-        
-        # 检查是否已经有标记（避免重复添加）
-        info_text = current_values[1]
-        if info_text.startswith("⚝ ") or info_text.startswith("✧ "):
-            # 如果已经有标记，先移除
-            if info_text.startswith("⚝ "):
-                info_text = info_text[2:].lstrip()
-            elif info_text.startswith("✧ "):
-                info_text = info_text[2:].lstrip()
-            original_text = info_text
-        
-        # 在名字前添加标记
-        new_text = f"{indicator_prefix}{original_text}"
-        current_values[1] = new_text
-        
-        # 更新item
-        current_tags = list(self.tree.item(item_id, "tags"))
-        if style_tag not in current_tags:
-            current_tags.append(style_tag)
-        self.tree.item(item_id, values=tuple(current_values), tags=tuple(current_tags))
-        
-        # 设置15秒后自动清除
-        def remove_indicator():
-            try:
-                if self.tree.exists(item_id):
-                    current_values = list(self.tree.item(item_id, "values"))
-                    if len(current_values) >= 2:
-                        info_text = current_values[1]
-                        # 移除标记前缀
-                        if info_text.startswith("⚝ "):
-                            info_text = info_text[2:].lstrip()
-                        elif info_text.startswith("✧ "):
-                            info_text = info_text[2:].lstrip()
-                        current_values[1] = info_text
-                        self.tree.item(item_id, values=tuple(current_values))
-                        # 移除tag
-                        current_tags = list(self.tree.item(item_id, "tags"))
-                        if "NewIndicator" in current_tags:
-                            current_tags.remove("NewIndicator")
-                        if "ReplaceIndicator" in current_tags:
-                            current_tags.remove("ReplaceIndicator")
-                        self.tree.item(item_id, tags=tuple(current_tags))
-                # 从列表中移除
-                self.status_indicators = [(iid, orig, aid, itype) for iid, orig, aid, itype in self.status_indicators if iid != item_id]
-            except:
-                pass
-        
-        after_id = self.root.after(15000, remove_indicator)  # 15秒后移除
-        
-        # 记录指示器信息
-        self.status_indicators.append((item_id, original_text, after_id, "new" if is_new else "replace"))
-
-    def show_preview(self, id_str):
-        """显示指定ID的预览图片"""
-        if not self.storage_dir or id_str not in self.sav_pairs:
-            self.preview_label.config(image='', bg="lightgray")
-            self.preview_photo = None
-            return
-        
-        main_file = self.sav_pairs[id_str][0]
-        if not main_file:
-            self.preview_label.config(image='', bg="lightgray", text=self.t("file_missing_text"))
-            self.preview_photo = None
-            return
-        
-        main_sav = os.path.join(self.storage_dir, main_file)
-        if not os.path.exists(main_sav):
-            self.preview_label.config(image='', bg="lightgray", text=self.t("file_not_exist_text"))
-            self.preview_photo = None
-            return
-        
-        temp_png = None
-        try:
-            # 解码主 .sav 获取 PNG 数据
-            with open(main_sav, 'r', encoding='utf-8') as f:
-                encoded = f.read().strip()
-            unquoted = urllib.parse.unquote(encoded)
-            data_uri = json.loads(unquoted)
-            b64_part = data_uri.split(';base64,', 1)[1]
-            img_data = base64.b64decode(b64_part)
-            
-            # 保存到临时 PNG 文件
-            temp_png = tempfile.NamedTemporaryFile(suffix='.png', delete=False).name
-            with open(temp_png, 'wb') as f:
-                f.write(img_data)
-            
-            # 加载图片
-            img = Image.open(temp_png)
-            # 拉伸到4:3比例(实际游戏内显示也会拉成这样)
-            preview_img = img.resize((160, 120), Image.Resampling.LANCZOS)
-            photo = ImageTk.PhotoImage(preview_img)
-            
-            # 更新预览Label
-            self.preview_label.config(image=photo, bg="white", text="")
-            self.preview_photo = photo 
-            
-            img.close()
-        except Exception as e:
-            # 出错时显示错误信息
-            self.preview_label.config(image='', bg="lightgray", text=self.t("preview_failed"))
-            self.preview_photo = None
-        finally:
-            # 清理临时文件
-            if temp_png and os.path.exists(temp_png):
-                try:
-                    os.remove(temp_png)
-                except:
-                    pass
-
-    def show_gallery_preview(self):
-        """显示画廊预览窗口，按照特定方式排列图片"""
-        if not self.storage_dir or not self.ids_data:
-            messagebox.showwarning(self.t("warning"), self.t("select_dir_first"))
-            return
-        
-        # 创建新窗口
-        gallery_window = Toplevel(self.root)
-        gallery_window.title(self.t("gallery_preview"))
-        gallery_window.geometry("1000x700")
-        
-        # 设置窗口图标
-        set_window_icon(gallery_window)
-        
-        # 创建滚动区域
-        canvas = tk.Canvas(gallery_window, bg="white")
-        scrollbar = Scrollbar(gallery_window, orient="vertical", command=canvas.yview)
-        scrollable_frame = tk.Frame(canvas, bg="white")
-        
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-        
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        # 获取所有图片ID（按照ids_data的顺序）
-        image_ids = [item['id'] for item in self.ids_data]
-        total_images = len(image_ids)
-        
-        # 计算需要的行数（每行4列，每列3张图片，所以每行12张图片）
-        # 但实际上我们按照3行4列的方式排列，所以需要计算总行数
-        # 每3行显示12张图片（3行 × 4列）
-        rows_per_group = 3
-        cols_per_group = 4
-        images_per_group = rows_per_group * cols_per_group  # 12
-        
-        # 计算总组数
-        num_groups = (total_images + images_per_group - 1) // images_per_group
-        
-        # 存储所有图片引用，防止被垃圾回收
-        gallery_window.image_refs = []
-        # 存储占位符Label的映射 {id_str: (placeholder_label, col_frame)}
-        gallery_window.placeholders = {}
-        
-        # 为每个组创建显示区域
-        for group_idx in range(num_groups):
-            # 创建组框架
-            group_frame = tk.Frame(scrollable_frame, bg="white")
-            group_frame.pack(pady=20, padx=20, fill="both", expand=True)
-            
-            # 创建3行4列的网格
-            for row in range(rows_per_group):
-                row_frame = tk.Frame(group_frame, bg="white")
-                row_frame.pack(side="top", pady=5)
-                
-                for col in range(cols_per_group):
-                    # 计算图片索引：对于第row行，第col列，索引 = row + col * 3
-                    image_idx = group_idx * images_per_group + row + col * rows_per_group
-                    
-                    # 创建列框架（用于放置图片和分隔线）
-                    col_frame = tk.Frame(row_frame, bg="white")
-                    col_frame.pack(side="left", padx=5)
-                    
-                    if image_idx < total_images:
-                        id_str = image_ids[image_idx]
-                        # 先创建占位符，然后异步加载
-                        placeholder_container, placeholder_label = self.create_placeholder(col_frame)
-                        gallery_window.placeholders[id_str] = (placeholder_container, placeholder_label, col_frame)
-                    else:
-                        # 空白占位，显示N/A，大小和图片一样（150x112）
-                        # 创建一个固定大小的容器，模拟图片大小
-                        placeholder_container = tk.Frame(col_frame, bg="lightgray", width=150, height=112)
-                        placeholder_container.pack()
-                        placeholder_container.pack_propagate(False)
-                        
-                        # 创建N/A标签，居中显示
-                        placeholder_label = tk.Label(placeholder_container, text=self.t("not_available"), 
-                                                    bg="lightgray", fg="gray", font=("Arial", 14, "bold"),
-                                                    anchor="center", justify="center")
-                        placeholder_label.place(relx=0.5, rely=0.5, anchor="center")
-                        
-                        # 在下方添加一个空的文本标签，模拟图片下方的ID显示区域
-                        placeholder_id_label = tk.Label(col_frame, text="", bg="white", font=("Arial", 8))
-                        placeholder_id_label.pack()
-                    
-                    # 在第2列和第3列之间添加分隔线（col=1之后，即第2列之后）
-                    if col == 1:  # 第2列（索引1）之后
-                        separator = tk.Frame(row_frame, width=3, bg="gray", relief="sunken")
-                        separator.pack(side="left", fill="y", padx=5)
-            
-            # 在每页下面显示页面编号
-            page_label = tk.Label(group_frame, text=f"{self.t('page')} {group_idx + 1}", 
-                                 bg="white", font=("Arial", 12, "bold"), fg="gray")
-            page_label.pack(pady=10)
-        
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar.pack(side="right", fill="y")
-        
-        # 绑定鼠标滚轮（Windows和Linux）
-        def on_mousewheel(event):
-            # 检查 canvas 是否还存在
-            try:
-                if not canvas.winfo_exists():
-                    return
-            except tk.TclError:
-                return
-            
-            try:
-                if event.delta:
-                    # Windows
-                    canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-                else:
-                    # Linux
-                    if event.num == 4:
-                        canvas.yview_scroll(-1, "units")
-                    elif event.num == 5:
-                        canvas.yview_scroll(1, "units")
-            except tk.TclError:
-                # canvas 已被销毁，忽略错误
-                pass
-        
-        # Windows
-        canvas.bind_all("<MouseWheel>", on_mousewheel)
-        # Linux
-        canvas.bind_all("<Button-4>", on_mousewheel)
-        canvas.bind_all("<Button-5>", on_mousewheel)
-        
-        # 窗口关闭时解绑全局事件
-        def on_window_close():
-            try:
-                canvas.unbind_all("<MouseWheel>")
-                canvas.unbind_all("<Button-4>")
-                canvas.unbind_all("<Button-5>")
-            except:
-                pass
-            gallery_window.destroy()
-        
-        gallery_window.protocol("WM_DELETE_WINDOW", on_window_close)
-        
-        # 快速获取画廊
-        # 异步加载所有图片
-        self.load_gallery_images_async(gallery_window, image_ids)
-    
-    def create_placeholder(self, parent_frame):
-        """创建加载中的占位符"""
-        placeholder_container = tk.Frame(parent_frame, bg="lightgray", width=150, height=112)
-        placeholder_container.pack()
-        placeholder_container.pack_propagate(False)
-        
-        placeholder_label = tk.Label(placeholder_container, text="Loading...", 
-                                    bg="lightgray", fg="gray", font=("Arial", 10),
-                                    anchor="center", justify="center")
-        placeholder_label.place(relx=0.5, rely=0.5, anchor="center")
-        
-        placeholder_id_label = tk.Label(parent_frame, text="", bg="white", font=("Arial", 8))
-        placeholder_id_label.pack()
-        
-        # 返回容器和标签，方便后续销毁
-        return placeholder_container, placeholder_label
-    
-    def load_gallery_images_async(self, gallery_window, image_ids):
-        """异步加载所有图片"""
-        def load_single_image(id_str):
-            """在后台线程中加载单张图片，只处理图片解码，不创建PhotoImage（否则卡死）"""
-            # 检查缓存（缓存中存储的是PIL Image对象）
-            with self.cache_lock:
-                if id_str in self.image_cache:
-                    cached_img = self.image_cache[id_str]
-                    # 如果缓存的是PhotoImage，需要重新创建（不应该发生，但为了安全）
-                    if isinstance(cached_img, Image.Image):
-                        return id_str, cached_img
-            
-            if id_str not in self.sav_pairs:
-                return id_str, None
-            
-            main_file = self.sav_pairs[id_str][0]
-            if not main_file:
-                return id_str, None
-            
-            main_sav = os.path.join(self.storage_dir, main_file)
-            if not os.path.exists(main_sav):
-                return id_str, None
-            
-            try:
-                # 解码主 .sav 获取 PNG 数据
-                with open(main_sav, 'r', encoding='utf-8') as f:
-                    encoded = f.read().strip()
-                unquoted = urllib.parse.unquote(encoded)
-                data_uri = json.loads(unquoted)
-                b64_part = data_uri.split(';base64,', 1)[1]
-                img_data = base64.b64decode(b64_part)
-                
-                # 直接从内存加载图片，避免临时文件
-                img = Image.open(BytesIO(img_data))
-                # 调整大小以适应画廊预览
-                preview_img = img.resize((150, 112), Image.Resampling.LANCZOS)
-                img.close()
-                
-                # 存入缓存（存储PIL Image对象，不是PhotoImage）
-                with self.cache_lock:
-                    self.image_cache[id_str] = preview_img
-                
-                return id_str, preview_img
-            except Exception as e:
-                return id_str, None
-        
-        def update_image(id_str, pil_image):
-            """在主线程中更新UI，在这里创建PhotoImage"""
-            if id_str not in gallery_window.placeholders:
-                return
-            
-            placeholder_container, placeholder_label, col_frame = gallery_window.placeholders[id_str]
-            
-            if pil_image is None:
-                # 加载失败，显示错误信息
-                placeholder_label.config(text=self.t("preview_failed"), bg="lightgray", fg="red")
-                return
-            
-            try:
-                # 在主线程中创建PhotoImage（Tkinter不是线程安全的）
-                photo = ImageTk.PhotoImage(pil_image)
-                
-                # 保存引用
-                gallery_window.image_refs.append(photo)
-                
-                # 移除占位符容器（会自动销毁内部的所有组件）
-                placeholder_container.destroy()
-                
-                # 创建图片Label
-                img_label = tk.Label(col_frame, image=photo, bg="white", text=id_str, 
-                                    compound="top", font=("Arial", 8))
-                img_label.pack()
-            except Exception as e:
-                # 如果创建PhotoImage失败，显示错误
-                placeholder_label.config(text=self.t("preview_failed"), bg="lightgray", fg="red")
-        
-        # 使用线程池异步加载（非阻塞方式）
-        def process_results():
-            """在后台线程中处理结果，然后通过after在主线程中更新UI"""
-            max_workers = min(8, len(image_ids))  # 最多8个线程
-            executor = ThreadPoolExecutor(max_workers=max_workers)
-            
-            try:
-                # 提交所有任务
-                future_to_id = {executor.submit(load_single_image, id_str): id_str 
-                                for id_str in image_ids}
-                
-                # 处理完成的任务
-                for future in as_completed(future_to_id):
-                    try:
-                        id_str, pil_image = future.result()
-                        # 在主线程中更新UI
-                        gallery_window.after(0, update_image, id_str, pil_image)
-                    except Exception as e:
-                        # 处理单个任务失败的情况
-                        pass
-            finally:
-                # 关闭线程池
-                executor.shutdown(wait=False)
-        
-        # 在后台线程中启动处理
-        thread = threading.Thread(target=process_results, daemon=True)
-        thread.start()
-    
-    def load_and_decode(self, sav_path):
-        with open(sav_path, 'r', encoding='utf-8') as f:
-            encoded = f.read().strip()
-        unquoted = urllib.parse.unquote(encoded)
-        return json.loads(unquoted)
-
-    def encode_and_save(self, data, sav_path):
-        json_str = json.dumps(data)
-        encoded = urllib.parse.quote(json_str)
-        with open(sav_path, 'w', encoding='utf-8') as f:
-            f.write(encoded)
-
-    def replace_selected(self):
-        # 获取选中的ID（通过Treeview选择或复选框）
-        selected = self.tree.selection()
-        if not selected:
-            messagebox.showerror(self.t("error"), self.t("select_screenshot"))
-            return
-        
-        item_id = selected[0]
-        if item_id not in self.checkbox_vars:
-            messagebox.showerror(self.t("error"), self.t("invalid_selection"))
-            return
-        
-        _, id_str = self.checkbox_vars[item_id]
-
-        if id_str not in self.sav_pairs or self.sav_pairs[id_str][0] is None or self.sav_pairs[id_str][1] is None:
-            messagebox.showerror(self.t("error"), self.t("file_missing"))
-            return
-
-        new_png = filedialog.askopenfilename(title=self.t("select_new_image"))
-        if not new_png:
-            return
-
-        # 检查文件扩展名
-        valid_image_extensions = {'.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.tiff', '.tif', '.ico'}
-        file_ext = os.path.splitext(new_png)[1].lower()
-        filename = os.path.basename(new_png)
-        is_valid_image = file_ext in valid_image_extensions
-
-        main_sav = os.path.join(self.storage_dir, self.sav_pairs[id_str][0])
-        thumb_sav = os.path.join(self.storage_dir, self.sav_pairs[id_str][1])
-        
-        confirmed = False
-        
-        # 解码主 .sav 获取 PNG 数据
-        with open(main_sav, 'r', encoding='utf-8') as f:
-            encoded = f.read().strip()
-        unquoted = urllib.parse.unquote(encoded)
-        data_uri = json.loads(unquoted)
-        b64_part = data_uri.split(';base64,', 1)[1]
-        img_data = base64.b64decode(b64_part)
-
-        # 保存到临时 PNG 文件
-        temp_png = tempfile.NamedTemporaryFile(suffix='.png', delete=False).name
-        with open(temp_png, 'wb') as f:
-            f.write(img_data)
-
-        # 确认替换窗口
-        popup = Toplevel(self.root)
-        popup.title(self.t("replace_warning"))
-        
-        # 设置窗口图标
-        set_window_icon(popup)
-        
-        # 如果不是常规图片格式，在窗口顶端显示警告
-        if not is_valid_image:
-            warning_label = tk.Label(popup, text=self.t("file_extension_warning", filename=filename), 
-                                    fg="#FF57FD", font=("Arial", 10), wraplength=600, justify="left")
-            warning_label.pack(pady=5, padx=10, anchor="w")
-        
-        ttk.Label(popup, text=self.t("replace_confirm_text"), font=("Arial", 12)).pack(pady=10)
-        
-        # 图片对比区域
-        image_frame = tk.Frame(popup)
-        image_frame.pack(pady=10)
-        
-        # 原图片（左侧）
-        orig_img = Image.open(temp_png)
-        orig_preview = orig_img.resize((400, 300), Image.Resampling.LANCZOS)  
-        orig_photo = ImageTk.PhotoImage(orig_preview)
-        orig_label = Label(image_frame, image=orig_photo)  # 显示图片的Label保持tk.Label
-        orig_label.pack(side="left", padx=10)
-        popup.orig_photo = orig_photo 
-        orig_img.close()
-        
-        ttk.Label(image_frame, text="→", font=("Arial", 24)).pack(side="left", padx=10)
-        
-        # 新图片（右侧）
-        try:
-            new_img = Image.open(new_png)
-            new_preview = new_img.resize((400, 300), Image.Resampling.LANCZOS) 
-            new_photo = ImageTk.PhotoImage(new_preview)
-            new_label = Label(image_frame, image=new_photo)  # 显示图片的Label保持tk.Label
-            new_label.pack(side="left", padx=10)
-            popup.new_photo = new_photo 
-            new_img.close()
-        except Exception as e:
-            # 如果无法打开图片，显示错误信息
-            error_label = Label(image_frame, text=self.t("preview_failed"), fg="red", font=("Arial", 12))
-            error_label.pack(side="left", padx=10)
-            popup.new_photo = None
-
-        ttk.Label(popup, text=self.t("replace_confirm_question")).pack(pady=10)
-
-        def yes():
-            popup.destroy()
-            nonlocal confirmed
-            confirmed = True
-
-        def no():
-            popup.destroy()
-            return  
-
-        ttk.Button(popup, text=self.t("replace_yes"), command=yes).pack(side="left", padx=10)
-        ttk.Button(popup, text=self.t("replace_no"), command=no).pack(side="right", padx=10)
-        popup.grab_set()
-        self.root.wait_window(popup)
-        os.remove(temp_png)  # 无论如何清理
-        if not confirmed:
-            return
-        self.replace_sav(main_sav, thumb_sav, new_png)
-        messagebox.showinfo(self.t("success"), self.t("replace_success", id=id_str))
-        self.load_screenshots()
-        self.show_status_indicator(id_str, is_new=False)
-
-    def replace_sav(self, main_sav, thumb_sav, new_png):
-        temp_thumb = None
-        try:
-            # 提取原thumb尺寸
-            with open(thumb_sav, 'r', encoding='utf-8') as f:
-                encoded = f.read().strip()
-            unquoted = urllib.parse.unquote(encoded)
-            data_uri = json.loads(unquoted)
-            b64_part = data_uri.split(';base64,', 1)[1]
-            img_data = base64.b64decode(b64_part)
-            temp_thumb = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False).name
-            with open(temp_thumb, 'wb') as f:
-                f.write(img_data)
-            thumb_orig = Image.open(temp_thumb)
-            thumb_size = thumb_orig.size
-            thumb_orig.close()  
-
-            # 新主sav (PNG)
-            with open(new_png, 'rb') as f:
-                png_b64 = base64.b64encode(f.read()).decode('utf-8')
-            new_main_uri = f"data:image/png;base64,{png_b64}"
-            new_main_json = json.dumps(new_main_uri)
-            new_main_encoded = urllib.parse.quote(new_main_json)
-            with open(main_sav, 'w', encoding='utf-8') as f:
-                f.write(new_main_encoded)
-
-            # 新thumb JPEG
-            main_img = Image.open(new_png)
-            new_thumb = main_img.resize(thumb_size, Image.Resampling.LANCZOS)
-            new_thumb = new_thumb.convert('RGB')
-            new_thumb.save(temp_thumb, 'JPEG', quality=90, optimize=True)
-            main_img.close()  # 显式关闭图像对象，释放文件句柄
-            with open(temp_thumb, 'rb') as f:
-                jpeg_b64 = base64.b64encode(f.read()).decode('utf-8')
-            new_thumb_uri = f"data:image/jpeg;base64,{jpeg_b64}"
-            new_thumb_json = json.dumps(new_thumb_uri)
-            new_thumb_encoded = urllib.parse.quote(new_thumb_json)
-            with open(thumb_sav, 'w', encoding='utf-8') as f:
-                f.write(new_thumb_encoded)
-        finally:
-            if temp_thumb and os.path.exists(temp_thumb):
-                try:
-                    os.remove(temp_thumb)
-                except:
-                    pass
-
-    def add_new(self):
-        # 检查是否已选择目录
-        if not self.storage_dir:
-            messagebox.showwarning(self.t("warning"), self.t("select_dir_hint"))
-            return
-        
-        new_png = filedialog.askopenfilename(title=self.t("select_new_png"))
-        if not new_png:
-            return
-
-        # 检查文件扩展名
-        valid_image_extensions = {'.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.tiff', '.tif', '.ico'}
-        file_ext = os.path.splitext(new_png)[1].lower()
-        filename = os.path.basename(new_png)
-        is_valid_image = file_ext in valid_image_extensions
-
-        # 检测图片分辨率是否为4:3
-        is_4_3_ratio = False
-        try:
-            if is_valid_image:
-                img = Image.open(new_png)
-                width, height = img.size
-                img.close()
-                
-                # 检查是否是4:3比例（容错±30像素）
-                # 如果宽度是w，高度应该是 w * 3 / 4
-                expected_height = width * 3 / 4
-                if abs(height - expected_height) <= 30:
-                    is_4_3_ratio = True
-        except Exception:
-            # 如果检测不出尺寸，is_4_3_ratio保持为False
-            pass
-
-        # 弹出窗口输入 ID 和 date
-        popup = Toplevel(self.root)
-        popup.title(self.t("add_new_title"))
-        
-        # 设置窗口图标
-        set_window_icon(popup)
-        
-        # 根据是否有警告消息调整窗口高度
-        window_height = 200
-        if not is_valid_image:
-            window_height += 50
-        if not is_4_3_ratio and is_valid_image:
-            window_height += 50
-        popup.geometry(f"400x{window_height}")
-
-        # 如果不是常规图片格式，在窗口顶端显示警告
-        if not is_valid_image:
-            warning_label = tk.Label(popup, text=self.t("file_extension_warning", filename=filename), 
-                                    fg="#FF57FD", font=("Arial", 10), wraplength=380, justify="left")
-            warning_label.pack(pady=5, padx=10, anchor="w")
-        
-        # 如果图片分辨率不是4:3或检测不出，显示警告
-        if not is_4_3_ratio and is_valid_image:
-            aspect_warning_label = tk.Label(popup, text=self.t("aspect_ratio_warning"), 
-                                           fg="#7CA294", font=("Arial", 10), wraplength=380, justify="left")
-            aspect_warning_label.pack(pady=5, padx=10, anchor="w")
-
-        ttk.Label(popup, text=self.t("id_label")).pack(pady=5)
-        id_entry = ttk.Entry(popup, width=50)
-        id_entry.pack()
-
-        ttk.Label(popup, text=self.t("date_label")).pack(pady=5)
-        date_entry = ttk.Entry(popup, width=50)
-        date_entry.pack()
-
-        def confirm():
-            new_id = id_entry.get().strip() or ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
-            new_date = date_entry.get().strip() or datetime.now().strftime('%Y/%m/%d %H:%M:%S')
-
-            try:
-                # 验证 date 格式
-                datetime.strptime(new_date, '%Y/%m/%d %H:%M:%S')
-            except ValueError:
-                messagebox.showerror(self.t("error"), self.t("invalid_date_format"))
-                return
-
-            if new_id in self.sav_pairs:
-                messagebox.showerror(self.t("error"), self.t("id_exists"))
-                return
-
-            # 更新ids
-            self.ids_data.append({"id": new_id, "date": new_date})
-            ids_path = os.path.join(self.storage_dir, 'DevilConnection_photo_ids.sav')
-            self.encode_and_save(self.ids_data, ids_path)
-
-            # 更新all_ids
-            self.all_ids_data.append(new_id)
-            all_ids_path = os.path.join(self.storage_dir, 'DevilConnection_photo_all_ids.sav')
-            self.encode_and_save(self.all_ids_data, all_ids_path)
-
-            # 生成新sav对
-            main_sav_name = f'DevilConnection_photo_{new_id}.sav'
-            thumb_sav_name = f'DevilConnection_photo_{new_id}_thumb.sav'
-            main_sav = os.path.join(self.storage_dir, main_sav_name)
-            thumb_sav = os.path.join(self.storage_dir, thumb_sav_name)
-            thumb_size = (1280, 960)
-            valid_thumb_found = False
-            for pair in self.sav_pairs.values():
-                if pair[1] is not None:
-                    first_thumb = os.path.join(self.storage_dir, pair[1])
-                    with open(first_thumb, 'r', encoding='utf-8') as f:
-                        encoded = f.read().strip()
-                    unquoted = urllib.parse.unquote(encoded)
-                    data_uri = json.loads(unquoted)
-                    b64_part = data_uri.split(';base64,', 1)[1]
-                    img_data = base64.b64decode(b64_part)
-                    temp_thumb_size = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False).name
-                    with open(temp_thumb_size, 'wb') as f:
-                        f.write(img_data)
-                    thumb_orig = Image.open(temp_thumb_size)
-                    thumb_size = thumb_orig.size
-                    thumb_orig.close() 
-                    os.remove(temp_thumb_size)
-                    valid_thumb_found = True
-                    break
-
-            # 生成文件
-            temp_thumb = None
-            try:
-                # 新主sav (PNG)
-                with open(new_png, 'rb') as f:
-                    png_b64 = base64.b64encode(f.read()).decode('utf-8')
-                new_main_uri = f"data:image/png;base64,{png_b64}"
-                new_main_json = json.dumps(new_main_uri)
-                new_main_encoded = urllib.parse.quote(new_main_json)
-                with open(main_sav, 'w', encoding='utf-8') as f:
-                    f.write(new_main_encoded)
-
-                # 新thumb JPEG
-                try:
-                    main_img = Image.open(new_png)
-                    new_thumb = main_img.resize(thumb_size, Image.Resampling.LANCZOS)
-                    new_thumb = new_thumb.convert('RGB')
-                    main_img.close() 
-                    temp_thumb = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False).name
-                    new_thumb.save(temp_thumb, 'JPEG', quality=90, optimize=True)
-                except Exception as e:
-                    messagebox.showerror(self.t("error"), self.t("preview_failed") + f": {str(e)}")
-                    return
-                with open(temp_thumb, 'rb') as f:
-                    jpeg_b64 = base64.b64encode(f.read()).decode('utf-8')
-                new_thumb_uri = f"data:image/jpeg;base64,{jpeg_b64}"
-                new_thumb_json = json.dumps(new_thumb_uri)
-                new_thumb_encoded = urllib.parse.quote(new_thumb_json)
-                with open(thumb_sav, 'w', encoding='utf-8') as f:
-                    f.write(new_thumb_encoded)
-            finally:
-                if temp_thumb and os.path.exists(temp_thumb):
-                    try:
-                        os.remove(temp_thumb)
-                    except:
-                        pass
-
-            popup.destroy()
-            messagebox.showinfo(self.t("success"), self.t("add_success", id=new_id))
-            # 取消所有选择
-            for var, _ in self.checkbox_vars.values():
-                var.set(False)
-            for item_id in self.checkbox_vars.keys():
-                self.update_checkbox_display(item_id)
-            self.update_select_all_header()
-            self.update_button_states()
-            self.update_batch_export_button()
-            self.load_screenshots()
-            self.show_status_indicator(new_id, is_new=True)
-
-        ttk.Button(popup, text=self.t("confirm"), command=confirm).pack(pady=20)
-        
-    def delete_selected(self):
-        # 获取所有选中的ID（通过复选框）
-        selected_ids = self.get_selected_ids()
-        if not selected_ids:
-            messagebox.showerror(self.t("error"), self.t("delete_select_error"))
-            return
-        
-        # 确认删除对话框
-        if len(selected_ids) == 1:
-            confirm_msg = self.t("delete_confirm_single", id=selected_ids[0])
-        else:
-            ids_str = ', '.join(selected_ids[:5]) + ('...' if len(selected_ids) > 5 else '')
-            confirm_msg = self.t("delete_confirm_multiple", count=len(selected_ids), ids=ids_str)
-        
-        popup = Toplevel(self.root)
-        popup.title(self.t("delete_confirm"))
-        
-        # 设置窗口图标
-        set_window_icon(popup)
-        
-        ttk.Label(popup, text=confirm_msg).pack(pady=10)
-
-        confirmed = False
-
-        def yes():
-            nonlocal confirmed
-            confirmed = True
-            popup.destroy()
-
-        def no():
-            popup.destroy()
-
-        ttk.Button(popup, text=self.t("delete_ok"), command=yes).pack(side="left", padx=10)
-        ttk.Button(popup, text=self.t("delete_cancel"), command=no).pack(side="right", padx=10)
-
-        popup.grab_set()
-        self.root.wait_window(popup)
-
-        if not confirmed:
-            return
-
-        # 删除所有选中的截图
-        deleted_count = 0
-        for id_str in selected_ids:
-            # 删除文件（如果存在）
-            pair = self.sav_pairs.get(id_str, [None, None])
-            main_path = os.path.join(self.storage_dir, pair[0]) if pair[0] else None
-            thumb_path = os.path.join(self.storage_dir, pair[1]) if pair[1] else None
-            if main_path and os.path.exists(main_path):
-                try:
-                    os.remove(main_path)
-                    deleted_count += 1
-                except:
-                    pass
-            if thumb_path and os.path.exists(thumb_path):
-                try:
-                    os.remove(thumb_path)
-                except:
-                    pass
-
-            # 从索引移除
-            self.ids_data = [item for item in self.ids_data if item['id'] != id_str]
-            self.all_ids_data = [item for item in self.all_ids_data if item != id_str]
-
-            # 移除本地缓存（如果存在）
-            if id_str in self.sav_pairs:
-                del self.sav_pairs[id_str]
-
-        # 保存更新
-        ids_path = os.path.join(self.storage_dir, 'DevilConnection_photo_ids.sav')
-        self.encode_and_save(self.ids_data, ids_path)
-        all_ids_path = os.path.join(self.storage_dir, 'DevilConnection_photo_all_ids.sav')
-        self.encode_and_save(self.all_ids_data, all_ids_path)
-
-        if deleted_count > 0:
-            messagebox.showinfo(self.t("success"), self.t("delete_success", count=deleted_count))
-        else:
-            messagebox.showwarning(self.t("warning"), self.t("delete_warning"))
-        
-        # 取消所有选择
-        for var, _ in self.checkbox_vars.values():
-            var.set(False)
-        self.update_select_all_header()
-        self.update_button_states()
-        self.update_batch_export_button()
-        self.load_screenshots()
-    
-    def export_image(self):
-        """导出选中的截图"""
-        selected = self.tree.selection()
-        if not selected:
-            messagebox.showerror(self.t("error"), self.t("select_screenshot"))
-            return
-        
-        item_id = selected[0]
-        if item_id not in self.checkbox_vars:
-            messagebox.showerror(self.t("error"), self.t("invalid_selection"))
-            return
-        
-        _, id_str = self.checkbox_vars[item_id]
-        
-        if not self.storage_dir or id_str not in self.sav_pairs:
-            messagebox.showerror(self.t("error"), self.t("file_not_found"))
-            return
-        
-        main_file = self.sav_pairs[id_str][0]
-        if not main_file:
-            messagebox.showerror(self.t("error"), self.t("file_missing_text"))
-            return
-        
-        main_sav = os.path.join(self.storage_dir, main_file)
-        if not os.path.exists(main_sav):
-            messagebox.showerror(self.t("error"), self.t("file_not_exist"))
-            return
-        
-        # 解码图片数据
-        try:
-            with open(main_sav, 'r', encoding='utf-8') as f:
-                encoded = f.read().strip()
-            unquoted = urllib.parse.unquote(encoded)
-            data_uri = json.loads(unquoted)
-            b64_part = data_uri.split(';base64,', 1)[1]
-            img_data = base64.b64decode(b64_part)
-            
-            # 保存到临时PNG文件
-            temp_png = tempfile.NamedTemporaryFile(suffix='.png', delete=False).name
-            with open(temp_png, 'wb') as f:
-                f.write(img_data)
-            
-            # 打开图片
-            img = Image.open(temp_png)
-            
-            # 弹出格式选择对话框
-            format_window = Toplevel(self.root)
-            format_window.title(self.t("select_export_format"))
-            format_window.geometry("300x150")
-            
-            # 设置窗口图标
-            set_window_icon(format_window)
-            
-            selected_format = tk.StringVar(value="png")
-            
-            ttk.Label(format_window, text=self.t("select_image_format")).pack(pady=10)
-            format_frame = tk.Frame(format_window)
-            format_frame.pack(pady=10)
-            
-            ttk.Radiobutton(format_frame, text="PNG", variable=selected_format, value="png").pack(side="left", padx=10)
-            ttk.Radiobutton(format_frame, text="JPEG", variable=selected_format, value="jpeg").pack(side="left", padx=10)
-            ttk.Radiobutton(format_frame, text="WebP", variable=selected_format, value="webp").pack(side="left", padx=10)
-            
-            def confirm_export():
-                nonlocal img, temp_png
-                format_window.destroy()
-                format = selected_format.get()
-                
-                # 获取原始文件名（不含.sav后缀）
-                base_name = os.path.splitext(main_file)[0]
-                
-                # 根据格式设置文件扩展名和保存选项
-                if format == "png":
-                    filetypes = [("PNG files", "*.png"), ("All files", "*.*")]
-                    default_ext = ".png"
-                    default_filename = base_name + ".png"
-                elif format == "jpeg":
-                    filetypes = [("JPEG files", "*.jpg"), ("All files", "*.*")]
-                    default_ext = ".jpg"
-                    default_filename = base_name + ".jpg"
-                else:  # webp
-                    filetypes = [("WebP files", "*.webp"), ("All files", "*.*")]
-                    default_ext = ".webp"
-                    default_filename = base_name + ".webp"
-                
-                # 弹出保存对话框
-                save_path = filedialog.asksaveasfilename(
-                    title=self.t("save_image"),
-                    defaultextension=default_ext,
-                    filetypes=filetypes,
-                    initialfile=default_filename
-                )
-                
-                if not save_path:
-                    img.close()
-                    os.remove(temp_png)
-                    return
-                
-                try:
-                    # 根据格式保存图片
-                    if format == "png":
-                        img.save(save_path, "PNG")
-                    elif format == "jpeg":
-                        # JPEG需要RGB模式
-                        if img.mode != "RGB":
-                            img = img.convert("RGB")
-                        img.save(save_path, "JPEG", quality=95)
-                    else:  # webp
-                        img.save(save_path, "WebP", quality=95)
-                    
-                    messagebox.showinfo(self.t("success"), self.t("export_success", path=save_path))
-                except Exception as e:
-                    messagebox.showerror(self.t("error"), self.t("save_failed", error=str(e)))
-                finally:
-                    img.close()
-                    if os.path.exists(temp_png):
-                        os.remove(temp_png)
-            
-            def on_close():
-                """窗口关闭时的清理函数"""
-                nonlocal img, temp_png
-                try:
-                    img.close()
-                except:
-                    pass
-                try:
-                    if os.path.exists(temp_png):
-                        os.remove(temp_png)
-                except:
-                    pass
-                format_window.destroy()
-            
-            ttk.Button(format_window, text=self.t("delete_ok"), command=confirm_export).pack(pady=10)
-            format_window.protocol("WM_DELETE_WINDOW", on_close)
-            format_window.grab_set()
-            
-        except Exception as e:
-            messagebox.showerror(self.t("error"), self.t("export_failed") + f": {str(e)}")
-    
-    def batch_export_images(self):
-        """批量导出选中的截图到ZIP文件"""
-        selected_ids = self.get_selected_ids()
-        if not selected_ids:
-            messagebox.showerror(self.t("error"), self.t("batch_export_error"))
-            return
-        
-        if not self.storage_dir:
-            messagebox.showerror(self.t("error"), self.t("select_dir_first"))
-            return
-        
-        # 弹出格式选择对话框
-        format_window = Toplevel(self.root)
-        format_window.title(self.t("select_export_format"))
-        format_window.geometry("300x150")
-        
-        # 设置窗口图标
-        set_window_icon(format_window)
-        
-        selected_format = tk.StringVar(value="png")
-        
-        ttk.Label(format_window, text=self.t("select_image_format")).pack(pady=10)
-        format_frame = tk.Frame(format_window)
-        format_frame.pack(pady=10)
-        
-        ttk.Radiobutton(format_frame, text="PNG", variable=selected_format, value="png").pack(side="left", padx=10)
-        ttk.Radiobutton(format_frame, text="JPEG", variable=selected_format, value="jpeg").pack(side="left", padx=10)
-        ttk.Radiobutton(format_frame, text="WebP", variable=selected_format, value="webp").pack(side="left", padx=10)
-        
-        def confirm_batch_export():
-            format_window.destroy()
-            format = selected_format.get()
-            
-            # 根据格式设置文件扩展名
-            if format == "png":
-                default_ext = ".png"
-                file_ext = "png"
-            elif format == "jpeg":
-                default_ext = ".jpg"
-                file_ext = "jpg"
-            else:  # webp
-                default_ext = ".webp"
-                file_ext = "webp"
-            
-            # 弹出保存对话框
-            save_path = filedialog.asksaveasfilename(
-                title=self.t("save_zip"),
-                defaultextension=".zip",
-                filetypes=[("ZIP files", "*.zip"), ("All files", "*.*")],
-                initialfile="DevilConnectionSSPack.zip"
-            )
-            
-            if not save_path:
-                return
-            
-            try:
-                # 创建临时目录存放图片
-                temp_dir = tempfile.mkdtemp()
-                exported_count = 0
-                failed_count = 0
-                
-                # 导出每张图片
-                for id_str in selected_ids:
-                    if id_str not in self.sav_pairs:
-                        failed_count += 1
-                        continue
-                    
-                    main_file = self.sav_pairs[id_str][0]
-                    if not main_file:
-                        failed_count += 1
-                        continue
-                    
-                    main_sav = os.path.join(self.storage_dir, main_file)
-                    if not os.path.exists(main_sav):
-                        failed_count += 1
-                        continue
-                    
-                    try:
-                        # 解码图片数据
-                        with open(main_sav, 'r', encoding='utf-8') as f:
-                            encoded = f.read().strip()
-                        unquoted = urllib.parse.unquote(encoded)
-                        data_uri = json.loads(unquoted)
-                        b64_part = data_uri.split(';base64,', 1)[1]
-                        img_data = base64.b64decode(b64_part)
-                        
-                        # 保存到临时PNG文件
-                        temp_png = os.path.join(temp_dir, f"{id_str}.png")
-                        with open(temp_png, 'wb') as f:
-                            f.write(img_data)
-                        
-                        # 打开图片并转换格式
-                        img = Image.open(temp_png)
-                        
-                        # 根据格式保存
-                        output_filename = f"{id_str}.{file_ext}"
-                        output_path = os.path.join(temp_dir, output_filename)
-                        
-                        if format == "png":
-                            img.save(output_path, "PNG")
-                        elif format == "jpeg":
-                            if img.mode != "RGB":
-                                img = img.convert("RGB")
-                            img.save(output_path, "JPEG", quality=95)
-                        else:  # webp
-                            img.save(output_path, "WebP", quality=95)
-                        
-                        img.close()
-                        os.remove(temp_png)  # 删除临时PNG
-                        exported_count += 1
-                    except Exception as e:
-                        failed_count += 1
-                        continue
-                
-                # 创建ZIP文件
-                if exported_count > 0:
-                    with zipfile.ZipFile(save_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                        for filename in os.listdir(temp_dir):
-                            file_path = os.path.join(temp_dir, filename)
-                            if os.path.isfile(file_path):
-                                zipf.write(file_path, filename)
-                    
-                    # 清理临时目录
-                    shutil.rmtree(temp_dir)
-                    
-                    success_msg = self.t("batch_export_success", count=exported_count)
-                    if failed_count > 0:
-                        success_msg += "\n" + self.t("batch_export_failed", count=failed_count)
-                    messagebox.showinfo(self.t("success"), success_msg)
-                else:
-                    # 清理临时目录
-                    shutil.rmtree(temp_dir)
-                    messagebox.showerror(self.t("error"), self.t("batch_export_error_all"))
-                    
-            except Exception as e:
-                messagebox.showerror(self.t("error"), self.t("batch_export_fail", error=str(e)))
-        
-        ttk.Button(format_window, text=self.t("delete_ok"), command=confirm_batch_export).pack(pady=10)
-        format_window.grab_set()
-        
 
 if __name__ == "__main__":
     root = tk.Tk()
