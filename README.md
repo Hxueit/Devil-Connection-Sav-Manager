@@ -46,7 +46,7 @@
 
 ### インストール手順
 
-※ Releasesページから単体exeをダウンロードすれば、Pythonも依存パッケージも不要です
+※ WindowsユーザーはReleasesページから単体exeをダウンロードするだけで、Pythonや依存パッケージのインストールは不要です
 
 1. リポジトリをクローンまたはダウンロード
 2. 依存パッケージをインストール
@@ -172,7 +172,7 @@ IssueやPull Requestは大歓迎です。
 
 ### 安装步骤
 
-> 注意：你也可以前往Releases页面下载单exe文件，该方式无需安装Python或任何依赖
+> 注意：windows用户也可以前往Releases页面下载单exe文件，该方式无需安装Python或任何依赖
 
 1. 克隆或下载此仓库
 
@@ -295,7 +295,7 @@ The tool consists of three tabs:
 
 ### Installation steps
 >
-> Note: You can also download the standalone .exe from the Releases page — no Python or dependencies required
+> Note: If you are using windows, you can also download the standalone .exe from the Releases page - no Python or dependencies required
 
 1. Clone or download this repository
 2. Install dependencies:

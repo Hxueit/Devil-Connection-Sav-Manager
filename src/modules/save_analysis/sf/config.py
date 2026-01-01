@@ -175,7 +175,9 @@ def get_field_configs():
                     "label_key": "total_characters",
                     "var_name": "characters",
                     "formatter": lambda v, cd: max(0, len(cd["characters"])),
-                    "is_computed": True
+                    "is_computed": True,
+                    "has_tooltip": True,
+                    "tooltip_key": "characters_statistics_note"
                 },
                 {
                     "widget_key": "collectedCharacters.count",

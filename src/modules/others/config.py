@@ -37,4 +37,18 @@ class OthersTabConfig:
     ISO_DATE_TIME_SEPARATOR: Final[str] = 'T'
     DEFAULT_TIME_STR: Final[str] = "00:00:00"
     MIN_DATE_STRING_LENGTH: Final[int] = 10
+    
+    # 文件大小阈值（用于缓存策略优化，单位：字节）
+    # 超过此大小的文件在FileMonitor中只缓存哈希值，不缓存完整内容
+    LARGE_FILE_THRESHOLD_BYTES: Final[int] = 20 * 1024 * 1024  # 20MB
+    
+    # 文件大小警告阈值（单位：字节）
+    # 超过此大小的文件在读取时会记录信息日志
+    LARGE_FILE_WARNING_BYTES: Final[int] = 50 * 1024 * 1024  # 50MB
+    
+    # 磁盘空间检查缓冲系数
+    DISK_SPACE_BUFFER_RATIO: Final[float] = 1.1  # 10%缓冲
+    
+    # JSON序列化大小估算系数
+    JSON_SIZE_ESTIMATE_RATIO: Final[float] = 2.0
 

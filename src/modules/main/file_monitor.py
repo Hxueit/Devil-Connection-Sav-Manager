@@ -10,6 +10,7 @@ from typing import Optional, Callable, Dict, Any
 
 from src.modules.main.save_file_service import SaveFileService
 from src.modules.main.save_data_comparator import SaveDataComparator
+from src.modules.others.config import OthersTabConfig
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +66,8 @@ class FileMonitor:
         self._last_save_content_hash: Optional[str] = None
         self._last_save_content: Optional[str] = None
         self._last_save_data: Optional[Dict[str, Any]] = None
+        # 标记是否使用轻量级缓存（只缓存哈希值，不缓存完整内容）
+        self._use_lightweight_cache: bool = False
         
         # 线程控制
         self.monitor_thread: Optional[threading.Thread] = None
@@ -220,7 +223,7 @@ class FileMonitor:
             current_save_content: 当前存档文件内容
             current_hash: 当前文件内容的哈希值
         """
-        if self._last_save_content is None or self._last_save_data is None:
+        if self._last_save_data is None:
             # 无法比较，直接更新缓存
             self._update_memory_cache(current_save_content, current_hash)
             return
@@ -230,7 +233,9 @@ class FileMonitor:
             current_save_data = self.save_file_service.parse_save_content(current_save_content)
             
             if current_save_data is None:
-                logger.warning("Failed to parse current save content, updating cache without comparison")
+                logger.warning(
+                    "Failed to parse current save content, updating cache without comparison"
+                )
                 self._update_memory_cache(current_save_content, current_hash)
                 return
             
@@ -245,11 +250,15 @@ class FileMonitor:
             # 更新内存缓存
             self._update_memory_cache(current_save_content, current_hash, current_save_data)
         except (ValueError, TypeError) as e:
-            logger.warning(f"Error parsing save content: {e}, updating cache without comparison")
+            logger.warning(
+                f"Error parsing save content: {e}, updating cache without comparison"
+            )
             self._update_memory_cache(current_save_content, current_hash)
         except Exception as e:
-            logger.error(f"Unexpected error processing file changes: {e}", exc_info=True)
-            # 即使出错也更新缓存，避免重复处理
+            logger.error(
+                f"Unexpected error processing file changes: {e}", exc_info=True
+            )
+            # Update cache even on error to avoid reprocessing
             self._update_memory_cache(current_save_content, current_hash)
     
     def _initialize_memory_cache(self) -> None:
@@ -260,6 +269,9 @@ class FileMonitor:
         
         if not self._safe_path_exists(save_file_path):
             return
+        
+        # 检查文件大小，决定是否使用轻量级缓存
+        self._determine_cache_strategy(save_file_path)
         
         for attempt in range(self.INITIALIZATION_RETRY_ATTEMPTS):
             save_content = self._read_save_file_with_retry(save_file_path)
@@ -287,18 +299,45 @@ class FileMonitor:
             save_data: 解析后的存档数据（可选，如果为None则尝试解析）
         """
         self._last_save_content_hash = save_hash
-        self._last_save_content = save_content
         
-        if save_data is None:
-            save_data = self.save_file_service.parse_save_content(save_content)
-        
-        self._last_save_data = save_data
+        # 如果使用轻量级缓存，不缓存完整内容，只缓存哈希值和解析后的数据
+        if self._use_lightweight_cache:
+            self._last_save_content = None
+            if save_data is None:
+                save_data = self.save_file_service.parse_save_content(save_content)
+            self._last_save_data = save_data
+        else:
+            # 正常缓存：缓存完整内容和解析后的数据
+            self._last_save_content = save_content
+            if save_data is None:
+                save_data = self.save_file_service.parse_save_content(save_content)
+            self._last_save_data = save_data
     
     def _clear_memory_cache(self) -> None:
         """清空内存缓存"""
         self._last_save_content_hash = None
         self._last_save_content = None
         self._last_save_data = None
+        self._use_lightweight_cache = False
+    
+    def _determine_cache_strategy(self, file_path: str) -> None:
+        """根据文件大小决定缓存策略
+        
+        Args:
+            file_path: 文件路径
+        """
+        try:
+            file_size = os.path.getsize(file_path)
+            self._use_lightweight_cache = file_size > OthersTabConfig.LARGE_FILE_THRESHOLD_BYTES
+            if self._use_lightweight_cache:
+                file_size_mb = file_size / (1024 * 1024)
+                logger.debug(
+                    f"Large file detected ({file_size_mb:.2f}MB), "
+                    f"using lightweight cache strategy"
+                )
+        except OSError:
+            # Cannot get file size, use default strategy
+            self._use_lightweight_cache = False
     
     def _is_valid_storage_dir(self) -> bool:
         """检查存储目录是否有效

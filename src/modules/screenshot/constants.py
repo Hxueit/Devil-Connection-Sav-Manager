@@ -37,3 +37,8 @@ GALLERY_IMAGES_PER_PAGE = GALLERY_ROWS_PER_PAGE * GALLERY_COLS_PER_PAGE
 
 VALID_IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.apng', '.tiff', '.tif', '.ico'}
 
+# 画廊刷新操作类型
+GALLERY_OPERATION_ADD = "add"
+GALLERY_OPERATION_REPLACE = "replace"
+GALLERY_OPERATION_DELETE = "delete"
+

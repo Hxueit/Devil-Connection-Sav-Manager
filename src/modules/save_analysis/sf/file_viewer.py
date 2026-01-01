@@ -12,7 +12,7 @@ import re
 from typing import Dict, Any, Optional, Callable
 
 from src.utils.styles import Colors, get_cjk_font, get_mono_font
-from src.utils.ui_utils import set_window_icon, showinfo_relative, showwarning_relative, showerror_relative, askyesno_relative
+from src.utils.ui_utils import set_window_icon, showinfo_relative, showwarning_relative, showerror_relative, askyesno_relative, restore_and_activate_window
 from src.utils.hint_animation import HintAnimation
 from src.modules.screenshot.animation_constants import CHECKBOX_STYLE_NORMAL, CHECKBOX_STYLE_HINT
 
@@ -21,6 +21,9 @@ from src.modules.screenshot.animation_constants import CHECKBOX_STYLE_NORMAL, CH
 COLLAPSED_FIELDS = ["record", "_tap_effect", "initialVars"]
 SAVE_FILE_NAME = "DevilConnection_sf.sav"
 CLOSE_CALLBACK_DELAY_MS = 100
+
+# 单例窗口引用（模块级变量）
+_current_save_file_viewer: Optional['SaveFileViewer'] = None
 
 
 def apply_json_syntax_highlight(text_widget: tk.Text, content: str) -> None:
@@ -76,6 +79,24 @@ class SaveFileViewer:
             t_func: 翻译函数
             on_close_callback: 窗口关闭时的回调函数
         """
+        global _current_save_file_viewer
+        
+        # 检查是否已有窗口存在
+        if _current_save_file_viewer is not None:
+            existing_viewer = _current_save_file_viewer
+            try:
+                if existing_viewer.viewer_window.winfo_exists():
+                    # 窗口存在，尝试恢复并激活
+                    if restore_and_activate_window(existing_viewer.viewer_window):
+                        # 成功恢复窗口，不创建新窗口
+                        return
+                    else:
+                        # 窗口已销毁但引用还在，清理引用
+                        _current_save_file_viewer = None
+            except (tk.TclError, AttributeError):
+                # 窗口已销毁，清理引用
+                _current_save_file_viewer = None
+        
         self.window = window
         self.storage_dir = storage_dir
         self.save_data = save_data
@@ -89,25 +110,53 @@ class SaveFileViewer:
         self.viewer_window = tk.Toplevel(root_window)
         self.viewer_window.title(self.t("save_file_viewer_title"))
         self.viewer_window.geometry("1200x900")
+        self.viewer_window.configure(bg=Colors.MODAL_BG)
         set_window_icon(self.viewer_window)
+        
+        # 注册为当前窗口
+        _current_save_file_viewer = self
         
         self._setup_ui()
     
     def _setup_ui(self) -> None:
         """设置UI界面"""
-        main_frame = tk.Frame(self.viewer_window)
+        # 创建自定义样式，确保标签和复选框背景色与窗口一致
+        modal_style = ttk.Style(self.viewer_window)
+        modal_style.configure(
+            "Modal.TLabel",
+            background=Colors.MODAL_BG,
+            foreground="gray",
+            borderwidth=0,
+            relief="flat"
+        )
+        modal_style.map("Modal.TLabel",
+                       background=[("active", Colors.MODAL_BG),
+                                  ("!active", Colors.MODAL_BG)])
+        modal_style.configure(
+            "Modal.TCheckbutton",
+            background=Colors.MODAL_BG,
+            foreground=Colors.TEXT_PRIMARY,
+            borderwidth=0,
+            relief="flat"
+        )
+        modal_style.map("Modal.TCheckbutton",
+                       background=[("active", Colors.MODAL_BG),
+                                  ("!active", Colors.MODAL_BG),
+                                  ("selected", Colors.MODAL_BG)])
+        
+        main_frame = tk.Frame(self.viewer_window, bg=Colors.MODAL_BG)
         main_frame.pack(fill="both", expand=True, padx=5, pady=5)
         
-        hint_frame = tk.Frame(main_frame, bg=Colors.WHITE)
+        hint_frame = tk.Frame(main_frame, bg=Colors.MODAL_BG)
         hint_frame.pack(fill="x", pady=(0, 10))
         hint_label = ttk.Label(hint_frame, text=self.t("viewer_hint_text"), 
                                font=get_cjk_font(9), 
-                               foreground="gray",
                                wraplength=850,
-                               justify="left")
+                               justify="left",
+                               style="Modal.TLabel")
         hint_label.pack(anchor="w", padx=5)
         
-        toolbar = tk.Frame(main_frame)
+        toolbar = tk.Frame(main_frame, bg=Colors.MODAL_BG)
         toolbar.pack(fill="x", pady=(0, 5))
         
         self.search_matches = []
@@ -435,16 +484,17 @@ class SaveFileViewer:
         disable_collapse_checkbox = ttk.Checkbutton(toolbar, 
                                                      text=self.t("disable_collapse_horizontal"),
                                                      variable=disable_collapse_var,
-                                                     command=toggle_collapse)
+                                                     command=toggle_collapse,
+                                                     style="Modal.TCheckbutton")
         disable_collapse_checkbox.pack(side="left", padx=5)
         
-        search_frame = tk.Frame(toolbar)
+        search_frame = tk.Frame(toolbar, bg=Colors.MODAL_BG)
         search_frame.pack(side="left", padx=5)
         
         search_entry = ttk.Entry(search_frame, width=20)
         search_entry.pack(side="left", padx=2)
         
-        self.search_results_label = ttk.Label(search_frame, text="")
+        self.search_results_label = ttk.Label(search_frame, text="", style="Modal.TLabel")
         self.search_results_label.pack(side="left", padx=2)
         
         def copy_to_clipboard():
@@ -455,7 +505,7 @@ class SaveFileViewer:
         copy_button = ttk.Button(toolbar, text=self.t("copy_to_clipboard"), command=copy_to_clipboard)
         copy_button.pack(side="left", padx=5)
         
-        toolbar_right = tk.Frame(toolbar)
+        toolbar_right = tk.Frame(toolbar, bg=Colors.MODAL_BG)
         toolbar_right.pack(side="right", padx=5)
         
         def _get_current_text_content() -> str:
@@ -509,12 +559,19 @@ class SaveFileViewer:
             如果有未保存的修改，弹出确认对话框询问用户是否抛弃更改。
             用户选择"是"则关闭窗口，选择"否"则保持窗口打开。
             """
+            global _current_save_file_viewer
+            
             if _has_unsaved_changes():
                 user_wants_to_discard = _confirm_discard_changes()
                 if not user_wants_to_discard:
                     return
             
             self.viewer_window.destroy()
+            
+            # 清理单例引用
+            if _current_save_file_viewer is self:
+                _current_save_file_viewer = None
+            
             if self.on_close_callback:
                 self.viewer_window.after(CLOSE_CALLBACK_DELAY_MS, self.on_close_callback)
         
@@ -584,18 +641,18 @@ class SaveFileViewer:
         
         # 创建包装 Frame 用于抖动动画
         DEFAULT_CHECKBOX_PADX = 5
-        checkbox_wrapper = tk.Frame(toolbar_right, bg=Colors.WHITE)
+        checkbox_wrapper = tk.Frame(toolbar_right, bg=Colors.MODAL_BG)
         checkbox_wrapper.pack(side="right", padx=DEFAULT_CHECKBOX_PADX)
         
         # 创建复选框样式
         checkbox_style = ttk.Style(self.viewer_window)
         checkbox_style.configure(
             CHECKBOX_STYLE_NORMAL,
-            background=Colors.WHITE
+            background=Colors.MODAL_BG
         )
         checkbox_style.configure(
             CHECKBOX_STYLE_HINT,
-            background=Colors.WHITE,
+            background=Colors.MODAL_BG,
             foreground="#FF6B35"  # 红橙色
         )
         
