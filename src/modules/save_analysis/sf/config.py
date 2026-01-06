@@ -175,7 +175,9 @@ def get_field_configs():
                     "label_key": "total_characters",
                     "var_name": "characters",
                     "formatter": lambda v, cd: max(0, len(cd["characters"])),
-                    "is_computed": True
+                    "is_computed": True,
+                    "has_tooltip": True,
+                    "tooltip_key": "characters_statistics_note"
                 },
                 {
                     "widget_key": "collectedCharacters.count",
@@ -378,13 +380,6 @@ def get_field_configs():
                     "label_key": "album_page_no",
                     "var_name": "albumPageNo",
                     "formatter": lambda v: (v if v is not None else 0) + 1  # 相册页码从0开始，显示时+1
-                },
-                {
-                    "widget_key": "desu",
-                    "data_path": "desu",
-                    "label_key": "desu",
-                    "var_name": "desu",
-                    "formatter": lambda v: v if v is not None else 0
                 },
                 {
                     "widget_key": "system.autosave",

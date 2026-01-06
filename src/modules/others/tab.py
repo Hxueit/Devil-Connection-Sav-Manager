@@ -73,6 +73,53 @@ class OthersTab:
         
         self._init_ui()
     
+    def _create_path_display_section(self, parent: ctk.CTkFrame) -> None:
+        """创建路径显示区域"""
+        path_frame = ctk.CTkFrame(parent, fg_color=Colors.WHITE)
+        path_frame.pack(fill="x", pady=(0, 15))
+        
+        path_label = ctk.CTkLabel(
+            path_frame,
+            text=self.t("current_selected_path"),
+            font=get_cjk_font(11),
+            text_color=Colors.TEXT_PRIMARY
+        )
+        path_label.pack(anchor="w", pady=(0, 5))
+        
+        # 创建路径显示文本框
+        self.path_display = ctk.CTkTextbox(
+            path_frame,
+            height=32,
+            font=get_cjk_font(10),
+            fg_color=Colors.WHITE,
+            text_color=Colors.TEXT_PRIMARY,
+            border_color=Colors.GRAY,
+            border_width=1,
+            corner_radius=6,
+            wrap="none"
+        )
+        self.path_display.pack(fill="x", anchor="w")
+        self.path_display.configure(state="disabled")
+        
+        # 更新路径显示
+        self._update_path_display()
+    
+    def _update_path_display(self) -> None:
+        """更新路径显示"""
+        if not hasattr(self, 'path_display'):
+            return
+        
+        self.path_display.configure(state="normal")
+        self.path_display.delete("1.0", "end")
+        
+        if self.storage_dir:
+            path_text = str(self.storage_dir)
+        else:
+            path_text = self.t("select_dir_hint")
+        
+        self.path_display.insert("1.0", path_text)
+        self.path_display.configure(state="disabled")
+    
     def _init_ui(self) -> None:
         """初始化UI"""
         main_container = ctk.CTkFrame(self.parent, fg_color=Colors.WHITE)
@@ -84,6 +131,9 @@ class OthersTab:
             corner_radius=10
         )
         content_frame.pack(fill="both", expand=True)
+        
+        # 创建路径显示区域（最上面）
+        self._create_path_display_section(content_frame)
         
         button_frame = ctk.CTkFrame(content_frame, fg_color=Colors.WHITE)
         button_frame.pack(fill="x", pady=10)
@@ -447,6 +497,7 @@ class OthersTab:
     def set_storage_dir(self, storage_dir: Optional[str]) -> None:
         """设置存储目录"""
         self.storage_dir = Path(storage_dir) if storage_dir else None
+        self._update_path_display()
     
     def _check_for_updates(self) -> None:
         """检查GitHub更新"""
@@ -497,6 +548,8 @@ class OthersTab:
             for widget in self.parent.winfo_children():
                 widget.destroy()
             self._init_ui()
+            # 语言更新后也需要更新路径显示
+            self._update_path_display()
         except Exception as e:
             logger.exception("更新语言时出错")
             raise

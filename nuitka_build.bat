@@ -35,7 +35,18 @@ python -m nuitka ^
     --output-dir=dist ^
     --output-filename=dcsm.exe ^
     --windows-console-mode=disable ^
+    --lto=yes ^
     --nofollow-import-to=src.modules.save_analysis.sf.debug ^
+    --nofollow-import-to=pythonnet ^
+    --nofollow-import-to=clr_loader ^
+    --nofollow-import-to=cryptography ^
+    --nofollow-import-to=bcrypt ^
+    --nofollow-import-to=zstandard ^
+    --nofollow-import-to=unittest ^
+    --nofollow-import-to=pydoc ^
+    --nofollow-import-to=doctest ^
+    --nofollow-import-to=test ^
+    --include-package=websockets ^
     main.py
 
 if errorlevel 1 (

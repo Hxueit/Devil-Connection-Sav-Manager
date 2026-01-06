@@ -4,10 +4,14 @@
 包含section渲染、增量更新和完整渲染逻辑。
 """
 
+import logging
 import tkinter as tk
 from tkinter import ttk
 from typing import Dict, Any, Optional, Callable, List, Tuple
 from src.utils.styles import get_cjk_font, Colors
+from src.constants import LATEST_GAME_PATCH_AT_BUILD
+
+logger = logging.getLogger(__name__)
 
 from .widget_manager import WidgetManager
 from .ui_components import (
@@ -24,15 +28,24 @@ from .config import get_field_configs_with_callbacks
 # 常量定义
 FANATIC_ROUTE_TEXT_COLOR = "#8b0000"
 HINT_WRAPLENGTH_RATIO = 0.85
+
+# Section 键名常量
+SECTION_KEY_FANATIC_RELATED = "fanatic_related"
+SECTION_KEY_CHARACTER_INFO = "character_info"
+
 DEFAULT_SECTION_ORDER = [
     "endings_statistics",
     "stickers_statistics",
     "characters_statistics",
     "omakes_statistics",
     "game_statistics",
-    "character_info",
+    SECTION_KEY_CHARACTER_INFO,
     "other_info"
 ]
+
+# UI 布局常量
+SECTION_PADDING_X = 10
+SECTION_PADDING_Y = 5
 
 
 class DataRenderer:
@@ -89,7 +102,7 @@ class DataRenderer:
         computed_data = computed_data or {}
         
         text_color = config.get("text_color")
-        if section_key == "fanatic_related" and is_fanatic_route:
+        if section_key == SECTION_KEY_FANATIC_RELATED and is_fanatic_route:
             text_color = FANATIC_ROUTE_TEXT_COLOR
         
         try:
@@ -196,6 +209,9 @@ class DataRenderer:
                 elif field_config.get("has_tooltip"):
                     tooltip_key = field_config.get("tooltip_key")
                     tooltip_text = self.translation_func(tooltip_key) if tooltip_key else ""
+                    # 替换占位符
+                    if "[GAMEPATCH_DATE]" in tooltip_text:
+                        tooltip_text = tooltip_text.replace("[GAMEPATCH_DATE]", LATEST_GAME_PATCH_AT_BUILD)
                     if not tooltip_text and field_config.get("tooltip_optional"):
                         add_info_line(
                             section, 
@@ -253,9 +269,13 @@ class DataRenderer:
             hint_key = config.get("hint_key")
             if hint_key:
                 try:
+                    hint_text = self.translation_func(hint_key)
+                    # 替换占位符
+                    if "[GAMEPATCH_DATE]" in hint_text:
+                        hint_text = hint_text.replace("[GAMEPATCH_DATE]", LATEST_GAME_PATCH_AT_BUILD)
                     hint_label = ttk.Label(
                         section, 
-                        text=self.translation_func(hint_key), 
+                        text=hint_text, 
                         font=get_cjk_font(9), 
                         foreground="gray",
                         wraplength=int(self.cached_width * HINT_WRAPLENGTH_RATIO),
@@ -270,6 +290,70 @@ class DataRenderer:
                     pass
         
         return section
+    
+    def _build_section_order(self, is_fanatic_route: bool) -> List[Tuple[str, bool] | str]:
+        """构建section渲染顺序
+        
+        Args:
+            is_fanatic_route: 是否为狂信徒路线
+            
+        Returns:
+            section顺序列表，每个元素为section键名或(键名, 条件)元组
+        """
+        fanatic_section_item: Tuple[str, bool] = (SECTION_KEY_FANATIC_RELATED, True)
+        
+        if is_fanatic_route:
+            return [fanatic_section_item, *DEFAULT_SECTION_ORDER]
+        
+        # 非狂信徒路线：插入到character_info之前
+        if SECTION_KEY_CHARACTER_INFO not in DEFAULT_SECTION_ORDER:
+            logger.error(
+                f"Configuration error: {SECTION_KEY_CHARACTER_INFO} not found in DEFAULT_SECTION_ORDER. "
+                "Falling back to appending fanatic section at the end."
+            )
+            return [*DEFAULT_SECTION_ORDER, fanatic_section_item]
+        
+        character_info_index = DEFAULT_SECTION_ORDER.index(SECTION_KEY_CHARACTER_INFO)
+        return [
+            *DEFAULT_SECTION_ORDER[:character_info_index],
+            fanatic_section_item,
+            *DEFAULT_SECTION_ORDER[character_info_index:]
+        ]
+    
+    def _render_section_item(
+        self,
+        section_item: Tuple[str, bool] | str,
+        parent: tk.Widget,
+        save_data: Dict[str, Any],
+        computed_data: Dict[str, Any],
+        is_fanatic_route: bool
+    ) -> Optional[tk.Frame]:
+        """渲染单个section项
+        
+        Args:
+            section_item: section项（键名或(键名, 条件)元组）
+            parent: 父容器
+            save_data: 存档数据
+            computed_data: 计算后的共享数据
+            is_fanatic_route: 是否为狂信徒路线
+            
+        Returns:
+            渲染的section，失败返回None
+        """
+        if isinstance(section_item, tuple):
+            section_key, should_render = section_item
+            if not should_render:
+                return None
+        else:
+            section_key = section_item
+        
+        return self.render_section(
+            section_key,
+            parent,
+            save_data,
+            computed_data,
+            is_fanatic_route
+        )
     
     def render_all_sections(
         self,
@@ -289,39 +373,26 @@ class DataRenderer:
         Returns:
             成功渲染的section数量
         """
-        section_order: List[Tuple[str, bool] | str] = [
-            ("fanatic_related", is_fanatic_route),
-            *DEFAULT_SECTION_ORDER,
-            ("fanatic_related", not is_fanatic_route)
-        ]
+        if parent is None or not parent.winfo_exists():
+            return 0
         
+        section_order = self._build_section_order(is_fanatic_route)
         rendered_count = 0
+        
         for section_item in section_order:
             try:
-                if isinstance(section_item, tuple):
-                    section_key, condition = section_item
-                    if condition:
-                        section = self.render_section(
-                            section_key, 
-                            parent, 
-                            save_data, 
-                            computed_data, 
-                            is_fanatic_route
-                        )
-                        if section:
-                            rendered_count += 1
-                else:
-                    section = self.render_section(
-                        section_item, 
-                        parent, 
-                        save_data, 
-                        computed_data, 
-                        is_fanatic_route
-                    )
-                    if section:
-                        rendered_count += 1
-            except Exception:
+                section = self._render_section_item(
+                    section_item,
+                    parent,
+                    save_data,
+                    computed_data,
+                    is_fanatic_route
+                )
+                if section is not None:
+                    rendered_count += 1
+            except (KeyError, AttributeError, tk.TclError) as e:
                 # 单个section渲染失败不影响其他section
+                logger.warning(f"Failed to render section {section_item}: {e}")
                 continue
         
         return rendered_count
@@ -360,14 +431,17 @@ class DataRenderer:
                     is_initialized_ref['value'] = False
                     return False
         
-        # 更新狂信徒section的颜色
-        if is_fanatic_route:
-            fanatic_section = self.widget_manager.get_section("fanatic_related")
-            if not fanatic_section or not fanatic_section.winfo_exists():
-                is_initialized_ref['value'] = False
-                return False
-            
-            self._update_fanatic_section_colors(fanatic_section, scrollable_frame)
+        # 更新狂信徒section的颜色和位置
+        fanatic_section = self.widget_manager.get_section(SECTION_KEY_FANATIC_RELATED)
+        if not fanatic_section or not fanatic_section.winfo_exists():
+            is_initialized_ref['value'] = False
+            return False
+        
+        self._update_fanatic_section_colors_and_position(
+            fanatic_section,
+            scrollable_frame,
+            is_fanatic_route
+        )
         
         # 更新动态widget
         self._update_dynamic_widgets(computed_data)
@@ -378,54 +452,149 @@ class DataRenderer:
         
         return True
     
-    def _update_fanatic_section_colors(
-        self,
-        fanatic_section: tk.Widget,
-        scrollable_frame: tk.Widget
-    ) -> None:
-        """更新狂信徒section的颜色"""
-        section_frame = getattr(fanatic_section, '_section_frame', None)
-        if not section_frame or not section_frame.winfo_exists():
-            return
+    def _update_fanatic_section_colors(self, fanatic_section: tk.Widget) -> None:
+        """更新狂信徒section的颜色（仅在狂信徒路线时）
         
-        section_frame.config(bg=Colors.WHITE)
-        
-        title_widget_info = self.widget_manager.get_section_title("fanatic_related")
+        Args:
+            fanatic_section: 狂信徒section的widget
+        """
+        title_widget_info = self.widget_manager.get_section_title(SECTION_KEY_FANATIC_RELATED)
         if title_widget_info:
             title_label = title_widget_info.get('title_label')
             if title_label and title_label.winfo_exists():
                 title_label.config(foreground=FANATIC_ROUTE_TEXT_COLOR)
         
         configs = self._get_field_configs()
-        fanatic_config = configs.get("fanatic_related", {})
+        fanatic_config = configs.get(SECTION_KEY_FANATIC_RELATED, {})
         fanatic_widget_keys = [
-            field.get("widget_key") 
+            field.get("widget_key")
             for field in fanatic_config.get("fields", [])
             if field.get("widget_key")
         ]
         
         for widget_key in fanatic_widget_keys:
             widget_info = self.widget_manager.get_widget(widget_key)
-            if widget_info:
-                value_widget = widget_info.get('value_widget')
-                label_widget = widget_info.get('label_widget')
-                if value_widget and value_widget.winfo_exists():
-                    value_widget.config(foreground=FANATIC_ROUTE_TEXT_COLOR)
-                if label_widget and label_widget.winfo_exists():
-                    label_widget.config(foreground=FANATIC_ROUTE_TEXT_COLOR)
+            if not widget_info:
+                continue
+            
+            value_widget = widget_info.get('value_widget')
+            label_widget = widget_info.get('label_widget')
+            
+            if value_widget and value_widget.winfo_exists():
+                value_widget.config(foreground=FANATIC_ROUTE_TEXT_COLOR)
+            if label_widget and label_widget.winfo_exists():
+                label_widget.config(foreground=FANATIC_ROUTE_TEXT_COLOR)
         
         # 递归更新所有Label的颜色
         self._update_widget_colors_recursive(fanatic_section, FANATIC_ROUTE_TEXT_COLOR)
+    
+    def _reposition_section_frame(
+        self,
+        section_frame: tk.Frame,
+        target_frame: Optional[tk.Frame],
+        scrollable_frame: tk.Widget
+    ) -> None:
+        """重新定位section frame
+        
+        Args:
+            section_frame: 要移动的section frame
+            target_frame: 目标位置（在其之前插入），None表示插入到末尾
+            scrollable_frame: 可滚动frame容器
+        """
+        section_frame.pack_forget()
+        if target_frame is not None:
+            section_frame.pack(
+                fill="x",
+                padx=SECTION_PADDING_X,
+                pady=SECTION_PADDING_Y,
+                before=target_frame
+            )
+        else:
+            section_frame.pack(
+                fill="x",
+                padx=SECTION_PADDING_X,
+                pady=SECTION_PADDING_Y
+            )
+    
+    def _adjust_fanatic_section_position(
+        self,
+        section_frame: tk.Frame,
+        scrollable_frame: tk.Widget,
+        is_fanatic_route: bool
+    ) -> None:
+        """调整狂信徒section的位置
+        
+        Args:
+            section_frame: 狂信徒section的frame
+            scrollable_frame: 可滚动frame容器
+            is_fanatic_route: 是否为狂信徒路线
+        """
+        if not scrollable_frame.winfo_exists():
+            return
+        
+        children = list(scrollable_frame.winfo_children())
+        if not children:
+            return
+        
+        if is_fanatic_route:
+            # 狂信徒路线：应该在最前面
+            if children[0] != section_frame:
+                self._reposition_section_frame(section_frame, children[0], scrollable_frame)
+            return
+        
+        # 非狂信徒路线：应该在character_info之前
+        character_info_section = self.widget_manager.get_section(SECTION_KEY_CHARACTER_INFO)
+        if character_info_section is None:
+            # character_info不存在，降级到末尾
+            if children[-1] != section_frame:
+                self._reposition_section_frame(section_frame, None, scrollable_frame)
+            return
+        
+        character_info_frame = getattr(character_info_section, '_section_frame', None)
+        if character_info_frame is None or not character_info_frame.winfo_exists():
+            # character_info frame无效，降级到末尾
+            if children[-1] != section_frame:
+                self._reposition_section_frame(section_frame, None, scrollable_frame)
+            return
+        
+        # 检查当前位置是否正确
+        if section_frame not in children or character_info_frame not in children:
+            # 如果任一frame不在children中，直接插入到character_info之前
+            self._reposition_section_frame(section_frame, character_info_frame, scrollable_frame)
+            return
+        
+        fanatic_index = children.index(section_frame)
+        character_index = children.index(character_info_frame)
+        
+        # 如果fanatic在character_info之后，需要调整
+        if fanatic_index > character_index:
+            self._reposition_section_frame(section_frame, character_info_frame, scrollable_frame)
+    
+    def _update_fanatic_section_colors_and_position(
+        self,
+        fanatic_section: tk.Widget,
+        scrollable_frame: tk.Widget,
+        is_fanatic_route: bool
+    ) -> None:
+        """更新狂信徒section的颜色和位置
+        
+        Args:
+            fanatic_section: 狂信徒section的widget
+            scrollable_frame: 可滚动frame
+            is_fanatic_route: 是否为狂信徒路线
+        """
+        section_frame = getattr(fanatic_section, '_section_frame', None)
+        if section_frame is None or not section_frame.winfo_exists():
+            return
+        
+        section_frame.config(bg=Colors.WHITE)
+        
+        # 更新颜色（仅在狂信徒路线时）
+        if is_fanatic_route:
+            self._update_fanatic_section_colors(fanatic_section)
         
         # 调整section位置
-        if scrollable_frame and scrollable_frame.winfo_exists():
-            children = list(scrollable_frame.winfo_children())
-            if children and children[0] != section_frame:
-                section_frame.pack_forget()
-                if children:
-                    section_frame.pack(fill="x", padx=10, pady=5, before=children[0])
-                else:
-                    section_frame.pack(fill="x", padx=10, pady=5)
+        self._adjust_fanatic_section_position(section_frame, scrollable_frame, is_fanatic_route)
     
     def _update_widget_colors_recursive(self, widget: tk.Widget, color: str) -> None:
         """递归更新widget中所有Label的文字颜色"""
@@ -483,7 +652,7 @@ class DataRenderer:
         """更新所有字段的值"""
         # 更新非狂信徒section的字段
         for section_key, section_config in configs.items():
-            if section_key == "fanatic_related":
+            if section_key == SECTION_KEY_FANATIC_RELATED:
                 continue
             
             for field_config in section_config.get("fields", []):
@@ -504,6 +673,9 @@ class DataRenderer:
                 if field_config.get("has_tooltip"):
                     tooltip_key = field_config.get("tooltip_key")
                     tooltip_text = self.translation_func(tooltip_key) if tooltip_key else ""
+                    # 替换占位符
+                    if "[GAMEPATCH_DATE]" in tooltip_text:
+                        tooltip_text = tooltip_text.replace("[GAMEPATCH_DATE]", LATEST_GAME_PATCH_AT_BUILD)
                     if not tooltip_text and field_config.get("tooltip_optional"):
                         add_info_line(
                             None,
@@ -548,7 +720,7 @@ class DataRenderer:
         
         # 更新狂信徒section的字段（如果不是狂信徒路线）
         if not is_fanatic_route:
-            fanatic_config = configs.get("fanatic_related", {})
+            fanatic_config = configs.get(SECTION_KEY_FANATIC_RELATED, {})
             for field_config in fanatic_config.get("fields", []):
                 widget_key = field_config.get("widget_key")
                 if not widget_key:
@@ -562,7 +734,11 @@ class DataRenderer:
                 )
                 
                 if field_config.get("has_tooltip"):
-                    tooltip_text = self.translation_func(field_config.get("tooltip_key", ""))
+                    tooltip_key = field_config.get("tooltip_key", "")
+                    tooltip_text = self.translation_func(tooltip_key) if tooltip_key else ""
+                    # 替换占位符
+                    if "[GAMEPATCH_DATE]" in tooltip_text:
+                        tooltip_text = tooltip_text.replace("[GAMEPATCH_DATE]", LATEST_GAME_PATCH_AT_BUILD)
                     add_info_line_with_tooltip(
                         None,
                         self.translation_func(field_config["label_key"]),

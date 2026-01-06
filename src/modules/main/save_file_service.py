@@ -11,7 +11,6 @@ import shutil
 import platform
 import hashlib
 import time
-from pathlib import Path
 from typing import Optional, Dict, Any
 
 logger = logging.getLogger(__name__)
@@ -21,8 +20,6 @@ class SaveFileService:
     """存档文件服务类"""
     
     SAVE_FILE_NAME = "DevilConnection_sf.sav"
-    TEMP_FILE_PREFIX = ".temp_sf_"
-    TEMP_FILE_SUFFIX = ".sav"
     MAX_RETRIES = 3
     RETRY_DELAY = 0.1
     
@@ -34,7 +31,6 @@ class SaveFileService:
         """
         self.storage_dir = storage_dir
         self.save_file_path: Optional[str] = None
-        self.temp_file_path: Optional[str] = None
         
         if storage_dir:
             self._update_paths()
@@ -52,19 +48,13 @@ class SaveFileService:
         """更新文件路径"""
         if not self.storage_dir:
             self.save_file_path = None
-            self.temp_file_path = None
             return
         
         try:
             self.save_file_path = os.path.join(self.storage_dir, self.SAVE_FILE_NAME)
-            self.temp_file_path = os.path.join(
-                self.storage_dir, 
-                f"{self.TEMP_FILE_PREFIX}{self.SAVE_FILE_NAME}"
-            )
         except (OSError, TypeError) as e:
             logger.error(f"Error updating paths: {e}", exc_info=True)
             self.save_file_path = None
-            self.temp_file_path = None
     
     def read_file(self, file_path: Optional[str] = None) -> Optional[str]:
         """读取文件内容
@@ -119,6 +109,9 @@ class SaveFileService:
         try:
             with open(file_path, 'r', encoding='utf-8', errors='strict') as f:
                 return f.read()
+        except MemoryError:
+            logger.error(f"Insufficient memory to read file: {file_path}")
+            return None
         except (IOError, OSError, PermissionError, UnicodeDecodeError) as e:
             logger.debug(f"UTF-8 text read failed for {file_path}: {e}")
             return None
@@ -129,6 +122,9 @@ class SaveFileService:
             with open(file_path, 'rb') as f:
                 raw_data = f.read()
             return raw_data.decode('utf-8', errors='ignore')
+        except MemoryError:
+            logger.error(f"Insufficient memory to read file: {file_path}")
+            return None
         except (IOError, OSError, PermissionError, UnicodeDecodeError) as e:
             logger.debug(f"Binary decode read failed for {file_path}: {e}")
             return None
@@ -147,6 +143,9 @@ class SaveFileService:
                 
                 with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                     return f.read()
+            except MemoryError:
+                logger.error(f"内存不足，无法读取文件: {file_path}")
+                return None
             except (IOError, OSError, PermissionError) as e:
                 logger.debug(f"Read retry attempt {attempt + 1} failed for {file_path}: {e}")
                 if attempt < max_retries - 1:
@@ -173,7 +172,7 @@ class SaveFileService:
             try:
                 encoded = strategy()
                 if encoded:
-                    parsed = self._parse_encoded_content(encoded)
+                    parsed = self.parse_save_content(encoded)
                     if parsed:
                         return parsed
             except Exception as e:
@@ -188,6 +187,9 @@ class SaveFileService:
         try:
             with open(self.save_file_path, 'r', encoding='utf-8') as f:
                 return f.read().strip()
+        except MemoryError:
+            logger.error(f"内存不足，无法读取存档文件: {self.save_file_path}")
+            return None
         except (IOError, OSError, PermissionError, UnicodeDecodeError):
             return None
     
@@ -197,6 +199,9 @@ class SaveFileService:
             with open(self.save_file_path, 'rb') as f:
                 raw_data = f.read()
             return raw_data.decode('utf-8', errors='ignore').strip()
+        except MemoryError:
+            logger.error(f"内存不足，无法读取存档文件: {self.save_file_path}")
+            return None
         except (IOError, OSError, PermissionError, UnicodeDecodeError):
             return None
     
@@ -218,6 +223,9 @@ class SaveFileService:
                     os.remove(temp_path)
                 except OSError:
                     pass
+        except MemoryError:
+            logger.error(f"内存不足，无法读取存档文件: {self.save_file_path}")
+            return None
         except Exception:
             return None
     
@@ -239,86 +247,14 @@ class SaveFileService:
             if isinstance(data, dict):
                 return data
             logger.warning(f"Parsed content is not a dict: {type(data)}")
+        except MemoryError:
+            logger.error("Insufficient memory to parse save content")
+            return None
         except (json.JSONDecodeError, ValueError) as e:
             logger.debug(f"Failed to parse save content: {e}")
         except Exception as e:
             logger.error(f"Unexpected error parsing save content: {e}", exc_info=True)
         return None
-    
-    def _parse_encoded_content(self, encoded: str) -> Optional[Dict[str, Any]]:
-        """解析编码后的内容"""
-        return self.parse_save_content(encoded)
-    
-    def write_temp_file(self, content: Optional[str]) -> bool:
-        """写入临时文件
-        
-        Args:
-            content: 文件内容
-            
-        Returns:
-            是否成功
-        """
-        if not self._is_valid_temp_file_path() or content is None:
-            return False
-        
-        temp_dir = os.path.dirname(self.temp_file_path)
-        if not temp_dir:
-            logger.error("Temp file path has no directory")
-            return False
-        
-        try:
-            if not os.path.exists(temp_dir):
-                os.makedirs(temp_dir, exist_ok=True)
-        except OSError as e:
-            logger.error(f"Failed to create temp directory {temp_dir}: {e}")
-            return False
-        
-        temp_fd = None
-        temp_path = None
-        
-        try:
-            temp_fd, temp_path = tempfile.mkstemp(
-                dir=temp_dir,
-                prefix=self.TEMP_FILE_PREFIX,
-                suffix=self.TEMP_FILE_SUFFIX
-            )
-            
-            with os.fdopen(temp_fd, 'w', encoding='utf-8') as f:
-                f.write(content)
-            temp_fd = None
-            
-            if os.path.exists(self.temp_file_path):
-                os.replace(temp_path, self.temp_file_path)
-            else:
-                os.rename(temp_path, self.temp_file_path)
-            
-            return True
-        except (OSError, IOError) as e:
-            logger.error(f"Failed to write temp file: {e}", exc_info=True)
-            if temp_fd is not None:
-                try:
-                    os.close(temp_fd)
-                except OSError:
-                    pass
-            if temp_path and os.path.exists(temp_path):
-                try:
-                    os.unlink(temp_path)
-                except OSError:
-                    pass
-            return False
-    
-    def read_temp_file(self) -> Optional[str]:
-        """读取临时文件内容"""
-        if not self._is_valid_temp_file_path():
-            return None
-        
-        return self.read_file(self.temp_file_path)
-    
-    def _is_valid_temp_file_path(self) -> bool:
-        """检查临时文件路径是否有效"""
-        return (self.temp_file_path is not None and
-                isinstance(self.temp_file_path, str) and
-                len(self.temp_file_path) > 0)
     
     def get_file_hash(self, content: Optional[str]) -> Optional[str]:
         """获取文件内容的哈希值
@@ -340,55 +276,4 @@ class SaveFileService:
         except (UnicodeEncodeError, AttributeError) as e:
             logger.debug(f"Failed to hash content: {e}")
             return None
-    
-    def cleanup_temp_file(self) -> None:
-        """清理临时文件"""
-        if not self._is_valid_temp_file_path():
-            return
-        
-        if not os.path.exists(self.temp_file_path):
-            return
-        
-        max_attempts = 3
-        for attempt in range(max_attempts):
-            try:
-                os.remove(self.temp_file_path)
-                return
-            except (OSError, PermissionError) as e:
-                if attempt < max_attempts - 1:
-                    time.sleep(self.RETRY_DELAY)
-                else:
-                    logger.warning(f"Failed to remove temp file after {max_attempts} attempts: {e}")
-            except Exception as e:
-                logger.error(f"Unexpected error removing temp file: {e}", exc_info=True)
-                return
-    
-    def initialize_temp_file(self) -> bool:
-        """初始化临时文件：读取当前存档并写入临时文件
-        
-        Returns:
-            是否成功
-        """
-        if not self.save_file_path or not isinstance(self.save_file_path, str):
-            return False
-        
-        if not os.path.exists(self.save_file_path):
-            if self.temp_file_path and isinstance(self.temp_file_path, str) and os.path.exists(self.temp_file_path):
-                try:
-                    os.remove(self.temp_file_path)
-                except Exception:
-                    pass
-            return False
-        
-        save_content = None
-        for retry in range(5):
-            save_content = self.read_file(self.save_file_path)
-            if save_content is not None:
-                break
-            time.sleep(0.2)
-        
-        if save_content is not None:
-            return self.write_temp_file(save_content)
-        
-        return False
 

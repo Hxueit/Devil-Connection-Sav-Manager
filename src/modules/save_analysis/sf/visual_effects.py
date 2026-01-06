@@ -1,6 +1,6 @@
 """视觉效果工具模块
 
-提供各种视觉效果和动画功能，包括颜色处理、进度环绘制、文本换行等。
+提供各种视觉效果和动画功能，包括颜色处理、进度环绘制、文本换行等
 """
 
 import tkinter as tk
@@ -56,10 +56,18 @@ def lighten_color(color: str, factor: float = 0.3) -> str:
     return interpolate_color(color, "#FFFFFF", factor)
 
 
-def draw_progress_ring(canvas: tk.Canvas, center_x: int, center_y: int, radius: int, 
-                       line_width: int, current_percent: float, progress_color: str, 
-                       tag: str = "progress", skip_full_highlight: bool = False):
-    """绘制进度圆环（支持动画、末端高亮和发光效果）
+def draw_progress_ring(
+    canvas: tk.Canvas,
+    center_x: int,
+    center_y: int,
+    radius: int,
+    line_width: int,
+    current_percent: float,
+    progress_color: str,
+    tag: str = "progress",
+    skip_full_highlight: bool = False
+) -> None:
+    """绘制进度圆环
     
     Args:
         canvas: tkinter Canvas对象
@@ -72,50 +80,76 @@ def draw_progress_ring(canvas: tk.Canvas, center_x: int, center_y: int, radius: 
         tag: 用于标记进度元素的tag，方便清除
         skip_full_highlight: 100%时是否跳过整体高亮（用于庆祝动画前）
     """
-    canvas.delete(tag)
-    canvas.delete(f"{tag}_glow")
-    
     rounded_percent = round(current_percent)
-    if rounded_percent >= 100:
-        num_segments = 99
-    else:
-        num_segments = rounded_percent
     
-    if num_segments <= 0:
+    if rounded_percent <= 0:
+        canvas.delete(tag)
+        canvas.delete(f"{tag}_glow")
+        canvas.delete(f"{tag}_highlight")
         return
     
-    angle_per_segment = 360 / 100
+    extent = -(min(current_percent, 99.5) / 100) * 360
     
     is_complete = rounded_percent >= 100 and not skip_full_highlight
     highlight_color = lighten_color(progress_color, 0.35)
-    highlight_segments = 8
+    arc_color = highlight_color if is_complete else progress_color
     
-    if is_complete:
-        glow_layers = [
-            (8, 0.75),
-            (5, 0.55),
-            (3, 0.35),
-        ]
+    main_arc_tag = f"{tag}_arc"
+    glow_arc_tag = f"{tag}_glow_arc"
+    
+    main_bbox = (
+        center_x - radius,
+        center_y - radius,
+        center_x + radius,
+        center_y + radius
+    )
+    
+    existing_main = canvas.find_withtag(main_arc_tag)
+    existing_glow = canvas.find_withtag(glow_arc_tag)
+    
+    glow_width = line_width + 6
+    glow_color = lighten_color(arc_color, 0.65)
+    glow_bbox = main_bbox
+    
+    if existing_glow:
+        canvas.itemconfig(existing_glow[0], extent=extent, outline=glow_color)
     else:
-        glow_layers = [
-            (6, 0.85),
-            (4, 0.70),
-            (2, 0.50),
-        ]
+        canvas.create_arc(
+            *glow_bbox,
+            start=90,
+            extent=extent,
+            style=tk.ARC,
+            outline=glow_color,
+            width=glow_width,
+            tags=(f"{tag}_glow", glow_arc_tag)
+        )
     
-    for extra_width, lighten_factor in glow_layers:
-        glow_width = line_width + extra_width
-        for i in range(num_segments):
-            if is_complete:
-                glow_color = lighten_color(highlight_color, lighten_factor)
-            else:
-                segments_from_end = num_segments - 1 - i
-                if segments_from_end < highlight_segments:
-                    highlight_factor = 1 - (segments_from_end / highlight_segments)
-                    base_color = interpolate_color(progress_color, highlight_color, highlight_factor)
-                    glow_color = lighten_color(base_color, lighten_factor)
-                else:
-                    glow_color = lighten_color(progress_color, lighten_factor)
+    if existing_main:
+        canvas.itemconfig(existing_main[0], extent=extent, outline=arc_color)
+    else:
+        canvas.create_arc(
+            *main_bbox,
+            start=90,
+            extent=extent,
+            style=tk.ARC,
+            outline=arc_color,
+            width=line_width,
+            tags=(tag, main_arc_tag)
+        )
+    
+    highlight_tag = f"{tag}_highlight"
+    canvas.delete(highlight_tag)
+    
+    if not is_complete and rounded_percent > 0:
+        highlight_segments = min(8, rounded_percent)
+        angle_per_segment = 360 / 100
+        num_segments = min(rounded_percent, 99)
+        
+        for i in range(max(0, num_segments - highlight_segments), num_segments):
+            segments_from_end = num_segments - 1 - i
+            highlight_factor = 1 - (segments_from_end / highlight_segments)
+            segment_color = interpolate_color(progress_color, highlight_color, highlight_factor)
+            
             start_angle = 90 - (i * angle_per_segment)
             end_angle = 90 - ((i + 1) * angle_per_segment)
             
@@ -130,50 +164,57 @@ def draw_progress_ring(canvas: tk.Canvas, center_x: int, center_y: int, radius: 
             canvas.create_line(
                 start_x, start_y,
                 end_x, end_y,
-                fill=glow_color,
-                width=int(glow_width),
-                capstyle=tk.ROUND,
-                tags=f"{tag}_glow"
-            )
-    
-    for offset, width in [(0, line_width), (0.5, line_width - 1), (1, max(1, line_width - 2))]:
-        offset_radius = radius + offset
-        
-        for i in range(num_segments):
-            if is_complete:
-                segment_color = highlight_color
-            else:
-                segments_from_end = num_segments - 1 - i
-                if segments_from_end < highlight_segments:
-                    highlight_factor = 1 - (segments_from_end / highlight_segments)
-                    segment_color = interpolate_color(progress_color, highlight_color, highlight_factor)
-                else:
-                    segment_color = progress_color
-            
-            start_angle = 90 - (i * angle_per_segment)
-            end_angle = 90 - ((i + 1) * angle_per_segment)
-            
-            start_angle_rad = math.radians(start_angle)
-            end_angle_rad = math.radians(end_angle)
-            
-            start_x = center_x + offset_radius * math.cos(start_angle_rad)
-            start_y = center_y - offset_radius * math.sin(start_angle_rad)
-            end_x = center_x + offset_radius * math.cos(end_angle_rad)
-            end_y = center_y - offset_radius * math.sin(end_angle_rad)
-            
-            canvas.create_line(
-                start_x, start_y,
-                end_x, end_y,
                 fill=segment_color,
-                width=int(width),
+                width=line_width,
                 capstyle=tk.ROUND,
-                tags=tag
+                tags=highlight_tag
             )
 
 
-def animate_completion_celebration(canvas: tk.Canvas, center_x: int, center_y: int, 
-                                  radius: int, line_width: int, progress_color: str,
-                                  window: tk.Widget, draw_func: Callable):
+def _is_widget_valid(widget: Optional[tk.Widget]) -> bool:
+    """检查widget是否有效
+    
+    Args:
+        widget: 要检查的widget
+        
+    Returns:
+        widget是否有效
+    """
+    if widget is None:
+        return False
+    try:
+        return widget.winfo_exists()
+    except (tk.TclError, AttributeError, RuntimeError):
+        return False
+
+
+def _safe_after_cancel(window: tk.Widget, job_id: Optional[int]) -> None:
+    """安全取消after调度
+    
+    Args:
+        window: 窗口对象
+        job_id: after调度的ID
+    """
+    if job_id is None:
+        return
+    if not _is_widget_valid(window):
+        return
+    try:
+        window.after_cancel(job_id)
+    except (tk.TclError, ValueError, AttributeError, RuntimeError):
+        pass
+
+
+def animate_completion_celebration(
+    canvas: tk.Canvas,
+    center_x: int,
+    center_y: int,
+    radius: int,
+    line_width: int,
+    progress_color: str,
+    window: tk.Widget,
+    draw_func: Callable
+) -> None:
     """100%达成时的庆祝动画：高亮从末端逐渐蔓延到整个环
     
     Args:
@@ -186,8 +227,12 @@ def animate_completion_celebration(canvas: tk.Canvas, center_x: int, center_y: i
         window: 窗口对象，用于调用after方法
         draw_func: 绘制函数，用于绘制进度环
     """
+    if not _is_widget_valid(canvas) or not _is_widget_valid(window):
+        return
+    
     if hasattr(canvas, '_celebration_job') and canvas._celebration_job:
-        window.after_cancel(canvas._celebration_job)
+        _safe_after_cancel(window, canvas._celebration_job)
+        canvas._celebration_job = None
     
     animation_duration = 0.6
     animation_start_time = time.time()
@@ -196,19 +241,87 @@ def animate_completion_celebration(canvas: tk.Canvas, center_x: int, center_y: i
     angle_per_segment = 360 / 100
     initial_highlight_segments = 8
     
-    def animate_spread():
-        """蔓延动画循环"""
-        if not canvas.winfo_exists():
+    try:
+        canvas.delete("progress")
+        canvas.delete("progress_glow")
+        canvas.delete("progress_highlight")
+        canvas.delete("celebration_base")
+        canvas.delete("celebration_highlight")
+        canvas.delete("celebration_glow")
+    except (tk.TclError, RuntimeError):
+        return
+    
+    main_bbox = (
+        center_x - radius,
+        center_y - radius,
+        center_x + radius,
+        center_y + radius
+    )
+    
+    try:
+        base_glow_color = lighten_color(progress_color, 0.65)
+        canvas.create_arc(
+            *main_bbox,
+            start=90,
+            extent=-356.4,
+            style=tk.ARC,
+            outline=base_glow_color,
+            width=line_width + 6,
+            tags="celebration_glow"
+        )
+        canvas.create_arc(
+            *main_bbox,
+            start=90,
+            extent=-356.4,
+            style=tk.ARC,
+            outline=progress_color,
+            width=line_width,
+            tags="celebration_base"
+        )
+        
+        highlight_glow_color = lighten_color(highlight_color, 0.65)
+        highlight_glow_id = canvas.create_arc(
+            *main_bbox,
+            start=90,
+            extent=0,
+            style=tk.ARC,
+            outline=highlight_glow_color,
+            width=line_width + 6,
+            tags="celebration_highlight_glow"
+        )
+        highlight_arc_id = canvas.create_arc(
+            *main_bbox,
+            start=90,
+            extent=0,
+            style=tk.ARC,
+            outline=highlight_color,
+            width=line_width,
+            tags="celebration_highlight"
+        )
+    except (tk.TclError, RuntimeError):
+        return
+    
+    def animate_spread() -> None:
+        if not _is_widget_valid(window) or not _is_widget_valid(canvas):
             return
         
         elapsed = time.time() - animation_start_time
         
         if elapsed >= animation_duration:
-            draw_func(
-                canvas, center_x, center_y, radius, line_width,
-                100, progress_color, tag="progress"
-            )
-            canvas._celebration_job = None
+            if not _is_widget_valid(canvas):
+                return
+            try:
+                canvas.delete("celebration_base")
+                canvas.delete("celebration_highlight")
+                canvas.delete("celebration_glow")
+                canvas.delete("celebration_highlight_glow")
+                draw_func(
+                    canvas, center_x, center_y, radius, line_width,
+                    100, progress_color, tag="progress"
+                )
+                canvas._celebration_job = None
+            except (tk.TclError, RuntimeError):
+                pass
             return
         
         progress = elapsed / animation_duration
@@ -217,82 +330,25 @@ def animate_completion_celebration(canvas: tk.Canvas, center_x: int, center_y: i
         current_highlight_count = initial_highlight_segments + int(
             (total_segments - initial_highlight_segments) * eased_progress
         )
+        highlight_extent = -(current_highlight_count * angle_per_segment)
         
-        canvas.delete("progress")
-        canvas.delete("progress_glow")
+        if not _is_widget_valid(canvas):
+            return
         
-        glow_layers = [
-            (8, 0.75),
-            (5, 0.55),
-            (3, 0.35),
-        ]
-        
-        for extra_width, lighten_factor in glow_layers:
-            glow_width = line_width + extra_width
-            for i in range(total_segments):
-                segments_from_end = total_segments - 1 - i
-                is_highlighted = (i < current_highlight_count) or (segments_from_end < initial_highlight_segments)
-                
-                if is_highlighted:
-                    glow_color = lighten_color(highlight_color, lighten_factor)
-                else:
-                    glow_color = lighten_color(progress_color, lighten_factor)
-                
-                start_angle = 90 - (i * angle_per_segment)
-                end_angle = 90 - ((i + 1) * angle_per_segment)
-                
-                start_angle_rad = math.radians(start_angle)
-                end_angle_rad = math.radians(end_angle)
-                
-                start_x = center_x + radius * math.cos(start_angle_rad)
-                start_y = center_y - radius * math.sin(start_angle_rad)
-                end_x = center_x + radius * math.cos(end_angle_rad)
-                end_y = center_y - radius * math.sin(end_angle_rad)
-                
-                canvas.create_line(
-                    start_x, start_y,
-                    end_x, end_y,
-                    fill=glow_color,
-                    width=int(glow_width),
-                    capstyle=tk.ROUND,
-                    tags="progress_glow"
-                )
-        
-        for offset, width in [(0, line_width), (0.5, line_width - 1), (1, max(1, line_width - 2))]:
-            offset_radius = radius + offset
+        try:
+            canvas.itemconfig(highlight_glow_id, extent=highlight_extent)
+            canvas.itemconfig(highlight_arc_id, extent=highlight_extent)
             
-            for i in range(total_segments):
-                segments_from_end = total_segments - 1 - i
-                is_highlighted = (i < current_highlight_count) or (segments_from_end < initial_highlight_segments)
-                
-                if is_highlighted:
-                    segment_color = highlight_color
-                else:
-                    segment_color = progress_color
-                
-                start_angle = 90 - (i * angle_per_segment)
-                end_angle = 90 - ((i + 1) * angle_per_segment)
-                
-                start_angle_rad = math.radians(start_angle)
-                end_angle_rad = math.radians(end_angle)
-                
-                start_x = center_x + offset_radius * math.cos(start_angle_rad)
-                start_y = center_y - offset_radius * math.sin(start_angle_rad)
-                end_x = center_x + offset_radius * math.cos(end_angle_rad)
-                end_y = center_y - offset_radius * math.sin(end_angle_rad)
-                
-                canvas.create_line(
-                    start_x, start_y,
-                    end_x, end_y,
-                    fill=segment_color,
-                    width=int(width),
-                    capstyle=tk.ROUND,
-                    tags="progress"
-                )
-        
-        canvas._celebration_job = window.after(16, animate_spread)
+            if _is_widget_valid(window):
+                canvas._celebration_job = window.after(20, animate_spread)
+        except (tk.TclError, RuntimeError):
+            pass
     
-    animate_spread()
+    if _is_widget_valid(window):
+        try:
+            animate_spread()
+        except (tk.TclError, RuntimeError):
+            pass
 
 
 def generate_gibberish_text(original_text: str) -> str:
@@ -307,26 +363,32 @@ def generate_gibberish_text(original_text: str) -> str:
     if not original_text:
         return original_text
     
-    # 随机选择替换比例（20-50%）
     replace_ratio = random.uniform(0.2, 0.5)
     num_replace = max(1, int(len(original_text) * replace_ratio))
     
-    # 随机选择要替换的位置
-    positions_to_replace = random.sample(range(len(original_text)), min(num_replace, len(original_text)))
+    positions_to_replace = random.sample(
+        range(len(original_text)),
+        min(num_replace, len(original_text))
+    )
     
-    # 生成乱码文本
     result = list(original_text)
-    printable_chars = string.printable  # 包含所有可打印字符
+    printable_chars = string.printable
     
     for pos in positions_to_replace:
-        # 替换为随机可打印字符
         result[pos] = random.choice(printable_chars)
     
     return ''.join(result)
 
 
-def create_rounded_rect(canvas: tk.Canvas, x1: float, y1: float, x2: float, y2: float, 
-                        radius: float, **kwargs) -> int:
+def create_rounded_rect(
+    canvas: tk.Canvas,
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    radius: float,
+    **kwargs
+) -> int:
     """在Canvas上绘制圆角矩形
     
     Args:
@@ -371,11 +433,10 @@ def wrap_text(text: str, font, max_width: int, canvas: tk.Canvas) -> list:
     Returns:
         换行后的行列表
     """
-    words = text
     lines = []
     current_line = ""
     
-    for char in words:
+    for char in text:
         test_line = current_line + char
         temp_id = canvas.create_text(0, 0, text=test_line, font=font, anchor="nw")
         bbox = canvas.bbox(temp_id)
@@ -392,4 +453,3 @@ def wrap_text(text: str, font, max_width: int, canvas: tk.Canvas) -> list:
         lines.append(current_line)
     
     return lines if lines else [text]
-

@@ -15,6 +15,10 @@ class CheckboxManager:
     管理Treeview中复选框的状态，提供选中项查询和全选功能。
     """
     
+    CHECKBOX_CHECKED = "☑"
+    CHECKBOX_UNCHECKED = "☐"
+    MIN_VALUES_LENGTH = 2
+    
     def __init__(
         self,
         tree: ttk.Treeview,
@@ -36,16 +40,19 @@ class CheckboxManager:
         self.checkbox_vars: Dict[str, Tuple[tk.BooleanVar, str]] = {}
         self.selection_change_callback = selection_change_callback
     
-    def register_checkbox(self, item_id: str, id_str: str) -> None:
+    def register_checkbox(self, item_id: str, screenshot_id: str) -> None:
         """注册一个新的复选框
         
         Args:
             item_id: Treeview项目ID
-            id_str: 截图ID字符串
+            screenshot_id: 截图ID字符串
         """
-        var = tk.BooleanVar()
-        var.trace('w', lambda *args, v=var, iid=id_str: self._on_checkbox_change(v, iid))
-        self.checkbox_vars[item_id] = (var, id_str)
+        checkbox_var = tk.BooleanVar()
+        checkbox_var.trace(
+            'w',
+            lambda *args, var=checkbox_var, sid=screenshot_id: self._on_checkbox_change(var, sid)
+        )
+        self.checkbox_vars[item_id] = (checkbox_var, screenshot_id)
         self.update_checkbox_display(item_id)
     
     def unregister_checkbox(self, item_id: str) -> Optional[Tuple[tk.BooleanVar, str]]:
@@ -55,7 +62,7 @@ class CheckboxManager:
             item_id: Treeview项目ID
             
         Returns:
-            如果存在则返回 (var, id_str) 元组，否则返回None
+            如果存在则返回 (var, screenshot_id) 元组，否则返回None
         """
         return self.checkbox_vars.pop(item_id, None)
     
@@ -72,27 +79,29 @@ class CheckboxManager:
         if item_id not in self.checkbox_vars:
             return
         
-        var, _ = self.checkbox_vars[item_id]
-        checkbox_text = "☑" if var.get() else "☐"
+        checkbox_var, _ = self.checkbox_vars[item_id]
+        checkbox_text = self.CHECKBOX_CHECKED if checkbox_var.get() else self.CHECKBOX_UNCHECKED
         
-        current_values = list(self.tree.item(item_id, "values"))
-        if len(current_values) >= 2:
-            current_values[0] = checkbox_text
-            self.tree.item(item_id, values=tuple(current_values))
+        try:
+            current_values = list(self.tree.item(item_id, "values"))
+            if len(current_values) >= self.MIN_VALUES_LENGTH:
+                current_values[0] = checkbox_text
+                self.tree.item(item_id, values=tuple(current_values))
+        except (tk.TclError, AttributeError) as e:
+            # 项目可能已被删除，忽略错误
+            pass
     
-    def _on_checkbox_change(self, var: tk.BooleanVar, id_str: str) -> None:
+    def _on_checkbox_change(self, checkbox_var: tk.BooleanVar, screenshot_id: str) -> None:
         """复选框状态变化时的处理
         
         Args:
-            var: 复选框变量对象
-            id_str: 截图ID字符串
+            checkbox_var: 复选框变量对象
+            screenshot_id: 截图ID字符串
         """
-        # 使用字典查找优化：通过id_str反向查找item_id
-        item_id = self._find_item_id_by_screenshot_id(id_str)
+        item_id = self._find_item_id_by_screenshot_id(screenshot_id)
         if item_id:
             self.update_checkbox_display(item_id)
         
-        # 通知选中状态变化
         if self.selection_change_callback:
             self.selection_change_callback()
     
@@ -116,7 +125,11 @@ class CheckboxManager:
         Returns:
             选中的截图ID列表
         """
-        return [id_str for var, id_str in self.checkbox_vars.values() if var.get()]
+        return [
+            screenshot_id
+            for checkbox_var, screenshot_id in self.checkbox_vars.values()
+            if checkbox_var.get()
+        ]
     
     def get_selected_count(self) -> int:
         """获取选中的数量
@@ -124,7 +137,10 @@ class CheckboxManager:
         Returns:
             选中的截图数量
         """
-        return sum(var.get() for var, _ in self.checkbox_vars.values())
+        return sum(
+            checkbox_var.get()
+            for checkbox_var, _ in self.checkbox_vars.values()
+        )
     
     def is_all_selected(self) -> bool:
         """检查是否全部选中
@@ -134,7 +150,10 @@ class CheckboxManager:
         """
         if not self.checkbox_vars:
             return False
-        return all(var.get() for var, _ in self.checkbox_vars.values())
+        return all(
+            checkbox_var.get()
+            for checkbox_var, _ in self.checkbox_vars.values()
+        )
     
     def toggle_select_all(self) -> None:
         """切换全选/取消全选状态"""
@@ -142,21 +161,28 @@ class CheckboxManager:
             return
         
         select_all = not self.is_all_selected()
-        for var, _ in self.checkbox_vars.values():
-            var.set(select_all)
+        for checkbox_var, _ in self.checkbox_vars.values():
+            checkbox_var.set(select_all)
         
         for item_id in self.checkbox_vars.keys():
             self.update_checkbox_display(item_id)
         
-        # 通知选中状态变化
         if self.selection_change_callback:
             self.selection_change_callback()
     
     def update_select_all_header(self) -> None:
         """更新全选标题显示"""
-        checkbox_text = "☑" if self.is_all_selected() else "☐"
-        self.tree.heading("select", text=checkbox_text, anchor="center", 
-                         command=self.toggle_select_all)
+        checkbox_text = self.CHECKBOX_CHECKED if self.is_all_selected() else self.CHECKBOX_UNCHECKED
+        try:
+            self.tree.heading(
+                "select",
+                text=checkbox_text,
+                anchor="center",
+                command=self.toggle_select_all
+            )
+        except (tk.TclError, AttributeError):
+            # Treeview可能已被销毁，忽略错误
+            pass
     
     def get_checkbox_var(self, item_id: str) -> Optional[tk.BooleanVar]:
         """获取指定项目的复选框变量
@@ -183,4 +209,3 @@ class CheckboxManager:
         if item_id in self.checkbox_vars:
             return self.checkbox_vars[item_id][1]
         return None
-

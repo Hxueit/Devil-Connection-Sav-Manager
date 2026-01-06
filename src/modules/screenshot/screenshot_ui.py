@@ -3,13 +3,14 @@
 负责截图管理的UI界面协调，整合各个功能模块。
 """
 
-from typing import Optional, Callable
+import logging
+from typing import Optional, Callable, Dict, Any
 import tkinter as tk
 from tkinter import messagebox, ttk
 
 from src.modules.screenshot.screenshot_manager import ScreenshotManager
 from src.modules.screenshot.gallery_preview import GalleryPreview
-from src.modules.screenshot.dialogs import ScreenshotDialogs
+from src.modules.screenshot.screenshot_dialogs import ScreenshotDialogs
 from src.modules.screenshot.constants import PREVIEW_WIDTH, PREVIEW_HEIGHT
 from src.modules.screenshot.checkbox_manager import CheckboxManager
 from src.modules.screenshot.drag_handler import DragHandler
@@ -35,6 +36,8 @@ from src.utils.ui_utils import (
     askyesno_relative
 )
 
+logger = logging.getLogger(__name__)
+
 
 class ScreenshotManagerUI:
     """截图管理UI协调器
@@ -42,9 +45,15 @@ class ScreenshotManagerUI:
     负责整合各个功能模块，提供统一的UI接口。
     """
     
-    def __init__(self, parent_frame: tk.Frame, root: tk.Tk, 
-                 storage_dir: Optional[str], translations: dict, 
-                 current_language: str, t_func: Callable[[str], str]):
+    def __init__(
+        self,
+        parent_frame: tk.Frame,
+        root: tk.Tk,
+        storage_dir: Optional[str],
+        translations: Dict[str, Dict[str, str]],
+        current_language: str,
+        t_func: Callable[[str], str]
+    ) -> None:
         """初始化截图管理UI
         
         Args:
@@ -54,7 +63,16 @@ class ScreenshotManagerUI:
             translations: 翻译字典
             current_language: 当前语言
             t_func: 翻译函数
+            
+        Raises:
+            ValueError: 如果必需参数为None
         """
+        if parent_frame is None:
+            raise ValueError("parent_frame cannot be None")
+        if root is None:
+            raise ValueError("root cannot be None")
+        if t_func is None:
+            raise ValueError("t_func cannot be None")
         self.parent_frame = parent_frame
         self.root = root
         self.storage_dir = storage_dir
@@ -99,14 +117,6 @@ class ScreenshotManagerUI:
             self.screenshot_manager, self.Colors, self.t, 
             preview_size=(PREVIEW_WIDTH, PREVIEW_HEIGHT)
         )
-        self.drag_handler = DragHandler(
-            self.tree, self.root, self.checkbox_manager, 
-            self.screenshot_manager, self.load_screenshots,
-            self.checkbox_manager.update_checkbox_display,
-            self.edit_mode_manager
-        )
-        self.drag_handler.setup_drag_indicator_line(self.tree_frame)
-        
         # 完成UI组件创建（需要功能模块的部分）
         self._complete_ui_components()
         
@@ -115,11 +125,39 @@ class ScreenshotManagerUI:
             self.root, self.storage_dir, self.screenshot_manager,
             self.t, self.get_cjk_font, self.Colors, self.set_window_icon
         )
+        
+        # 创建拖拽处理器，并连接画廊刷新回调
+        self.drag_handler = DragHandler(
+            self.tree, self.root, self.checkbox_manager, 
+            self.screenshot_manager, self.load_screenshots,
+            self.checkbox_manager.update_checkbox_display,
+            self.edit_mode_manager,
+            gallery_refresh_callback=self.gallery_preview.refresh_current_page_if_needed
+        )
+        self.drag_handler.setup_drag_indicator_line(self.tree_frame)
+        
+        def gallery_refresh_wrapper(operation_type: str, screenshot_id: str) -> None:
+            """画廊刷新回调包装函数
+            
+            Args:
+                operation_type: 操作类型
+                screenshot_id: 截图ID
+            """
+            from src.modules.screenshot.constants import GALLERY_OPERATION_ADD, GALLERY_OPERATION_REPLACE
+            
+            if operation_type == GALLERY_OPERATION_ADD:
+                self.gallery_preview.refresh_after_add(screenshot_id)
+            elif operation_type == GALLERY_OPERATION_REPLACE:
+                self.gallery_preview.refresh_after_replace(screenshot_id)
+            else:
+                logger.warning(f"Unknown gallery operation type: {operation_type}")
+        
         self.dialogs = ScreenshotDialogs(
             self.root, self.storage_dir, self.screenshot_manager,
             self.t, self.get_cjk_font, self.Colors, self.set_window_icon,
             self.translations, self.current_language,
-            self.load_screenshots, self.show_status_indicator
+            self.load_screenshots, self.show_status_indicator,
+            gallery_refresh_callback=gallery_refresh_wrapper
         )
         
         # 绑定事件
@@ -153,10 +191,9 @@ class ScreenshotManagerUI:
          self.tree_frame, self.preview_label_text, 
          self.preview_label) = self.ui_builder.create_list_frame()
         
-        # 创建Treeview（使用临时回调，稍后更新）
         (self.tree, self.scrollbar, 
          self.drag_indicator_line) = self.ui_builder.create_treeview(
-            self.tree_frame, lambda: None  # 临时占位，稍后更新
+            self.tree_frame, lambda: None
         )
         
         # 创建操作按钮
@@ -264,17 +301,22 @@ class ScreenshotManagerUI:
         if not self.storage_dir:
             return
         
-        self.screenshot_manager.set_storage_dir(self.storage_dir)
-        
-        if not self.screenshot_manager.load_screenshots():
+        try:
+            self.screenshot_manager.set_storage_dir(self.storage_dir)
+            
+            if not self.screenshot_manager.load_screenshots():
+                if not silent:
+                    messagebox.showerror(self.t("error"), self.t("missing_files"))
+                return
+            
+            self.hint_label.pack_forget()
+            self.status_indicator.clear_all_indicators()
+            self.list_renderer.render_list()
+            self.update_batch_export_button()
+        except Exception as e:
+            logger.error(f"Failed to load screenshots: {e}", exc_info=True)
             if not silent:
-                messagebox.showerror(self.t("error"), self.t("missing_files"))
-            return
-        
-        self.hint_label.pack_forget()
-        self.status_indicator.clear_all_indicators()
-        self.list_renderer.render_list()
-        self.update_batch_export_button()
+                messagebox.showerror(self.t("error"), f"{self.t('error')}: {str(e)}")
     
     def sort_ascending(self) -> None:
         """按时间正序排序截图列表"""
@@ -398,31 +440,38 @@ class ScreenshotManagerUI:
             showwarning_relative(self.root, self.t("warning"), self.t("delete_select_error"))
             return
         
-        # 构建确认消息
-        if len(selected_ids) == 1:
-            confirm_msg = self.t("delete_confirm_single").format(id=selected_ids[0])
-        else:
-            ids_str = ", ".join(selected_ids)
-            confirm_msg = self.t("delete_confirm_multiple").format(
-                count=len(selected_ids), ids=ids_str
-            )
-        
-        result = askyesno_relative(self.root, self.t("delete_confirm"), confirm_msg)
-        
-        if not result:
-            return
-        
-        deleted_count = self.screenshot_manager.delete_screenshots(selected_ids)
-        
-        if deleted_count > 0:
-            showinfo_relative(
-                self.root, 
-                self.t("success"), 
-                self.t("delete_success").format(count=deleted_count)
-            )
-            self.load_screenshots()
-        else:
-            showwarning_relative(self.root, self.t("warning"), self.t("delete_warning"))
+        try:
+            if len(selected_ids) == 1:
+                confirm_msg = self.t("delete_confirm_single").format(id=selected_ids[0])
+            else:
+                ids_str = ", ".join(selected_ids)
+                confirm_msg = self.t("delete_confirm_multiple").format(
+                    count=len(selected_ids), ids=ids_str
+                )
+            
+            result = askyesno_relative(self.root, self.t("delete_confirm"), confirm_msg)
+            
+            if not result:
+                return
+            
+            deleted_count = self.screenshot_manager.delete_screenshots(selected_ids)
+            
+            if deleted_count > 0:
+                showinfo_relative(
+                    self.root,
+                    self.t("success"),
+                    self.t("delete_success").format(count=deleted_count)
+                )
+                self.load_screenshots()
+                try:
+                    self.gallery_preview.refresh_after_delete(selected_ids)
+                except Exception as e:
+                    logger.warning(f"Gallery refresh callback failed after delete: {e}", exc_info=True)
+            else:
+                showwarning_relative(self.root, self.t("warning"), self.t("delete_warning"))
+        except Exception as e:
+            logger.error(f"Failed to delete screenshots: {e}", exc_info=True)
+            showerror_relative(self.root, self.t("error"), f"{self.t('error')}: {str(e)}")
     
     def export_image(self) -> None:
         """导出当前选中的图片"""
