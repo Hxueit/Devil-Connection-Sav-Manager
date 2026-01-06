@@ -84,11 +84,7 @@ class TyranoAnalyzer:
             logger.warning("Data field not found in save payload or is not a list")
             return []
         
-        # 验证列表中的元素都是字典
-        valid_slots = [
-            slot for slot in data_field
-            if isinstance(slot, dict)
-        ]
+        valid_slots = [slot for slot in data_field if isinstance(slot, dict)]
         
         if len(valid_slots) != len(data_field):
             invalid_count = len(data_field) - len(valid_slots)
@@ -217,9 +213,7 @@ class TyranoAnalyzer:
             return []
         
         page_slots = self.save_slots[start_index:end_index]
-        # 确保返回的列表长度固定为 TYRANO_SAVES_PER_PAGE，不足的用None填充
-        while len(page_slots) < TYRANO_SAVES_PER_PAGE:
-            page_slots.append(None)
+        page_slots.extend([None] * (TYRANO_SAVES_PER_PAGE - len(page_slots)))
         
         return page_slots
     
@@ -275,4 +269,121 @@ class TyranoAnalyzer:
             存档总数
         """
         return len(self.save_slots)
+    
+    def reorder_slots(self, new_order: List[int]) -> bool:
+        """重排序存档槽
+        
+        Args:
+            new_order: 新的顺序索引列表，例如 [2, 0, 1, 3, ...] 表示
+                      将原索引2的槽移到位置0，原索引0移到位置1，等等
+        
+        Returns:
+            成功返回True，失败返回False
+        """
+        if not self.save_data or not self.save_slots:
+            logger.error("Cannot reorder: save data not loaded")
+            return False
+        
+        if len(new_order) != len(self.save_slots):
+            logger.error(
+                "Order length mismatch: %d != %d",
+                len(new_order),
+                len(self.save_slots)
+            )
+            return False
+        
+        # 验证索引范围
+        if set(new_order) != set(range(len(self.save_slots))):
+            logger.error("Invalid order: indices must be 0 to %d", len(self.save_slots) - 1)
+            return False
+        
+        try:
+            reordered_slots = [self.save_slots[i] for i in new_order]
+            self.save_slots = reordered_slots
+            
+            if _DATA_FIELD_KEY in self.save_data:
+                self.save_data[_DATA_FIELD_KEY] = reordered_slots
+            
+            tyrano_file_path = self.storage_dir / TYRANO_SAV_FILENAME
+            self.tyrano_service.save_tyrano_save_file(tyrano_file_path, self.save_data)
+            
+            logger.info("Successfully reordered %d save slots", len(self.save_slots))
+            return True
+            
+        except Exception as e:
+            logger.error("Failed to reorder slots: %s", e, exc_info=True)
+            return False
+    
+    def _is_empty_save(self, slot_data: Optional[Dict[str, Any]]) -> bool:
+        """判断存档是否为空存档（NO SAVE类型）
+        
+        Args:
+            slot_data: 存档槽数据字典
+            
+        Returns:
+            如果为空存档返回True，否则返回False
+        """
+        if not slot_data:
+            return True
+        
+        title = slot_data.get('title', '')
+        save_date = slot_data.get('save_date', '')
+        img_data = slot_data.get('img_data', '')
+        stat = slot_data.get('stat', {})
+        
+        return (
+            title == "NO SAVE" or
+            (save_date == "" and img_data == "" and isinstance(stat, dict) and len(stat) == 0)
+        )
+    
+    def import_slot(self, slot_data: Dict[str, Any]) -> bool:
+        """导入存档槽
+        
+        优先替换最靠前的空存档槽，若无空槽则添加到末尾
+        
+        Args:
+            slot_data: 要导入的存档槽数据字典
+            
+        Returns:
+            成功返回True，失败返回False
+        """
+        if not isinstance(slot_data, dict):
+            logger.error("Cannot import: slot_data must be a dictionary")
+            return False
+        
+        if not self.save_data:
+            logger.error("Cannot import: save data not loaded")
+            return False
+        
+        if _DATA_FIELD_KEY not in self.save_data:
+            self.save_data[_DATA_FIELD_KEY] = []
+        
+        if not self.save_slots:
+            self.save_slots = []
+        
+        empty_slot_index = next(
+            (i for i, slot in enumerate(self.save_slots) if self._is_empty_save(slot)),
+            None
+        )
+        
+        try:
+            if empty_slot_index is not None:
+                self.save_slots[empty_slot_index] = slot_data
+                logger.info("Replaced empty slot at index %d with imported save", empty_slot_index)
+            else:
+                self.save_slots.append(slot_data)
+                logger.info("Added imported save to end of list (total slots: %d)", len(self.save_slots))
+            
+            self.save_data[_DATA_FIELD_KEY] = self.save_slots
+            self._calculate_pagination(len(self.save_slots))
+            
+            tyrano_file_path = self.storage_dir / TYRANO_SAV_FILENAME
+            self.tyrano_service.save_tyrano_save_file(tyrano_file_path, self.save_data)
+            
+            logger.info("Successfully imported save slot")
+            return True
+            
+        except Exception as e:
+            logger.error("Failed to import slot: %s", e, exc_info=True)
+            return False
 

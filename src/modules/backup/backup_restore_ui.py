@@ -13,6 +13,7 @@ import logging
 import os
 import threading
 import tkinter as tk
+import tkinter.font as tkfont
 from tkinter import Entry, Scrollbar, Toplevel, ttk
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple, Union
@@ -66,6 +67,7 @@ class BackupRestoreTab:
         
         # UI 组件
         self.backup_button: Optional[ttk.Button] = None
+        self.backup_location_hint_text: Optional[tk.Text] = None
         self.backup_progress: Optional[ttk.Progressbar] = None
         self.backup_progress_label: Optional[tk.Label] = None
         self.backup_list_title: Optional[tk.Label] = None
@@ -114,6 +116,59 @@ class BackupRestoreTab:
         )
         self.backup_button.pack(pady=15)
         
+        # 创建提示文本（使用Text widget支持部分文本加粗）
+        self.backup_location_hint_text = tk.Text(
+            backup_frame,
+            height=1,
+            wrap=tk.WORD,
+            width=80,  # 设置合理的字符宽度，wrap会自动处理换行
+            bg=Colors.LIGHT_GRAY,
+            fg=Colors.TEXT_PRIMARY,
+            font=get_cjk_font(10),
+            relief=tk.FLAT,
+            borderwidth=0,
+            padx=10,
+            pady=5,
+            cursor="arrow"
+        )
+        self.backup_location_hint_text.pack(pady=(0, 10), fill="x", expand=False)
+        
+        # 绑定配置事件，动态调整宽度以适应容器
+        def update_text_width(event=None):
+            if self.backup_location_hint_text and backup_frame.winfo_width() > 1:
+                try:
+                    # 获取字体度量
+                    font_obj = tkfont.Font(font=get_cjk_font(10))
+                    char_width = font_obj.measure("M")
+                    if char_width > 0:
+                        # 获取父容器宽度，减去左右padding（10*2=20）
+                        parent_width = backup_frame.winfo_width()
+                        text_width = max(20, (parent_width - 20) // char_width)
+                        # 临时启用以获取行数
+                        was_disabled = self.backup_location_hint_text.cget("state") == tk.DISABLED
+                        if was_disabled:
+                            self.backup_location_hint_text.config(state=tk.NORMAL)
+                        self.backup_location_hint_text.config(width=text_width)
+                        # 更新后重新计算行数并调整高度
+                        end_index = self.backup_location_hint_text.index(tk.END)
+                        line_count = int(end_index.split('.')[0])
+                        self.backup_location_hint_text.config(height=max(1, line_count))
+                        if was_disabled:
+                            self.backup_location_hint_text.config(state=tk.DISABLED)
+                except Exception:
+                    pass  # 如果计算失败，使用默认width
+        
+        backup_frame.bind('<Configure>', update_text_width)
+        # 禁用编辑，但保持文本可选择（可选）
+        self.backup_location_hint_text.config(state=tk.DISABLED)
+        
+        # 设置加粗样式
+        bold_font = get_cjk_font(10, "bold")
+        self.backup_location_hint_text.tag_configure("bold", font=bold_font)
+        
+        # 更新提示文本
+        self._update_backup_hint_text()
+        
         self.backup_progress = ttk.Progressbar(
             backup_frame, mode='determinate', length=300
         )
@@ -128,6 +183,43 @@ class BackupRestoreTab:
         )
         self.backup_progress_label.pack(pady=4)
         self.backup_progress_label.pack_forget()
+    
+    def _update_backup_hint_text(self) -> None:
+        """更新备份位置提示文本，支持**之间的文本加粗"""
+        if not self.backup_location_hint_text:
+            return
+        
+        text = self.t("backup_location_hint")
+        
+        # 启用编辑以更新内容
+        self.backup_location_hint_text.config(state=tk.NORMAL)
+        self.backup_location_hint_text.delete(1.0, tk.END)
+        
+        # 解析文本，找到**之间的内容并加粗
+        import re
+        parts = re.split(r'(\*\*.*?\*\*)', text)
+        
+        for part in parts:
+            if part.startswith('**') and part.endswith('**'):
+                # 加粗文本（去掉**标记）
+                bold_text = part[2:-2]
+                self.backup_location_hint_text.insert(tk.END, bold_text, "bold")
+            else:
+                # 普通文本
+                self.backup_location_hint_text.insert(tk.END, part)
+        
+        # 设置文本居中
+        self.backup_location_hint_text.tag_add("center", 1.0, tk.END)
+        self.backup_location_hint_text.tag_configure("center", justify="center")
+        
+        # 获取实际行数并调整高度
+        end_index = self.backup_location_hint_text.index(tk.END)
+        line_count = int(end_index.split('.')[0])
+        # 设置高度为实际行数，但至少为1行
+        self.backup_location_hint_text.config(height=max(1, line_count))
+        
+        # 禁用编辑
+        self.backup_location_hint_text.config(state=tk.DISABLED)
     
     def _create_restore_section(self) -> None:
         """创建还原区域"""
@@ -168,7 +260,7 @@ class BackupRestoreTab:
             list_container,
             columns=("timestamp", "filename", "size", "status"),
             show="headings",
-            height=20,
+            height=18,
             yscrollcommand=restore_scrollbar.set,
             style="Backup.Treeview"
         )
@@ -658,6 +750,7 @@ class BackupRestoreTab:
     
     def update_ui_texts(self) -> None:
         """更新所有 UI 文本（用于语言切换）"""
+        self._update_backup_hint_text()
         if self.backup_button:
             self.backup_button.config(text=self.t("backup_button"))
         if self.backup_list_title:

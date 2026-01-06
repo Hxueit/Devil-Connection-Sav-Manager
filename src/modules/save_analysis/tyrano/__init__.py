@@ -4,10 +4,8 @@
 """
 
 from src.modules.save_analysis.tyrano.analyzer import TyranoAnalyzer
-from src.modules.save_analysis.tyrano.ui_components import (
-    TyranoSaveSlot,
-    TyranoSaveViewer
-)
+from src.modules.save_analysis.tyrano.save_slot import TyranoSaveSlot
+from src.modules.save_analysis.tyrano.save_viewer import TyranoSaveViewer
 
 __all__ = [
     "TyranoAnalyzer",

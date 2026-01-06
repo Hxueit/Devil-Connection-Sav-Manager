@@ -14,14 +14,13 @@ from src.utils.styles import get_cjk_font, Colors
 
 from .config import get_field_configs_with_callbacks
 from .save_data_service import load_save_file, compute_shared_data
-from .statistics_panel import StatisticsPanel
-from .file_viewer import SaveFileViewer
+from .statistics.panel import StatisticsPanel
+from .save_file_viewer import SaveFileViewer
 from .requirements_viewer import RequirementsViewer
 from .layout_manager import LayoutManager
 from .widget_manager import WidgetManager
 from .data_renderer import DataRenderer
 
-# 可选导入调试模块
 try:
     from .debug import get_debugger
     _debugger = get_debugger()
@@ -227,8 +226,6 @@ class SaveAnalyzer:
                     logger.warning(error_msg)
             return
         
-        self.window.update_idletasks()
-        
         # 更新UI文本
         self._update_ui_texts()
         
@@ -341,19 +338,19 @@ class SaveAnalyzer:
     
     def _update_canvas_width(self) -> None:
         """更新canvas宽度"""
+        if not self.window.winfo_exists():
+            return
+        
         try:
-            self.scrollable_frame.update_idletasks()
             window_width = self.window.winfo_width()
             if window_width > 1:
                 width = int(window_width * WIDTH_RATIO)
                 self.layout_manager.cached_width = width
                 self.data_renderer.cached_width = width
-                self.scrollable_frame.config(width=width)
+                if self.scrollable_frame and self.scrollable_frame.winfo_exists():
+                    self.scrollable_frame.config(width=width)
         except (AttributeError, tk.TclError) as e:
             logger.warning(f"Failed to update canvas width: {e}")
-            if _debugger:
-                import traceback
-                traceback.print_exc()
     
     def _try_incremental_update(self, save_data: Dict[str, Any]) -> bool:
         """尝试增量更新
@@ -387,7 +384,6 @@ class SaveAnalyzer:
                 self.window.after_idle(
                     lambda: self._update_scrollregion_callback("display_save_info")
                 )
-                # 延迟更新统计面板，等待left panel更新完成
                 self.window.after_idle(
                     lambda: self._update_statistics_panel_safe(save_data)
                 )
@@ -445,7 +441,6 @@ class SaveAnalyzer:
         
         self._is_initialized = True
         
-        # 延迟更新统计面板，等待left panel渲染完成
         self.window.after_idle(
             lambda: self.window.after_idle(
                 lambda: self._update_statistics_panel_safe(save_data)
@@ -527,12 +522,23 @@ class SaveAnalyzer:
             self.widget_manager.clear_all()
             self.refresh()
         
+        from src.modules.save_analysis.sf.save_file_viewer import ViewerConfig, DEFAULT_SF_COLLAPSED_FIELDS
+        
+        config = ViewerConfig(
+            collapsed_fields=DEFAULT_SF_COLLAPSED_FIELDS,
+            show_collapse_checkbox=True,
+            show_hint_label=True,
+            show_enable_edit_checkbox=True,
+            enable_edit_by_default=False
+        )
+        
         SaveFileViewer(
             self.window,
             self.storage_dir,
             self.save_data,
             self.t,
-            on_close
+            on_close,
+            viewer_config=config
         )
     
     def show_endings_requirements(

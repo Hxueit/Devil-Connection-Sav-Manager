@@ -10,7 +10,7 @@ from tkinter import messagebox, ttk
 
 from src.modules.screenshot.screenshot_manager import ScreenshotManager
 from src.modules.screenshot.gallery_preview import GalleryPreview
-from src.modules.screenshot.dialogs import ScreenshotDialogs
+from src.modules.screenshot.screenshot_dialogs import ScreenshotDialogs
 from src.modules.screenshot.constants import PREVIEW_WIDTH, PREVIEW_HEIGHT
 from src.modules.screenshot.checkbox_manager import CheckboxManager
 from src.modules.screenshot.drag_handler import DragHandler
@@ -191,10 +191,9 @@ class ScreenshotManagerUI:
          self.tree_frame, self.preview_label_text, 
          self.preview_label) = self.ui_builder.create_list_frame()
         
-        # 创建Treeview（使用临时回调，稍后更新）
         (self.tree, self.scrollbar, 
          self.drag_indicator_line) = self.ui_builder.create_treeview(
-            self.tree_frame, lambda: None  # 临时占位，稍后更新
+            self.tree_frame, lambda: None
         )
         
         # 创建操作按钮

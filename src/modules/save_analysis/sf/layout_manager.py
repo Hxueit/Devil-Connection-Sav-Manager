@@ -231,18 +231,23 @@ class LayoutManager:
                 canvas.yview_scroll(1, "units")
         return on_mousewheel
     
-    def _bind_mousewheel_recursive(self, widget: tk.Widget) -> None:
+    def _bind_mousewheel_recursive(self, widget: tk.Widget, depth: int = 0) -> None:
         """递归绑定滚轮事件到widget及其所有子组件
         
         Args:
             widget: 要绑定的widget
+            depth: 当前递归深度
         """
+        MAX_DEPTH = 10
+        if depth > MAX_DEPTH:
+            return
+        
         if widget and widget.winfo_exists():
             widget.bind("<MouseWheel>", self._on_mousewheel_handler)
             widget.bind("<Button-4>", self._on_mousewheel_handler)
             widget.bind("<Button-5>", self._on_mousewheel_handler)
             for child in widget.winfo_children():
-                self._bind_mousewheel_recursive(child)
+                self._bind_mousewheel_recursive(child, depth + 1)
     
     def rebind_mousewheel_to_frame(self, frame: tk.Widget) -> None:
         """重新绑定鼠标滚轮事件到指定的frame及其所有子组件
@@ -287,24 +292,24 @@ class LayoutManager:
             return
         
         try:
-            scrollable_frame.update_idletasks()
-            canvas.update_idletasks()
-            self.window.update_idletasks()
-            
             bbox = canvas.bbox("all")
             
             if bbox is None:
-                self._handle_scroll_retry(retry_key, max_retries)
+                canvas.update_idletasks()
+                bbox = canvas.bbox("all")
+            
+            if bbox is None:
+                self._handle_scroll_retry(retry_key, max_retries, canvas, scrollable_frame)
                 return
             
             if not isinstance(bbox, tuple) or len(bbox) < 4:
-                self._handle_scroll_retry(retry_key, max_retries)
+                self._handle_scroll_retry(retry_key, max_retries, canvas, scrollable_frame)
                 return
             
             x1, y1, x2, y2 = bbox[:4]
             
             if x2 <= x1 or y2 <= y1:
-                self._handle_scroll_retry(retry_key, max_retries)
+                self._handle_scroll_retry(retry_key, max_retries, canvas, scrollable_frame)
                 return
             
             canvas.configure(scrollregion=bbox)
@@ -312,17 +317,24 @@ class LayoutManager:
             self._scroll_update_pending = False
             
         except (AttributeError, tk.TclError) as e:
-            self._handle_scroll_retry(retry_key, max_retries)
+            self._handle_scroll_retry(retry_key, max_retries, canvas, scrollable_frame)
         finally:
             if retry_key not in self._scroll_retry_count or self._scroll_retry_count.get(retry_key, 0) == 0:
                 self._scroll_update_pending = False
     
-    def _handle_scroll_retry(self, retry_key: str, max_retries: int) -> None:
+    def _handle_scroll_retry(
+        self, 
+        retry_key: str, 
+        max_retries: int,
+        canvas: Optional[ctk.CTkCanvas] = None,
+        scrollable_frame: Optional[tk.Frame] = None
+    ) -> None:
         """处理滚动区域更新的重试逻辑"""
         retry_count = self._scroll_retry_count.get(retry_key, 0)
         if retry_count < max_retries:
             self._scroll_retry_count[retry_key] = retry_count + 1
-            self.window.after_idle(
+            self.window.after(
+                50,
                 lambda: self.update_scrollregion(retry_key, max_retries, canvas, scrollable_frame)
             )
         else:

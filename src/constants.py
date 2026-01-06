@@ -1,5 +1,5 @@
 # 版本号
-VERSION = "v0.5.0dev20251231"
+VERSION = "v0.5.0"
 
 # 写这个工具的时候，最新的游戏补丁日期
 LATEST_GAME_PATCH_AT_BUILD = "2025/12/29"
