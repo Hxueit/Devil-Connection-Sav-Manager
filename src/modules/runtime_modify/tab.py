@@ -1066,6 +1066,8 @@ class RuntimeModifyTab:
     
     def cleanup(self) -> None:
         """清理资源"""
+        self.state.is_closing = True
+        
         if hasattr(self, 'status_checker'):
             self.status_checker.stop()
         
@@ -1085,8 +1087,12 @@ class RuntimeModifyTab:
                 logger.debug(f"Error stopping game during cleanup: {e}")
         
         if self.state.executor:
-            self.state.executor.shutdown(wait=True)
-            self.state.executor = None
+            try:
+                self.state.executor.shutdown(wait=False, cancel_futures=True)
+            except Exception as e:
+                logger.debug(f"Error shutting down executor: {e}")
+            finally:
+                self.state.executor = None
     
     def set_storage_dir(self, storage_dir: Optional[str]) -> None:
         """设置存储目录

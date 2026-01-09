@@ -518,42 +518,61 @@ class SavTool:
     
     def on_closing(self) -> None:
         """窗口关闭事件处理"""
-        # 如果正在加载，请求取消并等待完成
-        if self._is_loading:
-            logger.info("窗口关闭请求：正在加载中，请求取消加载")
-            self._cancel_loading = True
+        if not hasattr(self, '_closing_poll_count'):
+            self._closing_poll_count = 0
+            self._is_closing = True
             
-            # 等待加载完成，最多等待3秒
-            timeout = 3.0
-            start_time = time.time()
-            while self._is_loading and (time.time() - start_time) < timeout:
-                self.root.update_idletasks()
-                time.sleep(0.1)
+            if hasattr(self, 'runtime_modify_tab') and self.runtime_modify_tab:
+                if hasattr(self.runtime_modify_tab, 'state'):
+                    self.runtime_modify_tab.state.is_closing = True
             
             if self._is_loading:
-                logger.warning("窗口关闭：加载操作超时，强制关闭")
-            else:
-                logger.info("窗口关闭：加载操作已取消")
+                logger.info("窗口关闭请求：正在加载中，请求取消加载")
+                self._cancel_loading = True
         
-        # 停止加载动画
+        max_poll_count = 30
+        poll_interval_ms = 100
+        
+        if self._is_loading and self._closing_poll_count < max_poll_count:
+            self._closing_poll_count += 1
+            self.root.after(poll_interval_ms, self.on_closing)
+            return
+        
+        if self._is_loading:
+            logger.warning("窗口关闭：加载操作超时，强制关闭")
+        
+        self._perform_cleanup_and_destroy()
+    
+    def _perform_cleanup_and_destroy(self) -> None:
+        """执行清理并销毁窗口"""
         if hasattr(self, 'loading_animation'):
-            self.loading_animation.stop()
-        # 停止文件监控
+            try:
+                self.loading_animation.stop()
+            except Exception as e:
+                logger.debug(f"停止加载动画时出错: {e}")
+        
         if self.file_monitor:
-            self.file_monitor.stop()
-        # 清理tyrano标签页
+            try:
+                self.file_monitor.stop()
+            except Exception as e:
+                logger.debug(f"停止文件监控时出错: {e}")
+        
         if hasattr(self, 'tyrano_tab') and self.tyrano_tab:
             try:
                 self.tyrano_tab.cleanup()
             except Exception as e:
                 logger.debug(f"清理tyrano标签页时出错: {e}")
-        # 清理运行时修改标签页（关闭游戏进程和定时任务）
+        
         if hasattr(self, 'runtime_modify_tab') and self.runtime_modify_tab:
             try:
                 self.runtime_modify_tab.cleanup()
             except Exception as e:
                 logger.debug(f"清理运行时修改标签页时出错: {e}")
-        self.root.destroy()
+        
+        try:
+            self.root.destroy()
+        except Exception as e:
+            logger.debug(f"销毁窗口时出错: {e}")
     
     def show_save_analyzer(self) -> None:
         """切换到存档分析 tab"""

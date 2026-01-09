@@ -345,7 +345,9 @@ class RuntimeModifyService:
         try:
             async with websockets.connect(
                 ws_url,
-                max_size=_WEBSOCKET_MAX_SIZE
+                max_size=_WEBSOCKET_MAX_SIZE,
+                open_timeout=RuntimeModifyConfig.WEBSOCKET_OPEN_TIMEOUT,
+                close_timeout=RuntimeModifyConfig.WEBSOCKET_CLOSE_TIMEOUT
             ) as websocket:
                 msg_id = 1
                 

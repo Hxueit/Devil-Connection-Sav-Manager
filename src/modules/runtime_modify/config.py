@@ -31,8 +31,14 @@ class RuntimeModifyConfig:
     
     # 状态检查间隔（毫秒）
     STATUS_CHECK_INTERVAL_MS: Final[int] = 2000
-    # 状态检查缓存时间（秒）- 减少重复检查
     STATUS_CACHE_TTL: Final[float] = 1.0
-    # 游戏未运行时的检查间隔（毫秒）- 降低频率
     STATUS_CHECK_INTERVAL_IDLE_MS: Final[int] = 5000
+    
+    # WebSocket 超时设置（秒）
+    WEBSOCKET_OPEN_TIMEOUT: Final[float] = 5.0
+    WEBSOCKET_CLOSE_TIMEOUT: Final[float] = 2.0
+    
+    # 关闭时的等待设置（毫秒）
+    SHUTDOWN_POLL_INTERVAL_MS: Final[int] = 100
+    SHUTDOWN_MAX_WAIT_MS: Final[int] = 2000
 
