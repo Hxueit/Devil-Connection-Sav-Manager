@@ -916,12 +916,13 @@ class RuntimeModifyTab:
             collapsed_fields=DEFAULT_KAG_STAT_COLLAPSED_FIELDS
         )
         
-        SaveFileViewer(
-            self.root,
-            str(self.storage_dir) if self.storage_dir else "",
-            kag_stat_data,
-            self.t,
-            None,
+        SaveFileViewer.open_or_focus(
+            viewer_id="runtime_kag_stat",
+            window=self.root,
+            storage_dir=str(self.storage_dir) if self.storage_dir else "",
+            save_data=kag_stat_data,
+            t_func=self.t,
+            on_close_callback=None,
             mode="runtime",
             viewer_config=viewer_config
         )
@@ -1054,12 +1055,13 @@ class RuntimeModifyTab:
             collapsed_fields=DEFAULT_SF_COLLAPSED_FIELDS
         )
         
-        SaveFileViewer(
-            self.root,
-            str(self.storage_dir) if self.storage_dir else "",
-            sf_data,
-            self.t,
-            None,
+        SaveFileViewer.open_or_focus(
+            viewer_id="runtime_sf",
+            window=self.root,
+            storage_dir=str(self.storage_dir) if self.storage_dir else "",
+            save_data=sf_data,
+            t_func=self.t,
+            on_close_callback=None,
             mode="runtime",
             viewer_config=viewer_config
         )

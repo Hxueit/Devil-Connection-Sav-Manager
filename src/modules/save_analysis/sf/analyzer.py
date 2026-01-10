@@ -9,7 +9,7 @@ import tkinter as tk
 from tkinter import ttk
 from typing import Dict, Any, Optional, Callable, Set, List
 
-from src.constants import TOTAL_OMAKES, TOTAL_GALLERY, TOTAL_NG_SCENE, LATEST_GAME_PATCH_AT_BUILD
+from src.constants import TOTAL_OMAKES, TOTAL_GALLERY, TOTAL_NG_SCENE, LATEST_GAME_PATCH_AT_BUILD, TOTAL_ENDINGS, STICKER_ID_RANGES
 from src.utils.styles import get_cjk_font, Colors
 
 from .config import get_field_configs_with_callbacks
@@ -32,11 +32,6 @@ logger = logging.getLogger(__name__)
 # 常量
 DEFAULT_WINDOW_WIDTH = 800
 WIDTH_RATIO = 2 / 3
-TOTAL_ENDINGS = 45
-STICKER_ID_RANGES = [
-    (1, 82),  # 1-81
-    (83, 134),  # 83-133
-]
 
 
 def _validate_scrollable_components(analyzer: 'SaveAnalyzer') -> bool:
@@ -539,12 +534,13 @@ class SaveAnalyzer:
             on_save_callback=on_save
         )
         
-        SaveFileViewer(
-            self.window,
-            self.storage_dir,
-            self.save_data,
-            self.t,
-            on_close,
+        SaveFileViewer.open_or_focus(
+            viewer_id=f"sf:{self.storage_dir}",
+            window=self.window,
+            storage_dir=self.storage_dir,
+            save_data=self.save_data,
+            t_func=self.t,
+            on_close_callback=on_close,
             viewer_config=config
         )
     

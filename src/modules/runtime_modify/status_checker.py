@@ -150,6 +150,8 @@ class StatusChecker:
             return False
         except (OSError, ProcessLookupError) as e:
             logger.debug(f"OS error checking game status: {e}")
+            if self.service.game_process is not None:
+                self.service.game_process = None
             return False
         except Exception as e:
             logger.debug(f"Unexpected error checking game status: {e}")

@@ -43,7 +43,23 @@ DEFAULT_WINDOW_SIZE = "1200x900"
 HINT_WRAPLENGTH = 850
 CHECKBOX_PADX = 5
 
-_current_save_file_viewer: Optional['SaveFileViewer'] = None
+_active_viewers: Dict[str, 'SaveFileViewer'] = {}
+
+
+def _is_viewer_alive(viewer: 'SaveFileViewer') -> bool:
+    """检查 viewer 窗口是否仍然存活
+    
+    Args:
+        viewer: SaveFileViewer 实例
+        
+    Returns:
+        窗口是否存活且可用
+    """
+    try:
+        return (viewer.viewer_window is not None and 
+                viewer.viewer_window.winfo_exists())
+    except tk.TclError:
+        return False
 
 
 @dataclass
@@ -67,6 +83,41 @@ class ViewerConfig:
 class SaveFileViewer:
     """存档文件查看器"""
     
+    @classmethod
+    def open_or_focus(
+        cls,
+        viewer_id: str,
+        **kwargs
+    ) -> 'SaveFileViewer':
+        """工厂方法：打开新窗口或聚焦已存在的窗口
+        
+        Args:
+            viewer_id: 唯一标识符，用于区分不同的编辑器实例
+            **kwargs: 传递给 __init__ 的参数
+            
+        Returns:
+            SaveFileViewer 实例（新创建或已存在的）
+            
+        Note:
+            如果窗口已存在，只会聚焦该窗口，不会刷新数据。
+            这是为了避免覆盖用户正在编辑但未保存的内容。
+        """
+        global _active_viewers
+        
+        if viewer_id in _active_viewers:
+            existing = _active_viewers[viewer_id]
+            if _is_viewer_alive(existing):
+                restore_and_activate_window(existing.viewer_window)
+                return existing
+            else:
+                # 窗口已销毁但未清理，移除记录
+                _active_viewers.pop(viewer_id, None)
+        
+        # 使用 cls 创建实例以支持子类继承
+        viewer = cls(**kwargs, _viewer_id=viewer_id)
+        _active_viewers[viewer_id] = viewer
+        return viewer
+    
     def __init__(
         self,
         window: tk.Widget,
@@ -75,7 +126,8 @@ class SaveFileViewer:
         t_func: Callable[[str], str],
         on_close_callback: Optional[Callable] = None,
         mode: Literal["file", "runtime"] = "file",
-        viewer_config: Optional[ViewerConfig] = None
+        viewer_config: Optional[ViewerConfig] = None,
+        _viewer_id: Optional[str] = None
     ) -> None:
         """初始化文件查看器
         
@@ -87,13 +139,9 @@ class SaveFileViewer:
             on_close_callback: 窗口关闭时的回调函数
             mode: 模式，"file"为文件模式，"runtime"为运行时模式
             viewer_config: 查看器配置（通用配置，适用于两种模式）
+            _viewer_id: 内部使用，用于注册表管理
         """
-        global _current_save_file_viewer
-        
-        if _current_save_file_viewer is not None:
-            if self._try_restore_existing_viewer(_current_save_file_viewer):
-                return
-        
+        self._viewer_id = _viewer_id
         self.window = window
         self.storage_dir = storage_dir
         self.save_data = save_data
@@ -106,32 +154,21 @@ class SaveFileViewer:
         
         root_window = self._find_root_window(window)
         self.viewer_window = self._create_viewer_window(root_window)
-        _current_save_file_viewer = self
+        
+        self._bind_destroy_cleanup()
         
         self._setup_ui()
     
-    def _try_restore_existing_viewer(self, existing_viewer: 'SaveFileViewer') -> bool:
-        """尝试恢复已存在的查看器窗口
+    def _bind_destroy_cleanup(self) -> None:
+        """绑定窗口销毁事件，确保从注册表中移除"""
+        def on_destroy(event):
+            # <Destroy> 事件会在子控件销毁时也触发，需检查是否为窗口本身
+            if event.widget is self.viewer_window:
+                global _active_viewers
+                if self._viewer_id and self._viewer_id in _active_viewers:
+                    _active_viewers.pop(self._viewer_id, None)
         
-        Args:
-            existing_viewer: 已存在的查看器实例
-            
-        Returns:
-            是否成功恢复窗口
-        """
-        if not hasattr(existing_viewer, 'viewer_window'):
-            _current_save_file_viewer = None
-            return False
-        
-        if not existing_viewer.viewer_window.winfo_exists():
-            _current_save_file_viewer = None
-            return False
-        
-        if restore_and_activate_window(existing_viewer.viewer_window):
-            return True
-        
-        _current_save_file_viewer = None
-        return False
+        self.viewer_window.bind("<Destroy>", on_destroy)
     
     def _find_root_window(self, window: tk.Widget) -> tk.Tk:
         """查找根窗口"""
@@ -537,8 +574,9 @@ class SaveFileViewer:
         
         def copy_to_clipboard():
             self.viewer_window.clipboard_clear()
-            full_json = json.dumps(self.save_data, ensure_ascii=False, indent=2)
-            self.viewer_window.clipboard_append(full_json)
+            # 复制文本编辑器中当前显示的内容
+            current_display_content = text_widget.get("1.0", "end-1c")
+            self.viewer_window.clipboard_append(current_display_content)
         
         copy_button = ttk.Button(toolbar, text=self.t("copy_to_clipboard"), command=copy_to_clipboard)
         copy_button.pack(side="left", padx=5)
@@ -797,19 +835,25 @@ class SaveFileViewer:
         search_entry.bind("<Return>", on_search_enter)
         
         def on_window_close() -> None:
-            global _current_save_file_viewer
+            global _active_viewers
             
             if _has_unsaved_changes():
                 if not _confirm_discard_changes():
                     return
             
             self.viewer_window.destroy()
-            if _current_save_file_viewer is self:
-                _current_save_file_viewer = None
+            # 双保险注销：<Destroy> 事件也会处理，但保留此处以防边界情况
+            if self._viewer_id and self._viewer_id in _active_viewers:
+                _active_viewers.pop(self._viewer_id, None)
             
-            # 只有保存过数据时才调用关闭回调（避免重复刷新）
+            # 仅在有保存操作时调用关闭回调，避免重复刷新
             if self.on_close_callback and self._data_was_saved:
-                self.viewer_window.after(CLOSE_CALLBACK_DELAY_MS, self.on_close_callback)
+                # destroy() 后需使用 root 的 after，而非 viewer_window 的 after
+                try:
+                    root = self._find_root_window(self.window)
+                    root.after(CLOSE_CALLBACK_DELAY_MS, self.on_close_callback)
+                except tk.TclError:
+                    pass
         
         self.viewer_window.protocol("WM_DELETE_WINDOW", on_window_close)
     

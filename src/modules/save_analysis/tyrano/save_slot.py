@@ -699,12 +699,13 @@ class TyranoSaveSlot:
             on_save_callback=on_save_callback
         )
         
-        viewer = SaveFileViewer(
-            self.root_window,
-            self.storage_dir or "",
-            self.slot_data,
-            self.translate,
-            None,
+        viewer = SaveFileViewer.open_or_focus(
+            viewer_id=f"tyrano_slot:{self.storage_dir}:{self.slot_index}",
+            window=self.root_window,
+            storage_dir=self.storage_dir or "",
+            save_data=self.slot_data,
+            t_func=self.translate,
+            on_close_callback=None,
             mode="file",
             viewer_config=viewer_config
         )

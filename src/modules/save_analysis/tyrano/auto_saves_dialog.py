@@ -54,7 +54,8 @@ class AutoSaveFileViewer(SaveFileViewer):
         t_func: Callable[[str], str],
         file_path: Path,
         on_save_callback: Optional[Callable[[Dict[str, Any]], None]] = None,
-        viewer_config: Optional[ViewerConfig] = None
+        viewer_config: Optional[ViewerConfig] = None,
+        _viewer_id: Optional[str] = None
     ) -> None:
         """初始化自动存档文件查看器
         
@@ -66,17 +67,19 @@ class AutoSaveFileViewer(SaveFileViewer):
             file_path: 要保存到的文件路径
             on_save_callback: 保存成功后的回调函数
             viewer_config: 查看器配置
+            _viewer_id: 内部使用，用于注册表管理
         """
         self.auto_save_file_path = file_path
         self.on_save_callback = on_save_callback
         super().__init__(
-            window,
-            storage_dir,
-            save_data,
-            t_func,
-            None,
+            window=window,
+            storage_dir=storage_dir,
+            save_data=save_data,
+            t_func=t_func,
+            on_close_callback=None,
             mode="file",
-            viewer_config=viewer_config
+            viewer_config=viewer_config,
+            _viewer_id=_viewer_id
         )
     
     def _save_to_file(
@@ -361,12 +364,13 @@ class TyranoAutoSavesDialog:
             custom_load_func=load_auto_save_data
         )
         
-        viewer = AutoSaveFileViewer(
-            self.dialog,
-            str(self.storage_dir),
-            save_data,
-            self.translate,
-            file_path,
+        viewer = AutoSaveFileViewer.open_or_focus(
+            viewer_id=str(file_path.resolve()),  # 使用绝对路径，避免同名文件冲突
+            window=self.dialog,
+            storage_dir=str(self.storage_dir),
+            save_data=save_data,
+            t_func=self.translate,
+            file_path=file_path,
             on_save_callback=on_save,
             viewer_config=viewer_config
         )

@@ -8,6 +8,7 @@ import json
 import urllib.parse
 import os
 from typing import Dict, Any, Optional, Callable
+from src.constants import STICKER_ID_RANGES
 
 
 def load_save_file(storage_dir: str) -> Optional[Dict[str, Any]]:
@@ -101,7 +102,9 @@ def compute_shared_data(save_data: Dict[str, Any], total_omakes: list,
     
     # 贴纸相关
     stickers = set(save_data.get("sticker", []))
-    all_sticker_ids = set(range(1, 82)) | set(range(83, 134))
+    all_sticker_ids = set()
+    for start, end in STICKER_ID_RANGES:
+        all_sticker_ids.update(range(start, end))
     missing_stickers = sorted(all_sticker_ids - stickers)
     collected_stickers = sorted(stickers)
     

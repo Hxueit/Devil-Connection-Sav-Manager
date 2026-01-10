@@ -1,6 +1,6 @@
 # Devil Connection .sav Manager
 
-![Tkinter](https://img.shields.io/badge/GUI-Tkinter-blue?logo=python&logoColor=white) [![GitHub release (latest by date)](https://img.shields.io/github/v/release/Hxueit/Devil-Connection-Sav-Manager)](https://github.com/Hxueit/Devil-Connection-Sav-Manager/releases) ![Contains Spoilers](https://img.shields.io/badge/⚠-Contains_Spoilers-yellow) <img src="https://cdn.fastly.steamstatic.com/steamcommunity/public/images/apps/3054820/0cf0cb63d65311ed0b0f6f3cb5a2af88593b7361.jpg" alt="DC" width="20" height="20" style="border-radius: 20%;" />
+[![CTk](https://img.shields.io/badge/GUI-CTk-blue?logo=python&logoColor=white)](https://github.com/TomSchimansky/CustomTkinter) [![GitHub release (latest by date)](https://img.shields.io/github/v/release/Hxueit/Devil-Connection-Sav-Manager)](https://github.com/Hxueit/Devil-Connection-Sav-Manager/releases) ![Contains Spoilers](https://img.shields.io/badge/⚠-Contains_Spoilers-yellow) <img src="https://cdn.fastly.steamstatic.com/steamcommunity/public/images/apps/3054820/0cf0cb63d65311ed0b0f6f3cb5a2af88593b7361.jpg" alt="DC" width="20" height="20" style="border-radius: 20%;" />
 
 <details>
 <summary>日本語 (Japanese)</summary>
@@ -280,8 +280,6 @@ Honestly fantastic game - here is the [Steam store page](https://store.steampowe
 ## Features
 
 The tool consists of multiple tabs:
-
-Tab names: **SF Analyzer**, **Screenshots**, **Backup/Restore**, **Tyrano Management**, **Runtime Modify**, **Others**
 
 ### 📊 SF Analyzer
 

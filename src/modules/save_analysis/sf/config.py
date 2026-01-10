@@ -6,6 +6,7 @@
 
 from typing import Dict, Any, Optional, Callable
 from src.utils.styles import Colors
+from src.constants import TOTAL_ENDINGS, TOTAL_CHARACTERS, TOTAL_STICKERS
 
 
 def get_field_configs():
@@ -102,7 +103,7 @@ def get_field_configs():
                     "data_path": None,
                     "label_key": "total_endings",
                     "var_name": None,
-                    "formatter": lambda v, cd: 45,
+                    "formatter": lambda v, cd: TOTAL_ENDINGS,
                     "is_computed": True
                 },
                 {
@@ -145,7 +146,7 @@ def get_field_configs():
                     "data_path": None,
                     "label_key": "total_stickers",
                     "var_name": None,
-                    "formatter": lambda v, cd: 132,
+                    "formatter": lambda v, cd: TOTAL_STICKERS,
                     "is_computed": True
                 },
                 {
@@ -184,7 +185,7 @@ def get_field_configs():
                     "data_path": None,
                     "label_key": "total_characters",
                     "var_name": None,
-                    "formatter": lambda v, cd: 49,
+                    "formatter": lambda v, cd: TOTAL_CHARACTERS,
                     "is_computed": True
                 },
                 {
