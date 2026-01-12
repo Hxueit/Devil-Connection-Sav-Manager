@@ -346,7 +346,7 @@ class TyranoService:
                     f"processing may take longer"
                 )
         except OSError:
-            # Cannot get file size, continue silently
+            # 无法获取文件大小，静默继续
             pass
     
     def _check_disk_space(self, directory: Path, required_size: int) -> None:
@@ -372,7 +372,7 @@ class TyranoService:
                 logger.error(error_msg)
                 raise OSError(error_msg)
         except OSError:
-            # Cannot check disk space (e.g., network path), continue silently
+            # 无法检查磁盘空间（如网络路径），静默继续
             pass
         except Exception as e:
             logger.debug(f"Disk space check failed: {e}, continuing")

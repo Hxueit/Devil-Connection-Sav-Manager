@@ -1,7 +1,6 @@
 """存档槽UI组件模块
 
-提供单个存档槽的UI显示和交互功能
-"""
+提供单个存档槽的UI显示和交互功能"""
 
 import hashlib
 import json
@@ -70,8 +69,7 @@ class TyranoSaveSlot:
         """初始化存档槽
         
         Raises:
-            ValueError: 当slot_index小于0时
-        """
+            ValueError: 当slot_index小于0?        """
         if slot_index < 0:
             raise ValueError(f"slot_index must be non-negative, got {slot_index}")
         
@@ -95,7 +93,7 @@ class TyranoSaveSlot:
         self._button_frame: Optional[ctk.CTkFrame] = None
     
     def _is_empty_save(self) -> bool:
-        """判断存档是否为空存档（NO SAVE类型）"""
+        """判断存档是否为空存档(NO SAVE类型)"""
         if not self.slot_data:
             return True
         
@@ -204,7 +202,7 @@ class TyranoSaveSlot:
         container_width: int,
         container_height: int
     ) -> Tuple[int, int]:
-        """规范化容器尺寸"""
+        """规范化容器尺)"""
         if container_width <= 0 or container_height <= 0:
             return DEFAULT_THUMBNAIL_SIZE
         return (container_width, container_height)
@@ -214,7 +212,7 @@ class TyranoSaveSlot:
         container_width: int,
         container_height: int
     ) -> Tuple[int, int]:
-        """计算可用尺寸（考虑内边距和比例限制）"""
+        """计算可用尺寸(考虑内边距和比例限制)"""
         max_width = int(container_width * THUMBNAIL_MAX_WIDTH_RATIO) - LABEL_PADDING_X * 2
         max_height = int(container_height * THUMBNAIL_HEIGHT_RATIO) - LABEL_PADDING_Y * 2
         
@@ -228,7 +226,7 @@ class TyranoSaveSlot:
         original_image: Optional[Image.Image],
         aspect_ratio: Optional[float]
     ) -> float:
-        """获取宽高比"""
+        """获取宽高)"""
         if original_image:
             orig_width, orig_height = original_image.size
             if orig_height == 0:
@@ -247,7 +245,7 @@ class TyranoSaveSlot:
         available_height: int,
         aspect_ratio: float
     ) -> Tuple[int, int]:
-        """计算适配尺寸（保持宽高比，确保完整显示）"""
+        """计算适配尺寸(保持宽高比,确保完整显示)"""
         width_by_height = available_height * aspect_ratio
         height_by_width = available_width / aspect_ratio
         
@@ -262,7 +260,7 @@ class TyranoSaveSlot:
         original_image: Optional[Image.Image] = None,
         aspect_ratio: Optional[float] = None
     ) -> Tuple[int, int]:
-        """计算缩略图尺寸，确保图片完整显示在框内"""
+        """计算缩略图尺寸,确保图片完整显示在框)"""
         normalized_width, normalized_height = self._normalize_container_size(
             container_width,
             container_height
@@ -287,9 +285,6 @@ class TyranoSaveSlot:
             border_color=self.Colors.GRAY
         )
         
-        if not self._is_empty_save() and self.slot_data:
-            self._create_action_buttons()
-        
         content_frame = ctk.CTkFrame(self.container, fg_color="transparent")
         content_frame.pack(fill="both", expand=True, padx=LABEL_PADDING_X, pady=LABEL_PADDING_Y)
         
@@ -304,7 +299,8 @@ class TyranoSaveSlot:
             text="",
             fg_color="transparent",
             width=DEFAULT_THUMBNAIL_SIZE[0],
-            height=DEFAULT_THUMBNAIL_SIZE[1]
+            height=DEFAULT_THUMBNAIL_SIZE[1],
+            cursor="hand2"
         )
         self._image_label.pack(fill="none")
         
@@ -314,6 +310,10 @@ class TyranoSaveSlot:
         self._text_label = None
         
         self._bind_click_handlers()
+        self._bind_thumbnail_click()
+
+        if not self._is_empty_save() and self.slot_data:
+            self._create_action_buttons()
     
     def _process_thumbnail_from_cache(
         self,
@@ -331,7 +331,7 @@ class TyranoSaveSlot:
         img_hash: str,
         cache: Optional[ImageCache]
     ) -> Optional[Image.Image]:
-        """处理原始图片（从缓存或解码）"""
+        """处理原始图片(从缓存或解码)"""
         if cache:
             cached_original = cache.get_original(img_hash)
             if cached_original:
@@ -354,7 +354,7 @@ class TyranoSaveSlot:
         placeholder_text: str,
         placeholder_cache: Optional[Dict[Tuple[Tuple[int, int], str], Image.Image]]
     ) -> Image.Image:
-        """获取占位图（带缓存）"""
+        """获取占位图(带缓存)"""
         placeholder_key = (thumb_size, placeholder_text)
         if placeholder_cache and placeholder_key in placeholder_cache:
             return placeholder_cache[placeholder_key]
@@ -404,7 +404,7 @@ class TyranoSaveSlot:
         return thumbnail, None
     
     def _bind_click_handlers(self, label: Optional[tk.Widget] = None) -> None:
-        """绑定点击事件处理器"""
+        """绑定点击事件处理)"""
         if not self.on_click or not self.container:
             return
         
@@ -418,6 +418,18 @@ class TyranoSaveSlot:
             label.bind("<Button-1>", handle_click)
         if self._text_frame:
             self._text_frame.bind("<Button-1>", handle_click)
+    
+    def _bind_thumbnail_click(self) -> None:
+        """绑定缩略图点击事件(打开详情弹窗)"""
+        if not self._image_label:
+            return
+        
+        def handle_thumbnail_click(event: tk.Event) -> None:
+            """处理缩略图点击事)"""
+            if self.slot_data and not self._is_empty_save():
+                self._show_imgdata_dialog()
+        
+        self._image_label.bind("<Button-1>", handle_thumbnail_click)
     
     def _create_info_panel(self, circle_cache: Optional[Dict[Tuple[int, bool], Image.Image]] = None) -> None:
         """创建右侧信息面板"""
@@ -510,17 +522,17 @@ class TyranoSaveSlot:
             date_label.pack(side="top", anchor="w", pady=(0, 5))
             self._bind_click_handlers(date_label)
         
-        if info['subtitle_text']:
-            subtitle_label = ctk.CTkLabel(
-                self._text_frame,
-                text=info['subtitle_text'],
-                font=self.get_cjk_font(FONT_SIZE),
-                text_color=SUBTITLE_COLOR,
-                fg_color="transparent",
-                anchor="w"
-            )
-            subtitle_label.pack(side="top", anchor="w")
-            self._bind_click_handlers(subtitle_label)
+        subtitle_text = info['subtitle_text']
+        subtitle_label = ctk.CTkLabel(
+            self._text_frame,
+            text=subtitle_text if subtitle_text else " ",
+            font=self.get_cjk_font(FONT_SIZE),
+            text_color=SUBTITLE_COLOR if subtitle_text else self.Colors.LIGHT_GRAY,
+            fg_color="transparent",
+            anchor="w"
+        )
+        subtitle_label.pack(side="top", anchor="w")
+        self._bind_click_handlers(subtitle_label)
         
         self._info_panel_created = True
     
@@ -529,7 +541,7 @@ class TyranoSaveSlot:
         return self.container
     
     def update_slot_data(self, new_slot_data: Optional[Dict[str, Any]], new_index: int) -> None:
-        """更新存档槽数据（用于UI组件复用）"""
+        """更新存档槽数据(用于UI组件复用)"""
         self.slot_data = new_slot_data
         self.slot_index = new_index
         self._image_hash = None
@@ -549,11 +561,11 @@ class TyranoSaveSlot:
                 widget.destroy()
     
     def get_image_hash(self) -> Optional[str]:
-        """获取图片哈希值（公开方法，供外部调用）"""
+        """获取图片哈希值(公开方法,供外部调用)"""
         return self._get_image_hash()
     
     def _create_action_buttons(self) -> None:
-        """创建操作按钮（修改和导出）"""
+        """创建操作按钮(修改和导出)"""
         if not self.container:
             return
         
@@ -621,15 +633,16 @@ class TyranoSaveSlot:
             "stat.stack",
             "stat.popopo",
             "stat.map_macro",
-            "stat.fuki"
+            "stat.fuki",
+            "three"
         ]
         
-        # 创建自定义加载函数，返回当前槽的数据
-        # 对于tyrano存档槽，刷新时返回当前slot_data（因为数据来自整个存档文件）
+        # 创建自定义加载函数,返回当前槽的数据
+        # 对于tyrano存档槽,刷新时返回当前slot_data(因为数据来自整个存档文件)
         def load_tyrano_slot_data() -> Optional[Dict[str, Any]]:
             return self.slot_data
         
-        # 创建自定义保存函数，更新tyrano存档文件中的对应槽
+        # 创建自定义保存函数,更新tyrano存档文件中的对应槽
         def save_tyrano_slot_data(edited_data: Dict[str, Any]) -> bool:
             """保存tyrano存档槽数据到存档文件"""
             if not self.storage_dir:
@@ -678,7 +691,7 @@ class TyranoSaveSlot:
                 logger.error(f"Failed to save tyrano slot: {e}", exc_info=True)
                 return False
         
-        # 创建保存回调，刷新父界面
+        # 创建保存回调,刷新父界面
         def on_save_callback(edited_data: Dict[str, Any]) -> None:
             """保存成功后刷新父界面"""
             if self.on_data_changed:
@@ -765,8 +778,8 @@ class TyranoSaveSlot:
     def _generate_edit_title(self) -> str:
         """生成编辑窗口标题
         
-        格式: "存档：{day}日目_{circles}_{date}_{subtitle}"
-        circles: ●=实心(已完成), ○=空心(未完成)
+        格式: "存档:{day}日目_{circles}_{date}_{subtitle}"
+        circles: ?实心(已完?, ?空心(未完?
         """
         info = self._extract_save_info()
         
@@ -811,13 +824,12 @@ class TyranoSaveSlot:
         if subtitle_str:
             parts.append(subtitle_str)
         
-        return f"{save_prefix}：{'_'.join(parts)}"
+        return f"{save_prefix}:{'_'.join(parts)}"
     
     def _generate_export_filename(self) -> str:
-        """生成导出文件名
-        
+        """生成导出文件?        
         格式: "{day}日目_{circles}_{date}_{subtitle}.json"
-        circles: X=实心(已完成), O=空心(未完成)
+        circles: X=实心(已完?, O=空心(未完?
         """
         info = self._extract_save_info()
         
@@ -861,3 +873,348 @@ class TyranoSaveSlot:
         
         filename = "_".join(parts) + ".json"
         return re.sub(r'[<>:"/\\|?*]', '_', filename)
+    
+    def _show_imgdata_dialog(self) -> None:
+        """显示imgdata详情弹窗"""
+        if not self.root_window or not self.slot_data:
+            return
+        
+        import customtkinter as ctk
+        from src.modules.common.image_operations import ImageExportHelper, ImageReplaceHelper
+        from src.modules.save_analysis.tyrano.image_utils import decode_image_data
+        from src.modules.others.tyrano_service import TyranoService
+        from src.modules.save_analysis.tyrano.constants import TYRANO_SAV_FILENAME
+        from src.modules.screenshot.image_processor import encode_image_to_base64
+        from src.utils.ui_utils import set_window_icon, showinfo_relative, showerror_relative, showwarning_relative
+        from pathlib import Path
+        from PIL import Image
+        
+        dialog = self._create_imgdata_dialog(ctk)
+        main_frame = self._create_main_frame(dialog, ctk)
+        
+        self._create_save_info_section(main_frame, ctk)
+        self._create_imgdata_label(main_frame, ctk)
+        
+        image_data = self.slot_data.get(IMGDATA_FIELD_KEY)
+        photo_ref = self._create_image_preview(main_frame, image_data, ctk)
+        
+        button_frame = self._create_button_frame(main_frame, ctk)
+        self._create_replace_button(button_frame, image_data, dialog, ctk, set_window_icon)
+        self._create_export_button(button_frame, image_data, dialog, ctk, set_window_icon)
+        
+        if photo_ref:
+            dialog.ctk_image_ref = photo_ref
+    
+    def _create_imgdata_dialog(self, ctk) -> Any:
+        """创建imgdata对话框窗口"""
+        dialog = ctk.CTkToplevel(self.root_window)
+        dialog.title(self.translate("tyrano_imgdata_dialog_title"))
+        dialog.geometry("450x400")
+        dialog.transient(self.root_window)
+        dialog.grab_set()
+        self._set_window_icon_with_retry(dialog)
+        return dialog
+    
+    def _set_window_icon_with_retry(self, dialog: Any) -> None:
+        """设置窗口图标（带重试机制）"""
+        from src.utils.ui_utils import set_window_icon
+        set_window_icon(dialog)
+        dialog.after(50, lambda: set_window_icon(dialog))
+        dialog.after(200, lambda: set_window_icon(dialog))
+    
+    def _create_main_frame(self, dialog: Any, ctk) -> Any:
+        """创建主容器框架"""
+        main_frame = ctk.CTkFrame(dialog, fg_color=self.Colors.LIGHT_GRAY)
+        main_frame.pack(fill="both", expand=True, padx=15, pady=15)
+        return main_frame
+    
+    def _create_save_info_section(self, main_frame: Any, ctk) -> None:
+        """创建存档信息显示区域"""
+        info = self._extract_save_info()
+        info_parts = []
+        
+        if info['day_value'] is not None:
+            if info['is_epilogue']:
+                day_text = self.translate("tyrano_epilogue_day_label").format(day=info['day_value'])
+            else:
+                day_text = self.translate("tyrano_day_label").format(day=info['day_value'])
+            info_parts.append(day_text)
+        
+        if not info['is_epilogue'] and info['day_value'] is not None:
+            circles = "".join("●" if i < info['finished_count'] else "○" for i in range(3))
+            info_parts.append(circles)
+        
+        if info['save_date']:
+            info_parts.append(info['save_date'])
+        
+        if info['subtitle_text']:
+            info_parts.append(info['subtitle_text'])
+        
+        info_text = " · ".join(info_parts) if info_parts else self.translate("tyrano_no_save")
+        
+        info_label = ctk.CTkLabel(
+            main_frame,
+            text=info_text,
+            font=self.get_cjk_font(14),
+            text_color=self.Colors.TEXT_PRIMARY,
+            fg_color="transparent",
+            anchor="w"
+        )
+        info_label.pack(side="top", anchor="w", pady=(0, 15))
+    
+    def _create_imgdata_label(self, main_frame: Any, ctk) -> None:
+        """创建imgdata标签"""
+        imgdata_label = ctk.CTkLabel(
+            main_frame,
+            text=self.translate("tyrano_imgdata_label"),
+            font=self.get_cjk_font(12),
+            text_color=self.Colors.TEXT_PRIMARY,
+            fg_color="transparent",
+            anchor="w"
+        )
+        imgdata_label.pack(side="top", anchor="w", pady=(0, 10))
+    
+    def _create_image_preview(self, main_frame: Any, image_data: Optional[str], ctk) -> Optional[Any]:
+        """创建图片预览区域
+        
+        Args:
+            main_frame: 主容器框架
+            image_data: 图片数据（data URI字符串）
+            ctk: CustomTkinter模块
+            
+        Returns:
+            CTkImage对象引用（用于防止垃圾回收）
+        """
+        from src.modules.save_analysis.tyrano.image_utils import decode_image_data
+        from PIL import Image
+        
+        image_preview_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        image_preview_frame.pack(side="top", fill="both", expand=True, pady=(0, 20))
+        
+        if not image_data:
+            self._create_no_image_label(image_preview_frame, ctk)
+            return None
+        
+        try:
+            decoded_img = decode_image_data(image_data)
+            if not decoded_img:
+                self._create_no_image_label(image_preview_frame, ctk)
+                return None
+            
+            max_width, max_height = 300, 225
+            img_width, img_height = decoded_img.size
+            ratio = min(max_width / img_width, max_height / img_height, 1.0)
+            preview_size = (int(img_width * ratio), int(img_height * ratio))
+            preview_image = decoded_img.resize(preview_size, Image.Resampling.BILINEAR)
+            
+            ctk_image = ctk.CTkImage(
+                light_image=preview_image,
+                dark_image=preview_image,
+                size=preview_size
+            )
+            
+            image_label = ctk.CTkLabel(
+                image_preview_frame,
+                image=ctk_image,
+                text="",
+                fg_color="transparent"
+            )
+            image_label.pack(expand=True)
+            
+            return ctk_image
+        except (ValueError, OSError, IOError) as e:
+            logger.error(f"Failed to decode image for preview: {e}", exc_info=True)
+            self._create_no_image_label(image_preview_frame, ctk)
+            return None
+    
+    def _create_no_image_label(self, parent_frame: Any, ctk) -> None:
+        """创建无图片提示标签"""
+        no_image_label = ctk.CTkLabel(
+            parent_frame,
+            text=self.translate("tyrano_imgdata_no_image"),
+            font=self.get_cjk_font(12),
+            text_color=self.Colors.TEXT_PRIMARY,
+            fg_color="transparent"
+        )
+        no_image_label.pack(expand=True)
+    
+    def _create_button_frame(self, main_frame: Any, ctk) -> Any:
+        """创建按钮容器框架"""
+        button_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        button_frame.pack(side="bottom", fill="x", pady=(10, 0))
+        return button_frame
+    
+    def _get_button_config(self) -> Dict[str, Any]:
+        """获取按钮样式配置"""
+        return {
+            'width': 60,
+            'height': 30,
+            'corner_radius': 8,
+            'fg_color': self.Colors.WHITE,
+            'hover_color': self.Colors.LIGHT_GRAY,
+            'border_width': 1,
+            'border_color': self.Colors.GRAY,
+            'text_color': self.Colors.TEXT_PRIMARY,
+            'font': self.get_cjk_font(10)
+        }
+    
+    def _create_replace_button(
+        self,
+        button_frame: Any,
+        image_data: Optional[str],
+        dialog: Any,
+        ctk: Any,
+        set_window_icon: Callable
+    ) -> None:
+        """创建替换按钮"""
+        from src.modules.common.image_operations import ImageReplaceHelper
+        from src.modules.others.tyrano_service import TyranoService
+        from src.modules.save_analysis.tyrano.constants import TYRANO_SAV_FILENAME
+        from src.modules.screenshot.image_processor import encode_image_to_base64
+        from src.utils.ui_utils import showinfo_relative, showerror_relative, showwarning_relative
+        from pathlib import Path
+        from PIL import Image
+        
+        def on_replace_click() -> None:
+            if not image_data:
+                showwarning_relative(
+                    dialog,
+                    self.translate("warning"),
+                    self.translate("tyrano_imgdata_no_image")
+                )
+                return
+            
+            replace_helper = ImageReplaceHelper(
+                self.root_window,
+                self.translate,
+                self.get_cjk_font,
+                self.Colors,
+                set_window_icon
+            )
+            
+            def on_replace_confirm(new_image_path: Path) -> None:
+                try:
+                    with Image.open(new_image_path) as new_img:
+                        new_imgdata = encode_image_to_base64(new_img)
+                    
+                    self.slot_data[IMGDATA_FIELD_KEY] = new_imgdata
+                    
+                    tyrano_service = TyranoService()
+                    tyrano_file_path = Path(self.storage_dir) / TYRANO_SAV_FILENAME
+                    
+                    if not tyrano_file_path.exists():
+                        showerror_relative(
+                            dialog,
+                            self.translate("error"),
+                            self.translate("file_not_found")
+                        )
+                        return
+                    
+                    save_data = tyrano_service.load_tyrano_save_file(tyrano_file_path)
+                    
+                    if 'data' not in save_data:
+                        save_data['data'] = []
+                    
+                    save_slots = save_data['data']
+                    while len(save_slots) <= self.slot_index:
+                        save_slots.append(None)
+                    
+                    save_slots[self.slot_index] = self.slot_data
+                    save_data['data'] = save_slots
+                    
+                    tyrano_service.save_tyrano_save_file(tyrano_file_path, save_data)
+                    self._image_hash = None
+                    
+                    showinfo_relative(
+                        dialog,
+                        self.translate("success"),
+                        self.translate("tyrano_imgdata_replace_success")
+                    )
+                    
+                    if self.on_data_changed:
+                        try:
+                            self.on_data_changed()
+                        except Exception as callback_error:
+                            logger.error(f"on_data_changed callback failed: {callback_error}", exc_info=True)
+                    
+                    dialog.destroy()
+                except (OSError, IOError, ValueError, KeyError) as e:
+                    logger.error(f"Failed to replace imgdata: {e}", exc_info=True)
+                    showerror_relative(
+                        dialog,
+                        self.translate("error"),
+                        f"{self.translate('error')}: {str(e)}"
+                    )
+            
+            valid_extensions = {'.png', '.jpg', '.jpeg', '.gif', '.apng'}
+            replace_helper.show_replace_flow(
+                image_data if image_data else "",
+                on_replace_confirm,
+                lambda path: path.suffix.lower() in valid_extensions
+            )
+        
+        replace_button = ctk.CTkButton(
+            button_frame,
+            text=self.translate("tyrano_imgdata_replace"),
+            command=on_replace_click,
+            **self._get_button_config()
+        )
+        replace_button.pack(side="left", padx=10)
+    
+    def _create_export_button(
+        self,
+        button_frame: Any,
+        image_data: Optional[str],
+        dialog: Any,
+        ctk: Any,
+        set_window_icon: Callable
+    ) -> None:
+        """创建导出按钮"""
+        from src.modules.common.image_operations import ImageExportHelper
+        from src.modules.save_analysis.tyrano.image_utils import decode_image_data
+        from src.utils.ui_utils import showerror_relative, showwarning_relative
+        
+        def on_export_click() -> None:
+            if not image_data:
+                showwarning_relative(
+                    dialog,
+                    self.translate("warning"),
+                    self.translate("tyrano_imgdata_no_image")
+                )
+                return
+            
+            try:
+                decoded_img = decode_image_data(image_data)
+                if not decoded_img:
+                    showerror_relative(
+                        dialog,
+                        self.translate("error"),
+                        self.translate("tyrano_imgdata_no_image")
+                    )
+                    return
+                
+                export_helper = ImageExportHelper(
+                    self.root_window,
+                    self.translate,
+                    self.get_cjk_font,
+                    self.Colors,
+                    set_window_icon
+                )
+                
+                default_filename = self._generate_export_filename().replace('.json', '')
+                export_helper.show_format_dialog(decoded_img, default_filename)
+            except (ValueError, OSError, IOError) as e:
+                logger.error(f"Failed to export imgdata: {e}", exc_info=True)
+                showerror_relative(
+                    dialog,
+                    self.translate("error"),
+                    f"{self.translate('error')}: {str(e)}"
+                )
+        
+        export_button = ctk.CTkButton(
+            button_frame,
+            text=self.translate("tyrano_imgdata_export"),
+            command=on_export_click,
+            **self._get_button_config()
+        )
+        export_button.pack(side="right", padx=10)

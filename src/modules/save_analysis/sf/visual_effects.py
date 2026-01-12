@@ -88,7 +88,11 @@ def draw_progress_ring(
         canvas.delete(f"{tag}_highlight")
         return
     
-    extent = -(min(current_percent, 99.5) / 100) * 360
+    # 不道为什么-360会直接导致圆环消失，故359.9，视觉效果无差别
+    if rounded_percent >= 100:
+        extent = -359.9
+    else:
+        extent = -(current_percent / 100) * 360
     
     is_complete = rounded_percent >= 100 and not skip_full_highlight
     highlight_color = lighten_color(progress_color, 0.35)

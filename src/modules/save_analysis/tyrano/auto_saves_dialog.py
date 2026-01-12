@@ -34,7 +34,8 @@ TYRANO_COLLAPSED_FIELDS: Final[List[str]] = [
     "stat.stack",
     "stat.popopo",
     "stat.map_macro",
-    "stat.fuki"
+    "stat.fuki",
+    "three"
 ]
 
 STATUS_COLOR_EXISTS = "#4CAF50"

@@ -274,7 +274,7 @@ class FileMonitor:
             logger.error(
                 f"Unexpected error processing file changes: {e}", exc_info=True
             )
-            # Update cache even on error to avoid reprocessing
+            # 即使出错也更新缓存，避免重复处理
             self._update_memory_cache(current_save_content, current_hash)
     
     def _initialize_memory_cache(self) -> None:
@@ -352,7 +352,7 @@ class FileMonitor:
                     f"using lightweight cache strategy"
                 )
         except OSError:
-            # Cannot get file size, use default strategy
+            # 无法获取文件大小，使用默认策略
             self._use_lightweight_cache = False
     
     def _is_valid_storage_dir(self) -> bool:

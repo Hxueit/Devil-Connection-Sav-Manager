@@ -22,6 +22,7 @@ from PIL import Image, ImageTk, UnidentifiedImageError
 from src.modules.screenshot.constants import (
     VALID_IMAGE_EXTENSIONS, GALLERY_OPERATION_ADD, GALLERY_OPERATION_REPLACE
 )
+from src.modules.common.image_operations import ImageExportHelper, ImageReplaceHelper
 from src.utils.ui_utils import (
     showinfo_relative, showwarning_relative, showerror_relative, askyesno_relative
 )
@@ -427,18 +428,6 @@ class ScreenshotDialogs:
             showerror_relative(self.root, self.t("error"), self.t("file_not_exist"))
             return
         
-        new_image_path = filedialog.askopenfilename(
-            title=self.t("select_new_image"),
-            filetypes=IMAGE_FILE_TYPES
-        )
-        
-        if not new_image_path:
-            return
-        
-        new_image_path_obj = Path(new_image_path)
-        file_extension = new_image_path_obj.suffix.lower()
-        is_valid_image = file_extension in VALID_IMAGE_EXTENSIONS
-        
         temp_png_path = None
         try:
             temp_png_path = self._extract_image_from_sav(main_sav_path)
@@ -446,18 +435,20 @@ class ScreenshotDialogs:
                 messagebox.showerror(self.t("error"), self.t("file_not_found"))
                 return
             
-            confirmed = self._show_replace_confirmation_dialog(
-                temp_png_path,
-                new_image_path_obj,
-                is_valid_image
+            replace_helper = ImageReplaceHelper(
+                self.root,
+                self.t,
+                self.get_cjk_font,
+                self.Colors,
+                self.set_window_icon
             )
             
-            if confirmed:
+            def on_replace_confirm(new_image_path: Path) -> None:
                 success, message = self._replace_sav_files(
                     screenshot_id,
                     main_sav_path,
                     thumb_sav_path,
-                    new_image_path_obj
+                    new_image_path
                 )
                 
                 if success:
@@ -475,6 +466,12 @@ class ScreenshotDialogs:
                             logger.warning(f"Gallery refresh callback failed after replace: {e}", exc_info=True)
                 else:
                     showerror_relative(self.root, self.t("error"), message)
+            
+            replace_helper.show_replace_flow(
+                temp_png_path,
+                on_replace_confirm,
+                lambda path: path.suffix.lower() in VALID_IMAGE_EXTENSIONS
+            )
         finally:
             if temp_png_path and Path(temp_png_path).exists():
                 try:
@@ -511,145 +508,6 @@ class ScreenshotDialogs:
             logger.error(f"Failed to extract image from sav file {sav_path}: {e}")
             return None
     
-    def _show_replace_confirmation_dialog(
-        self,
-        original_image_path: str,
-        new_image_path: Path,
-        is_valid_image: bool
-    ) -> bool:
-        """显示替换确认对话框
-        
-        Args:
-            original_image_path: 原始图片路径
-            new_image_path: 新图片路径
-            is_valid_image: 是否为有效图片
-            
-        Returns:
-            如果用户确认返回True，否则返回False
-        """
-        self._photo_refs.clear()
-        
-        popup = self._create_base_dialog(
-            self.t("replace_warning"),
-            width=900,
-            height=500
-        )
-        
-        if not is_valid_image:
-            warning_label = tk.Label(
-                popup,
-                text=self.t("file_extension_warning", filename=new_image_path.name),
-                fg=Colors.TEXT_WARNING_PINK,
-                font=self.get_cjk_font(10),
-                wraplength=600,
-                justify="left",
-                bg=self.Colors.WHITE
-            )
-            warning_label.pack(pady=5, padx=10, anchor="w")
-        
-        confirm_label = tk.Label(
-            popup,
-            text=self.t("replace_confirm_text"),
-            font=self.get_cjk_font(12),
-            fg=self.Colors.TEXT_PRIMARY,
-            bg=self.Colors.WHITE
-        )
-        confirm_label.pack(pady=10)
-        
-        image_frame = tk.Frame(popup, bg=self.Colors.WHITE)
-        image_frame.pack(pady=10)
-        
-        self._display_image_preview(image_frame, original_image_path, "orig_photo")
-        self._display_arrow_label(image_frame)
-        self._display_image_preview(image_frame, str(new_image_path), "new_photo")
-        
-        question_label = tk.Label(
-            popup,
-            text=self.t("replace_confirm_question"),
-            font=self.get_cjk_font(10),
-            fg=self.Colors.TEXT_PRIMARY,
-            bg=self.Colors.WHITE
-        )
-        question_label.pack(pady=10)
-        
-        confirmed = False
-        
-        def confirm_replace() -> None:
-            nonlocal confirmed
-            confirmed = True
-            popup.destroy()
-        
-        def cancel_replace() -> None:
-            popup.destroy()
-        
-        button_frame = tk.Frame(popup, bg=self.Colors.WHITE)
-        button_frame.pack(pady=10)
-        
-        ttk.Button(
-            button_frame,
-            text=self.t("replace_yes"),
-            command=confirm_replace
-        ).pack(side="left", padx=10)
-        
-        ttk.Button(
-            button_frame,
-            text=self.t("replace_no"),
-            command=cancel_replace
-        ).pack(side="right", padx=10)
-        
-        popup.bind('<Return>', lambda e: confirm_replace())
-        popup.bind('<Escape>', lambda e: cancel_replace())
-        
-        self.root.wait_window(popup)
-        return confirmed
-    
-    def _display_image_preview(
-        self,
-        parent_frame: tk.Frame,
-        image_path: str,
-        attribute_name: str
-    ) -> None:
-        """显示图片预览
-        
-        Args:
-            parent_frame: 父框架
-            image_path: 图片路径
-            attribute_name: 属性名称（未使用，保留以兼容现有调用）
-        """
-        try:
-            with Image.open(image_path) as img:
-                preview_img = img.resize(PREVIEW_SIZE, Image.Resampling.BILINEAR)
-                photo = ImageTk.PhotoImage(preview_img)
-                
-                label = Label(parent_frame, image=photo, bg=self.Colors.WHITE)
-                label.pack(side="left", padx=10)
-                
-                self._photo_refs.append(photo)
-        except (OSError, IOError, UnidentifiedImageError) as e:
-            logger.debug(f"Failed to display image preview {image_path}: {e}")
-            error_label = Label(
-                parent_frame,
-                text=self.t("preview_failed"),
-                fg="red",
-                font=self.get_cjk_font(12),
-                bg=self.Colors.WHITE
-            )
-            error_label.pack(side="left", padx=10)
-    
-    def _display_arrow_label(self, parent_frame: tk.Frame) -> None:
-        """显示箭头标签
-        
-        Args:
-            parent_frame: 父框架
-        """
-        arrow_label = tk.Label(
-            parent_frame,
-            text="→",
-            font=self.get_cjk_font(24),
-            fg=self.Colors.TEXT_PRIMARY,
-            bg=self.Colors.WHITE
-        )
-        arrow_label.pack(side="left", padx=10)
     
     def _replace_sav_files(
         self,
@@ -691,123 +549,16 @@ class ScreenshotDialogs:
             messagebox.showerror(self.t("error"), self.t("file_not_found"))
             return
         
-        format_dialog = self._create_format_selection_dialog()
-        format_var = tk.StringVar(value="png")
-        self._create_format_radio_buttons(format_dialog, format_var)
-        
-        def confirm_export() -> None:
-            format_choice = format_var.get()
-            format_dialog.destroy()
-            self._perform_export(screenshot_id, image_data, format_choice)
-        
-        self._create_dialog_buttons(format_dialog, confirm_export)
-    
-    def _create_format_selection_dialog(self) -> Toplevel:
-        """创建格式选择对话框
-        
-        Returns:
-            对话框窗口
-        """
-        dialog = self._create_base_dialog(
-            self.t("select_export_format"),
-            width=300,
-            height=200
+        export_helper = ImageExportHelper(
+            self.root,
+            self.t,
+            self.get_cjk_font,
+            self.Colors,
+            self.set_window_icon
         )
         
-        format_label = tk.Label(
-            dialog,
-            text=self.t("select_image_format"),
-            font=self.get_cjk_font(10),
-            fg=self.Colors.TEXT_PRIMARY,
-            bg=self.Colors.WHITE
-        )
-        format_label.pack(pady=10)
-        
-        return dialog
+        export_helper.show_format_dialog(image_data, screenshot_id)
     
-    def _create_format_radio_buttons(
-        self,
-        dialog: Toplevel,
-        format_var: tk.StringVar
-    ) -> None:
-        """创建格式单选按钮
-        
-        Args:
-            dialog: 对话框窗口
-            format_var: 格式变量
-        """
-        format_frame = ttk.Frame(dialog, style="White.TFrame")
-        format_frame.pack(pady=10)
-        
-        for format_name in EXPORT_FORMAT_CONFIG.keys():
-            ttk.Radiobutton(
-                format_frame,
-                text=format_name.upper(),
-                variable=format_var,
-                value=format_name
-            ).pack(side='left', padx=10)
-    
-    def _perform_export(
-        self,
-        screenshot_id: str,
-        image_data: bytes,
-        format_choice: str
-    ) -> None:
-        """执行导出操作
-        
-        Args:
-            screenshot_id: 截图ID
-            image_data: 图片数据
-            format_choice: 格式选择
-        """
-        if format_choice not in EXPORT_FORMAT_CONFIG:
-            showerror_relative(self.root, self.t("error"), self.t("invalid_format"))
-            return
-        
-        format_config = EXPORT_FORMAT_CONFIG[format_choice]
-        save_path = filedialog.asksaveasfilename(
-            title=self.t("save_image"),
-            defaultextension=format_config["extension"],
-            filetypes=format_config["filetypes"],
-            initialfile=f"{screenshot_id}{format_config['extension']}"
-        )
-        
-        if not save_path:
-            return
-        
-        temp_png_path = None
-        try:
-            temp_png_path = Path(tempfile.NamedTemporaryFile(suffix='.png', delete=False).name)
-            temp_png_path.write_bytes(image_data)
-            
-            with Image.open(temp_png_path) as img:
-                if format_config.get("requires_rgb", False) and img.mode != "RGB":
-                    img = img.convert("RGB")
-                
-                img.save(
-                    save_path,
-                    format_config["save_format"],
-                    quality=EXPORT_QUALITY if format_choice != "png" else None
-                )
-            
-            showinfo_relative(
-                self.root,
-                self.t("success"),
-                self.t("export_success").format(path=save_path)
-            )
-        except (OSError, IOError, UnidentifiedImageError, ValueError) as e:
-            logger.error(f"Failed to export image: {e}", exc_info=True)
-            showerror_relative(
-                self.root,
-                self.t("error"),
-                f"{self.t('export_failed')}: {str(e)}"
-            )
-        finally:
-            if temp_png_path and temp_png_path.exists():
-                try:
-                    temp_png_path.unlink()
-                except OSError as e:
-                    logger.debug(f"Failed to remove temp file {temp_png_path}: {e}")
     
     def show_batch_export_dialog(self, selected_ids: List[str]) -> None:
         """显示批量导出对话框

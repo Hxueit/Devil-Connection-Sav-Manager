@@ -102,9 +102,11 @@ class RuntimeModifyUIBuilder:
         description_section = self.create_description_section(
             content_frame, on_toggle_description
         )
+        
         config_section = self.create_config_section(
             content_frame, on_port_changed, on_check_port
         )
+        
         action_section = self.create_action_section(
             content_frame,
             on_launch_clicked,
@@ -112,6 +114,7 @@ class RuntimeModifyUIBuilder:
             update_hook_status,
             on_force_fast_forward_clicked
         )
+        
         status_section = self.create_status_section(
             content_frame,
             on_open_console_clicked,

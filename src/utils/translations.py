@@ -2,14 +2,14 @@
 
 TRANSLATIONS = {
     "zh_CN": {
-        # Window title
+        # 窗口标题
         "window_title": "恶魔连结sav管理工具",
         
-        # Directory selection
+        # 目录选择
         "browse_dir": "浏览目录",
         "dir_warning": "你选择的文件夹名称不是\"_storage\"，请确认是否为正确存档文件夹",
         
-        # Screenshot list
+        # 截图列表
         "screenshot_list": "截图列表:",
         "preview": "预览",
         "refresh": "⟳",
@@ -17,7 +17,7 @@ TRANSLATIONS = {
         "sort_desc": "倒序",
         "list_header": "ID - 文件名 - 时间",
         
-        # Buttons
+        # 按钮
         "add_new": "+ 新增截图",
         "replace_selected": "⇋ 替换选中截图",
         "delete_selected": "✖ 删除选中截图",
@@ -25,7 +25,7 @@ TRANSLATIONS = {
         "export_image": "导出图片",
         "batch_export": "批量导出图片",
         
-        # Error messages
+        # 错误消息
         "error": "错误",
         "success": "成功",
         "warning": "警告",
@@ -42,13 +42,13 @@ TRANSLATIONS = {
         "export_failed": "导出失败",
         "save_failed": "保存失败: {error}",
         
-        # Sort related
+        # 排序相关
         "confirm_sort": "确认排序",
         "sort_warning": "注意:改变该排序也会改变截图在游戏画廊中的显示顺序，是否确定？",
         "sort_asc_success": "已按正序排序并保存！",
         "sort_desc_success": "已按倒序排序并保存！",
         
-        # Replace related
+        # 替换相关
         "replace_warning": "警告：确认替换",
         "replace_confirm_text": "你即将进行以下替换操作：",
         "replace_confirm_question": "是否确认替换（是/否）？",
@@ -59,7 +59,7 @@ TRANSLATIONS = {
         "replace_success": "替换 {id} 完成！",
         "select_new_image": "选择新图片文件",
         
-        # Add new related
+        # 新增相关
         "add_new_title": "新增截图设置",
         "id_label": "ID (留空随机生成):",
         "date_label": "时间 (格式: YYYY/MM/DD HH:MM:SS, 留空当前时间):",
@@ -73,7 +73,7 @@ TRANSLATIONS = {
         "file_extension_warning": "你选择的是{filename}，请确认该文件是图片文件，若非图片文件将无法增添至游戏内",
         "aspect_ratio_warning": "你选择的图片分辨率不是4:3，导入可能会导致该图片显示时被强制拉伸，且图像编辑功能可能不会正常工作",
         
-        # Delete related
+        # 删除相关
         "delete_confirm": "确认删除",
         "delete_select_error": "请选择要删除的截图！\n\n注意: 请在左侧复选框中选择要删除的截图",
         "delete_confirm_single": "你确定要删除 {id} 的截图（包括索引）吗？",
@@ -82,7 +82,7 @@ TRANSLATIONS = {
         "delete_success": "已删除 {count} 个截图！",
         "delete_warning": "没有成功删除任何文件！(索引可能已被移除)",
         
-        # Export related
+        # 导出相关
         "select_export_format": "选择导出格式",
         "select_image_format": "选择图片格式:",
         "save_image": "保存图片",
@@ -95,13 +95,13 @@ TRANSLATIONS = {
         "exporting_images": "正在导出图片...",
         "close": "关闭",
         
-        # Directory menu
+        # 目录菜单
         "directory_menu": "目录选择",
         "select_dir_hint": "请在左上角目录选择游戏的_storage路径",
         "auto_detect_steam": "自动检测(Steam)",
         "steam_detect_not_found": "未找到，请手动选择目录",
         
-        # Gallery preview
+        # 画廊预览
         "page": "页面",
         "not_available": "N/A",
         "loading": "加载中...",
@@ -112,7 +112,7 @@ TRANSLATIONS = {
         "invalid_page_number": "页码无效！请输入 {min} 到 {max} 之间的数字",
         "invalid_page_input": "请输入有效的页码数字",
         
-        # Save analyzer
+        # 存档分析器
         "sf_save_analyzer_tab": "sf存档分析",
         "tyrano_save_management_tab": "tyrano存档管理",
         "screenshot_management_tab": "截图管理",
@@ -125,7 +125,7 @@ TRANSLATIONS = {
         "album_page_no": "当前所在的相册页码",
         "endings_statistics": "结局统计",
         "total_endings": "总结局数",
-        "current_collected_endings": "当前已收集存档数",
+        "current_collected_endings": "当前已收集结局数",
         "total_collected_endings": "累计收集过的结局数",
         "total_collected_endings_tooltip": "不随游戏重置周目而重置（当然，删档还是会重置的）",
         "collected_endings": "已收集结局数",
@@ -223,7 +223,7 @@ TRANSLATIONS = {
         "copy_to_clipboard": "复制全部",
         "show_var_names": "显示变量名",
         "disable_collapse_horizontal": "取消折叠/横置",
-        "viewer_hint_text": "当前为了文件清晰对一些变量进行了折叠/横置的操作。若想查看/编被折叠的变量，请勾选上方的 取消折叠/横置 框（修改被横置和其余变量的功能不受影响）",
+        "viewer_hint_text": "当前为了文件清晰对一些变量进行了折叠/横置的操作。若想查看/编被折叠的变量，请勾选上方的 取消折叠/横置 框 （修改被横置和其余变量的功能不受影响）",
         "collapsed_field_text": "已折叠，勾选上方取消折叠/横置查看",
         "enable_edit": "开启修改",
         "save_file": "保存",
@@ -239,7 +239,7 @@ TRANSLATIONS = {
         "good_neo": "愿你们永远幸福",
         "bad_neo": "对你施以永恒的制裁",
         
-        # Backup/Restore
+        # 备份/还原
         "backup_button": "创建备份",
         "restore_button": "还原备份",
         "backup_confirm_title": "确认备份",
@@ -273,7 +273,7 @@ TRANSLATIONS = {
         "rename_backup_success": "备份已重命名！\n原文件名：{old_filename}\n新文件名：{new_filename}",
         "rename_backup_failed": "重命名备份失败",
 
-        # Runtime modify tab
+        # 运行时修改标签
         "runtime_modify_description": "由于TyranoBuilder引擎的架构，正常情况下在游戏启动时仅会应用内存的数值，因此在游戏运行时往存档文件里修改的数值均无效，且进行任意操作后就会恢复成原状。若你希望在游戏运行时修改，可以使用此功能启动游戏，启动后会通过CDP开放devtools并在修改后自动注入js，实现游戏内正常修改。请注意，这个功能有可能导致游戏运行时崩溃。点击下方按钮启动游戏并hook。",
         "runtime_modify_what_is_this": "这是什么？",
         "runtime_modify_open_console_button": "打开控制台",
@@ -359,7 +359,7 @@ TRANSLATIONS = {
         "save_file_failed": "保存文件失败: {error}",
         "search_not_found": "未找到",
 
-        # Cache clean
+        # 缓存清理
         "cache_clean_button": "清理缓存",
         "cache_clean_dialog_title": "缓存清理",
         "cache_clean_safe_group": "安全清理集",
@@ -403,7 +403,7 @@ TRANSLATIONS = {
         "cache_clean_items_found_count": "发现 {count} 个变量",
         "cache_clean_warnings": "警告:",
 
-        # Others tab
+        # 其他标签
         "others_tab": "其他",
         "current_selected_path": "目前选择的路径",
         "enable_toast": "开启toast功能",
@@ -467,6 +467,12 @@ TRANSLATIONS = {
         "tyrano_slot_edit_title_prefix": "存档",
         "tyrano_slot_export_dialog_title": "导出存档",
         "tyrano_slot_no_data": "该存档槽无数据",
+        "tyrano_imgdata_dialog_title": "存档图片详情",
+        "tyrano_imgdata_label": "imgdata：",
+        "tyrano_imgdata_replace": "替换",
+        "tyrano_imgdata_export": "导出",
+        "tyrano_imgdata_replace_success": "替换成功",
+        "tyrano_imgdata_no_image": "无图片",
         "tyrano_export_success": "导出成功！\n文件已保存到：{path}",
         "tyrano_export_failed": "导出失败：{error}",
         "tyrano_import_button": "导入",
@@ -676,14 +682,14 @@ TRANSLATIONS = {
     },
     
     "en_US": {
-        # Window title
+        # 窗口标题
         "window_title": "Devil Connection Sav Manager",
         
-        # Directory selection
+        # 目录选择
         "browse_dir": "Browse Directory",
         "dir_warning": "The folder name you selected does not end with \"_storage\". Please confirm if this is the correct save folder.",
         
-        # Screenshot list
+        # 截图列表
         "screenshot_list": "Screenshot List:",
         "preview": "Preview",
         "refresh": "⟳",
@@ -691,7 +697,7 @@ TRANSLATIONS = {
         "sort_desc": "↓↓Desc.",
         "list_header": "ID - Filename - Time",
         
-        # Buttons
+        # 按钮
         "add_new": "+ Add Screenshot",
         "replace_selected": "⇋ Replace Selected",
         "delete_selected": "✖ Delete Selected",
@@ -699,7 +705,7 @@ TRANSLATIONS = {
         "export_image": "Export Image",
         "batch_export": "Batch Export",
         
-        # Error messages
+        # 错误消息
         "error": "Error",
         "success": "Success",
         "warning": "Warning",
@@ -716,13 +722,13 @@ TRANSLATIONS = {
         "export_failed": "Export failed",
         "save_failed": "Save failed: {error}",
         
-        # Sort related
+        # 排序相关
         "confirm_sort": "Confirm Sort",
         "sort_warning": "Note: Changing this order will also change the display order in the game gallery. Are you sure?",
         "sort_asc_success": "Sorted in ascending order and saved!",
         "sort_desc_success": "Sorted in descending order and saved!",
         
-        # Replace related
+        # 替换相关
         "replace_warning": "Warning: Confirm Replace",
         "replace_confirm_text": "You are about to perform the following replacement:",
         "replace_confirm_question": "Confirm replacement (Yes/No)?",
@@ -733,7 +739,7 @@ TRANSLATIONS = {
         "replace_success": "Replacement of {id} completed!",
         "select_new_image": "Select New Image File",
         
-        # Add new related
+        # 新增相关
         "add_new_title": "Add Screenshot Settings",
         "id_label": "ID (leave empty for random):",
         "date_label": "Time (format: YYYY/MM/DD HH:MM:SS, leave empty for current time):",
@@ -747,7 +753,7 @@ TRANSLATIONS = {
         "file_extension_warning": "You selected {filename}, please confirm this file is an image file. If it's not an image file, it cannot be added to the game",
         "aspect_ratio_warning": "The image resolution you selected is not 4:3. Importing may cause the image to be forcibly stretched when displayed, and image editing features might not work properly",
         
-        # Delete related
+        # 删除相关
         "delete_confirm": "Confirm Delete",
         "delete_select_error": "Please select screenshots to delete.\n\nNote: Please use the checkboxes on the left to select screenshots to delete",
         "delete_confirm_single": "Are you sure you want to delete the screenshot {id} (including index)?",
@@ -756,7 +762,7 @@ TRANSLATIONS = {
         "delete_success": "Deleted {count} screenshots!",
         "delete_warning": "No files were successfully deleted!(Index may have been removed)",
         
-        # Export related
+        # 导出相关
         "select_export_format": "Select Export Format",
         "select_image_format": "Select image format:",
         "save_image": "Save Image",
@@ -769,13 +775,13 @@ TRANSLATIONS = {
         "exporting_images": "Exporting images...",
         "close": "Close",
         
-        # Directory menu
+        # 目录菜单
         "directory_menu": "Directory",
         "select_dir_hint": "Please select the game's _storage path from Directory menu in the top left corner",
         "auto_detect_steam": "Auto Detect (Steam)",
         "steam_detect_not_found": "Not found, please manually select directory",
         
-        # Gallery preview
+        # 画廊预览
         "page": "Page",
         "not_available": "N/A",
         "loading": "Loading...",
@@ -786,7 +792,7 @@ TRANSLATIONS = {
         "invalid_page_number": "Invalid page number! Please enter a number between {min} and {max}",
         "invalid_page_input": "Please enter a valid page number",
         
-        # Save analyzer
+        # 存档分析器
         "sf_save_analyzer_tab": "SF Analyzer",
         "tyrano_save_management_tab": "Tyrano Management",
         "screenshot_management_tab": "Screenshots",
@@ -913,7 +919,7 @@ TRANSLATIONS = {
         "good_neo": "Eternal blessings to you all.",
         "bad_neo": "Granting you eternal judgment.",
         
-        # Backup/Restore
+        # 备份/还原
         "backup_button": "Create Backup",
         "restore_button": "Restore Backup",
         "backup_confirm_title": "Confirm Backup",
@@ -947,7 +953,7 @@ TRANSLATIONS = {
         "rename_backup_success": "Backup renamed!\nOld filename: {old_filename}\nNew filename: {new_filename}",
         "rename_backup_failed": "Failed to rename backup",
 
-        # Runtime modify tab
+        # 运行时修改标签
         "runtime_modify_description": "Due to the architecture of the TyranoBuilder engine, the game primarily relies on in memory values while it is running, and save files may be reloaded or rewritten by the engine as gameplay progresses. As a result, changes made directly to save files while the game is running usually do not take effect and may be reverted or overwritten by subsequent in game actions. If you want to modify values during gameplay, use this feature to start the game with CDP debugging enabled. After the game launches, DevTools will be opened and this tool will automatically inject JavaScript to apply your changes at runtime, allowing the modifications to take effect in game. Please note that this is an experimental feature and may cause the game to crash. Use with caution. Click the button below to launch the game.",
         "runtime_modify_what_is_this": "What is this?",
         "runtime_modify_open_console_button": "Open Console",
@@ -1033,7 +1039,7 @@ TRANSLATIONS = {
         "save_file_failed": "Failed to save file: {error}",
         "search_not_found": "Not found",
 
-        # Cache clean
+        # 缓存清理
         "cache_clean_button": "Clean Cache",
         "cache_clean_dialog_title": "Cache Cleanup",
         "cache_clean_safe_group": "Safe Cleanup",
@@ -1071,7 +1077,7 @@ TRANSLATIONS = {
         "cache_clean_error_unknown": "Unknown error",
         "cache_clean_warnings": "Warnings:",
 
-        # Others tab
+        # 其他标签
         "others_tab": "Others",
         "current_selected_path": "Currently Selected Path",
         "enable_toast": "Enable toast notifications",
@@ -1135,6 +1141,12 @@ TRANSLATIONS = {
         "tyrano_slot_edit_title_prefix": "Save",
         "tyrano_slot_export_dialog_title": "Export Save",
         "tyrano_slot_no_data": "No data in this slot",
+        "tyrano_imgdata_dialog_title": "Save Image Details",
+        "tyrano_imgdata_label": "imgdata:",
+        "tyrano_imgdata_replace": "Replace",
+        "tyrano_imgdata_export": "Export",
+        "tyrano_imgdata_replace_success": "Replace successful",
+        "tyrano_imgdata_no_image": "No image",
         "tyrano_export_success": "Export successful!\nFile saved to: {path}",
         "tyrano_export_failed": "Export failed: {error}",
         "tyrano_import_button": "Import",
@@ -1344,14 +1356,14 @@ TRANSLATIONS = {
     },
     
     "ja_JP": {
-        # Window title
+        # 窗口标题
         "window_title": "でびるコネクショん セーブ＆アルバム管理ツール",
 
-        # Directory selection
+        # 目录选择
         "browse_dir": "参照",
         "dir_warning": "選択したフォルダ名が「_storage」で終わっていません。正しいセーブフォルダか確認してください。",
 
-        # Screenshot list
+        # 截图列表
         "screenshot_list": "アルバム画像一覧：",
         "preview": "プレビュー",
         "refresh": "⟳",
@@ -1359,7 +1371,7 @@ TRANSLATIONS = {
         "sort_desc": "新しい順",
         "list_header": "ID - ファイル名 - 時刻",
 
-        # Buttons
+        # 按钮
         "add_new": "+ アルバムに画像を追加",
         "replace_selected": "選択した画像を置き換え",
         "delete_selected": "選択した画像を削除",
@@ -1367,7 +1379,7 @@ TRANSLATIONS = {
         "export_image": "画像をエクスポート",
         "batch_export": "一括エクスポート",
 
-        # Error messages
+        # 错误消息
         "error": "エラー",
         "success": "成功",
         "warning": "警告",
@@ -1384,13 +1396,13 @@ TRANSLATIONS = {
         "export_failed": "エクスポートに失敗しました",
         "save_failed": "保存に失敗しました: {error}",
 
-        # Sort related
+        # 排序相关
         "confirm_sort": "並べ替えを確認",
         "sort_warning": "注意：この操作はゲーム内のアルバムの表示順も変更されます。よろしいですか？",
         "sort_asc_success": "古い順で並べ替えて保存しました！",
         "sort_desc_success": "新しい順で並べ替えて保存しました！",
 
-        # Replace related
+        # 替换相关
         "replace_warning": "警告：置換えを確認",
         "replace_confirm_text": "以下の画像を置き換えようとしています：",
         "replace_confirm_question": "この置き換えを実行しますか？",
@@ -1401,7 +1413,7 @@ TRANSLATIONS = {
         "replace_success": "{id} を置き換えました！",
         "select_new_image": "新しい画像を選択",
 
-        # Add new related
+        # 新增相关
         "add_new_title": "アルバム画像追加設定",
         "id_label": "ID（空欄でランダム生成）：",
         "date_label": "時刻（形式: YYYY/MM/DD HH:MM:SS、空欄で現在時刻）:",
@@ -1414,7 +1426,7 @@ TRANSLATIONS = {
         "file_extension_warning": "選択ファイル：{filename}\nこのファイルが正しい画像ファイルか確認してください。\n画像でないとゲームに追加できません",
         "aspect_ratio_warning": "選択した画像の解像度が4:3ではありません。\nインポートすると強制的に引き伸ばされて表示され、画像編集機能が正常に動作しません",
 
-        # Delete related
+        # 删除相关
         "delete_confirm": "削除確認",
         "delete_select_error": "削除する画像を選択してください！\削除する画像は左側のチェックボックスで選択してください）",
         "delete_confirm_single": "{id}番目の画像（インデックス含む）を削除しますか？",
@@ -1423,7 +1435,7 @@ TRANSLATIONS = {
         "delete_success": "{count}個を削除しました！",
         "delete_warning": "一部のファイルが削除されませんでした！（インデックスが既に削除されている可能性あり）",
 
-        # Export related
+        # 导出相关
         "select_export_format": "エクスポート形式を選択",
         "select_image_format": "画像形式を選択：",
         "save_image": "画像を保存",
@@ -1436,13 +1448,13 @@ TRANSLATIONS = {
         "exporting_images": "画像をエクスポート中...",
         "close": "閉じる",
 
-        # Directory menu
+        # 目录菜单
         "directory_menu": "ディレクトリ選択",
         "select_dir_hint": "左上の「ディレクトリ選択」からゲームの_storageパスを選択してください",
         "auto_detect_steam": "自動検出（Steam）",
         "steam_detect_not_found": "見つかりませんでした。手動で選択してください",
 
-        # Gallery preview
+        # 画廊预览
         "page": "ページ",
         "not_available": "なし",
         "loading": "読み込み中...",
@@ -1453,7 +1465,7 @@ TRANSLATIONS = {
         "invalid_page_number": "無効なページ番号です！{min} から {max} の間の数字を入力してください",
         "invalid_page_input": "有効なページ番号を入力してください",
 
-        # Save analyzer（ベータ版）
+        # 存档分析器（ベータ版）
         "sf_save_analyzer_tab": "sfセーブ解析",
         "tyrano_save_management_tab": "tyranoセーブ管理",
         "screenshot_management_tab": "アルバム画像管理",
@@ -1580,7 +1592,7 @@ TRANSLATIONS = {
         "good_neo": "キミたちに永遠の祝福を",
         "bad_neo": "オマエに永遠の制裁を",
         
-        # Backup/Restore
+        # 备份/还原
         "backup_button": "バックアップを作成",
         "restore_button": "バックアップを復元",
         "backup_confirm_title": "バックアップを確認",
@@ -1614,7 +1626,7 @@ TRANSLATIONS = {
         "rename_backup_success": "バックアップの名前を変更しました！\n元のファイル名：{old_filename}\n新しいファイル名：{new_filename}",
         "rename_backup_failed": "バックアップの名前変更に失敗しました",
 
-        # Runtime modify tab
+        # 运行时修改标签
         "runtime_modify_description": "TyranoBuilderエンジンの仕様上、ゲーム実行中は基本的にメモリ上の値が優先されます。そのため、ゲーム実行中にセーブファイルを書き換えても反映されなかったり、操作やセーブ ロードのタイミングで元の状態に上書きされることがあります。なお、ゲームを終了した状態でセーブファイルを編集する場合は、通常どおり変更が有効です。 ゲーム実行中に値を変更したい場合は、この機能でゲームを起動してください。起動後にDevToolsを開き、変更後に自動でJSを注入して、ゲーム内の値を直接変更します。 この機能は実験的で、ゲーム実行中にクラッシュを引き起こす可能性があります。自己責任で慎重に使用してください。下のボタンをクリックしてゲームを起動してください。",
         "runtime_modify_what_is_this": "これは何ですか？",
         "runtime_modify_open_console_button": "コンソールを開く",
@@ -1700,7 +1712,7 @@ TRANSLATIONS = {
         "save_file_failed": "ファイルの保存に失敗しました: {error}",
         "search_not_found": "見つかりませんでした",
 
-        # Cache clean
+        # 缓存清理
         "cache_clean_button": "キャッシュクリア",
         "cache_clean_dialog_title": "キャッシュクリーンアップ",
         "cache_clean_safe_group": "安全クリーンアップ",
@@ -1738,7 +1750,7 @@ TRANSLATIONS = {
         "cache_clean_error_unknown": "不明なエラー",
         "cache_clean_warnings": "警告:",
 
-        # Others tab
+        # 其他标签
         "others_tab": "その他",
         "current_selected_path": "現在選択されているパス",
         "enable_toast": "toast機能を有効にする",
@@ -1802,6 +1814,12 @@ TRANSLATIONS = {
         "tyrano_slot_edit_title_prefix": "セーブ",
         "tyrano_slot_export_dialog_title": "セーブエクスポート",
         "tyrano_slot_no_data": "このスロットにデータがありません",
+        "tyrano_imgdata_dialog_title": "セーブ画像詳細",
+        "tyrano_imgdata_label": "imgdata：",
+        "tyrano_imgdata_replace": "置換",
+        "tyrano_imgdata_export": "エクスポート",
+        "tyrano_imgdata_replace_success": "置換成功",
+        "tyrano_imgdata_no_image": "画像なし",
         "tyrano_export_success": "エクスポート成功！\nファイルは保存されました：{path}",
         "tyrano_export_failed": "エクスポート失敗：{error}",
         "tyrano_import_button": "インポート",

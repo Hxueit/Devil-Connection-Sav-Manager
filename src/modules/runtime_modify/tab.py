@@ -6,6 +6,7 @@
 import asyncio
 import logging
 import threading
+import time
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable, Tuple
 
@@ -44,7 +45,8 @@ DEFAULT_KAG_STAT_COLLAPSED_FIELDS = [
     "stack",
     "popopo",
     "map_macro",
-    "fuki"
+    "fuki",
+    "three"
 ]
 
 
