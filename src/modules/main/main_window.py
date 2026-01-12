@@ -1,10 +1,10 @@
 """主窗口模块"""
 import logging
-import time
+import threading
 import tkinter as tk
 import webbrowser
 from tkinter import filedialog, ttk
-from typing import List, Optional
+from typing import List, Optional, Callable
 
 import customtkinter as ctk
 
@@ -40,6 +40,12 @@ logger = logging.getLogger(__name__)
 class SavTool:
     """存档管理工具主窗口类（重构版）"""
     
+    # UI 时序常量
+    PREWARM_DELAY_MS = 2400  # 预热延迟时间（毫秒），确保动画已停止且主界面已加载
+    IMMEDIATE_CALLBACK_MS = 0  # 立即执行回调的延迟时间
+    CLOSING_POLL_INTERVAL_MS = 100  # 关闭窗口时的轮询间隔（毫秒）
+    CLOSING_MAX_POLL_COUNT = 30  # 关闭窗口时的最大轮询次数
+    
     def __init__(self, root):
         """初始化主窗口
         
@@ -64,7 +70,7 @@ class SavTool:
         
         # 初始化窗口
         self.root.title(self.t("window_title"))
-        self.root.geometry("850x600")
+        self.root.geometry("750x600")
         self.root.minsize(750, 600)
         
         set_window_icon(self.root)
@@ -84,6 +90,7 @@ class SavTool:
         self._bind_events()
         self.notebook.select(0)
         self._check_for_updates_on_startup()
+        self._start_theme_monitor()
     
     def t(self, key: str, **kwargs) -> str:
         """翻译函数，支持格式化字符串
@@ -115,7 +122,7 @@ class SavTool:
     def _create_main_interface(self) -> None:
         """创建主界面"""
         self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill="both", expand=True, padx=8, pady=8)
+        self.notebook.pack(fill="both", expand=True, padx=8, pady=(0, 8))
         
         tab_configs = [
             ("sf_save_analyzer_tab", "analyzer_frame", "analyzer_hint_label"),
@@ -166,6 +173,12 @@ class SavTool:
         # 加载状态管理
         self._is_loading = False
         self._cancel_loading = False
+        
+        self._lazy_load_pending: dict[str, bool] = {}
+        
+        self._tyrano_prewarm_in_progress: bool = False
+        self._tyrano_prewarm_analyzer: Optional[TyranoAnalyzer] = None
+        self._tyrano_prewarm_consumed: bool = False
     
     def _create_version_info(self) -> None:
         """创建右下角版本信息标签"""
@@ -185,6 +198,28 @@ class SavTool:
         """绑定事件"""
         self.notebook.bind("<<NotebookTabChanged>>", self.on_tab_changed)
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
+    
+    def _start_theme_monitor(self) -> None:
+        """启动主题监听"""
+        _THEME_CHECK_INTERVAL_MS = 5000
+        
+        def check_theme_change() -> None:
+            if self.menubar_component:
+                try:
+                    self.menubar_component.update_theme()
+                except Exception as e:
+                    logger.debug(f"检查主题变化失败: {e}")
+            
+            if self.root:
+                try:
+                    self.root.after(_THEME_CHECK_INTERVAL_MS, check_theme_change)
+                except tk.TclError:
+                    pass
+        
+        try:
+            self.root.after(_THEME_CHECK_INTERVAL_MS, check_theme_change)
+        except tk.TclError as e:
+            logger.debug(f"启动主题监听失败: {e}")
     
     def change_language(self, lang: str) -> None:
         """切换语言
@@ -416,6 +451,9 @@ class SavTool:
         try:
             current_tab = self.notebook.index(self.notebook.select())
             
+            # Tab索引: 0=SF存档分析, 1=截图管理, 2=备份还原, 3=Tyrano存档, 4=运行时修改, 5=其他
+            self._handle_lazy_load(current_tab)
+            
             # 可选调试输出
             try:
                 from src.modules.save_analysis.sf.debug import get_debugger
@@ -469,6 +507,198 @@ class SavTool:
         except (tk.TclError, AttributeError, ValueError) as e:
             logger.debug(f"Error in tab changed handler: {e}")
     
+    def _handle_lazy_load(self, tab_index: int) -> None:
+        """处理懒加载 - 当用户切换到某个标签页时初始化它
+        
+        Args:
+            tab_index: 标签页索引
+        """
+        if not self.storage_dir or not self._lazy_load_pending:
+            return
+        
+        # Tab索引映射: 1=截图(已初始化), 2=备份, 3=Tyrano, 4=运行时修改, 5=其他
+        lazy_load_map = {
+            2: 'backup',
+            3: 'tyrano',
+            4: 'runtime',
+            5: 'others'
+        }
+        
+        tab_key = lazy_load_map.get(tab_index)
+        if not tab_key or not self._lazy_load_pending.get(tab_key):
+            return
+        
+        # 执行懒加载
+        if tab_key == 'tyrano':
+            self._lazy_init_tyrano()
+        elif tab_key == 'backup':
+            self._lazy_init_backup()
+        elif tab_key == 'runtime':
+            self._lazy_init_runtime()
+        elif tab_key == 'others':
+            self._lazy_init_others()
+        
+        # 标记已加载
+        self._lazy_load_pending[tab_key] = False
+    
+    def _prewarm_tyrano(self) -> None:
+        """在后台线程预热 Tyrano 标签页，避免阻塞 UI
+        
+        预热过程包括文件 I/O 操作，在后台线程执行完成后
+        将结果保存到主线程，供懒加载时使用
+        """
+        if self._is_tyrano_tab_created():
+            return
+        
+        if self._tyrano_prewarm_in_progress:
+            return
+        
+        if self._tyrano_prewarm_analyzer is not None:
+            return
+        
+        if not self.storage_dir:
+            logger.warning("Cannot prewarm Tyrano: storage_dir is not set")
+            return
+        
+        self._tyrano_prewarm_in_progress = True
+        self._tyrano_prewarm_consumed = False
+        
+        def _load_in_thread() -> None:
+            """在后台线程中执行文件加载"""
+            try:
+                analyzer = TyranoAnalyzer(self.storage_dir)
+                analyzer.load_save_file()
+                self.root.after(
+                    self.IMMEDIATE_CALLBACK_MS,
+                    lambda a=analyzer: self._prewarm_tyrano_ui(a)
+                )
+            except Exception as e:
+                logger.error(f"Failed to prewarm Tyrano analyzer: {e}", exc_info=True)
+                self.root.after(self.IMMEDIATE_CALLBACK_MS, self._prewarm_tyrano_failed)
+        
+        thread = threading.Thread(target=_load_in_thread, daemon=True)
+        thread.start()
+    
+    def _prewarm_tyrano_ui(self, analyzer: TyranoAnalyzer) -> None:
+        """在主线程中保存预热结果
+        
+        Args:
+            analyzer: 预热完成的 TyranoAnalyzer 实例
+        """
+        if self._is_tyrano_tab_created():
+            self._tyrano_prewarm_in_progress = False
+            return
+        
+        if self._tyrano_prewarm_consumed:
+            self._tyrano_prewarm_in_progress = False
+            return
+        
+        self._tyrano_prewarm_analyzer = analyzer
+        self._tyrano_prewarm_in_progress = False
+    
+    def _prewarm_tyrano_failed(self) -> None:
+        """预热失败时重置状态"""
+        self._tyrano_prewarm_in_progress = False
+        self._tyrano_prewarm_analyzer = None
+        self._tyrano_prewarm_consumed = False
+    
+    def _is_tyrano_tab_created(self) -> bool:
+        """检查 Tyrano 标签页是否已创建且有效
+        
+        Returns:
+            True 如果标签页已创建且 widget 存在，否则 False
+        """
+        if self.tyrano_tab is None:
+            return False
+        
+        if not hasattr(self.tyrano_tab, 'parent'):
+            return False
+        
+        try:
+            return self.tyrano_tab.parent.winfo_exists()
+        except (tk.TclError, AttributeError):
+            self.tyrano_tab = None
+            return False
+    
+    def _lazy_init_tyrano(self) -> None:
+        """懒加载 Tyrano 存档标签页
+        
+        优先使用预热结果，如果未预热或已消费则同步加载
+        """
+        if self._is_tyrano_tab_created():
+            return
+        
+        if self.tyrano_hint_label and self.tyrano_hint_label.winfo_exists():
+            self.tyrano_hint_label.pack_forget()
+        
+        if not self.storage_dir:
+            logger.error("Cannot initialize Tyrano tab: storage_dir is not set")
+            return
+        
+        if self._tyrano_prewarm_analyzer is not None and not self._tyrano_prewarm_consumed:
+            analyzer = self._tyrano_prewarm_analyzer
+            self._tyrano_prewarm_analyzer = None
+            self._tyrano_prewarm_consumed = True
+        else:
+            analyzer = TyranoAnalyzer(self.storage_dir)
+            analyzer.load_save_file()
+        
+        try:
+            self.tyrano_tab = TyranoSaveViewer(
+                self.tyrano_frame,
+                analyzer,
+                self.t,
+                get_cjk_font,
+                Colors,
+                self.root
+            )
+        except Exception as e:
+            logger.error(f"Failed to create TyranoSaveViewer: {e}", exc_info=True)
+            self.tyrano_tab = None
+    
+    def _lazy_init_backup(self) -> None:
+        """懒加载备份还原标签页"""
+        self.backup_restore_hint_label.pack_forget()
+        
+        def on_restore_success():
+            if self.storage_dir:
+                if self.screenshot_manager_ui is not None:
+                    self.screenshot_manager_ui.load_screenshots()
+                if self.save_analyzer:
+                    self.save_analyzer.refresh()
+        
+        self.backup_restore_tab = BackupRestoreTab(
+            self.backup_restore_frame,
+            self.root,
+            self.storage_dir,
+            self.translations,
+            self.language_service.current_language,
+            self.t,
+            on_restore_success
+        )
+    
+    def _lazy_init_runtime(self) -> None:
+        """懒加载运行时修改标签页"""
+        self.runtime_modify_hint_label.pack_forget()
+        self.runtime_modify_tab = RuntimeModifyTab(
+            self.runtime_modify_frame,
+            self.storage_dir,
+            self.translations,
+            self.language_service.current_language,
+            self.root
+        )
+    
+    def _lazy_init_others(self) -> None:
+        """懒加载其他标签页"""
+        self.others_hint_label.pack_forget()
+        self.others_tab = OthersTab(
+            self.others_frame,
+            self.storage_dir,
+            self.translations,
+            self.language_service.current_language,
+            self  # main_app: 用于访问toast相关功能
+        )
+    
     def _start_file_monitor(self) -> None:
         """启动存档文件监控"""
         if not self.storage_dir:
@@ -482,10 +712,13 @@ class SavTool:
         
         def on_change(changes: List[str]) -> None:
             if self.toast_enabled and self.change_notifier:
-                self.root.after(0, lambda: self.change_notifier.show_change_notification(changes))
+                self.root.after(
+                    self.IMMEDIATE_CALLBACK_MS,
+                    lambda: self.change_notifier.show_change_notification(changes)
+                )
         
         def on_ab_initio() -> None:
-            self.root.after(0, self._trigger_ab_initio)
+            self.root.after(self.IMMEDIATE_CALLBACK_MS, self._trigger_ab_initio)
         
         self.file_monitor = FileMonitor(
             self.storage_dir,
@@ -518,42 +751,58 @@ class SavTool:
     
     def on_closing(self) -> None:
         """窗口关闭事件处理"""
-        # 如果正在加载，请求取消并等待完成
-        if self._is_loading:
-            logger.info("窗口关闭请求：正在加载中，请求取消加载")
-            self._cancel_loading = True
+        if not hasattr(self, '_closing_poll_count'):
+            self._closing_poll_count = 0
+            self._is_closing = True
             
-            # 等待加载完成，最多等待3秒
-            timeout = 3.0
-            start_time = time.time()
-            while self._is_loading and (time.time() - start_time) < timeout:
-                self.root.update_idletasks()
-                time.sleep(0.1)
+            if hasattr(self, 'runtime_modify_tab') and self.runtime_modify_tab:
+                if hasattr(self.runtime_modify_tab, 'state'):
+                    self.runtime_modify_tab.state.is_closing = True
             
             if self._is_loading:
-                logger.warning("窗口关闭：加载操作超时，强制关闭")
-            else:
-                logger.info("窗口关闭：加载操作已取消")
+                logger.info("窗口关闭请求：正在加载中，请求取消加载")
+                self._cancel_loading = True
         
-        # 停止加载动画
+        if self._is_loading and self._closing_poll_count < self.CLOSING_MAX_POLL_COUNT:
+            self._closing_poll_count += 1
+            self.root.after(self.CLOSING_POLL_INTERVAL_MS, self.on_closing)
+            return
+        
+        if self._is_loading:
+            logger.warning("窗口关闭：加载操作超时，强制关闭")
+        
+        self._perform_cleanup_and_destroy()
+    
+    def _perform_cleanup_and_destroy(self) -> None:
+        """执行清理并销毁窗口"""
         if hasattr(self, 'loading_animation'):
-            self.loading_animation.stop()
-        # 停止文件监控
+            try:
+                self.loading_animation.stop()
+            except Exception as e:
+                logger.debug(f"停止加载动画时出错: {e}")
+        
         if self.file_monitor:
-            self.file_monitor.stop()
-        # 清理tyrano标签页
+            try:
+                self.file_monitor.stop()
+            except Exception as e:
+                logger.debug(f"停止文件监控时出错: {e}")
+        
         if hasattr(self, 'tyrano_tab') and self.tyrano_tab:
             try:
                 self.tyrano_tab.cleanup()
             except Exception as e:
                 logger.debug(f"清理tyrano标签页时出错: {e}")
-        # 清理运行时修改标签页（关闭游戏进程和定时任务）
+        
         if hasattr(self, 'runtime_modify_tab') and self.runtime_modify_tab:
             try:
                 self.runtime_modify_tab.cleanup()
             except Exception as e:
                 logger.debug(f"清理运行时修改标签页时出错: {e}")
-        self.root.destroy()
+        
+        try:
+            self.root.destroy()
+        except Exception as e:
+            logger.debug(f"销毁窗口时出错: {e}")
     
     def show_save_analyzer(self) -> None:
         """切换到存档分析 tab"""
@@ -690,63 +939,37 @@ class SavTool:
             # 设置加载状态
             self._is_loading = True
             self._cancel_loading = False
-            try:
-                # 在开始加载前，更新所有提示标签为"加载中..."
-                self._update_all_hint_labels_loading()
-                self._update_version_info_visibility()
-                self.screenshot_hint_label.pack_forget()
-                if self.screenshot_manager_ui is None:
-                    self.screenshot_manager_ui = ScreenshotManagerUI(
-                        self.screenshot_frame, 
-                        self.root, 
-                        self.storage_dir,
-                        self.translations, 
-                        self.language_service.current_language, 
-                        self.t
-                    )
-                else:
-                    self.screenshot_manager_ui.set_storage_dir(self.storage_dir)
-                    self.screenshot_manager_ui.load_screenshots()
-                
-                # 检查是否取消加载
-                if self._cancel_loading:
-                    return
-                
-                self.init_save_analyzer()
-                
-                # 检查是否取消加载
-                if self._cancel_loading:
-                    return
-                
-                self.init_tyrano_tab()
-                
-                # 检查是否取消加载
-                if self._cancel_loading:
-                    return
-                
-                self.init_backup_restore()
-                
-                # 检查是否取消加载
-                if self._cancel_loading:
-                    return
-                
-                self.init_runtime_modify()
-                
-                # 检查是否取消加载
-                if self._cancel_loading:
-                    return
-                
-                self.init_others_tab()
-                
-                # 检查是否取消加载
-                if self._cancel_loading:
-                    return
-                
-                self._start_file_monitor()
-            finally:
-                # 加载完成后停止动画并清除加载状态
-                self.loading_animation.stop()
-                self._is_loading = False
+            
+            # 在开始加载前，更新所有提示标签为"加载中..."
+            self._update_all_hint_labels_loading()
+            self._update_version_info_visibility()
+            
+            # 只初始化截图管理器和SF分析器（当前页面）
+            self.screenshot_hint_label.pack_forget()
+            if self.screenshot_manager_ui is None:
+                self.screenshot_manager_ui = ScreenshotManagerUI(
+                    self.screenshot_frame, 
+                    self.root, 
+                    self.storage_dir,
+                    self.translations, 
+                    self.language_service.current_language, 
+                    self.t
+                )
+            else:
+                self.screenshot_manager_ui.set_storage_dir(self.storage_dir)
+                self.screenshot_manager_ui.load_screenshots()
+            
+            self.init_save_analyzer()
+            
+            # 标记其他标签页需要懒加载
+            self._lazy_load_pending = {
+                'tyrano': True,
+                'backup': True,
+                'runtime': True,
+                'others': True
+            }
+            self._start_file_monitor()
+            self._finish_loading()
     
     def auto_detect_steam(self) -> None:
         """自动检测Steam游戏目录并设置"""
@@ -757,69 +980,58 @@ class SavTool:
             # 设置加载状态
             self._is_loading = True
             self._cancel_loading = False
-            try:
-                # 在开始加载前，更新所有提示标签为"加载中..."
-                self._update_all_hint_labels_loading()
-                self._update_version_info_visibility()
-                self.screenshot_hint_label.pack_forget()
-                if self.screenshot_manager_ui is None:
-                    self.screenshot_manager_ui = ScreenshotManagerUI(
-                        self.screenshot_frame, 
-                        self.root, 
-                        self.storage_dir,
-                        self.translations, 
-                        self.language_service.current_language, 
-                        self.t
-                    )
-                else:
-                    self.screenshot_manager_ui.set_storage_dir(self.storage_dir)
-                    self.screenshot_manager_ui.load_screenshots(silent=True)
-                
-                # 检查是否取消加载
-                if self._cancel_loading:
-                    return
-                
-                self.init_save_analyzer()
-                
-                # 检查是否取消加载
-                if self._cancel_loading:
-                    return
-                
-                self.init_tyrano_tab()
-                
-                # 检查是否取消加载
-                if self._cancel_loading:
-                    return
-                
-                self.init_backup_restore()
-                
-                # 检查是否取消加载
-                if self._cancel_loading:
-                    return
-                
-                self.init_runtime_modify()
-                
-                # 检查是否取消加载
-                if self._cancel_loading:
-                    return
-                
-                self.init_others_tab()
-                
-                # 检查是否取消加载
-                if self._cancel_loading:
-                    return
-                
-                self._start_file_monitor()
-            finally:
-                # 加载完成后停止动画并清除加载状态
-                self.loading_animation.stop()
-                self._is_loading = False
+            # 在开始加载前，更新所有提示标签为"加载中..."
+            self._update_all_hint_labels_loading()
+            self._update_version_info_visibility()
+            
+            # 只初始化截图管理器和SF分析器（当前页面），其他标签页懒加载
+            self.screenshot_hint_label.pack_forget()
+            if self.screenshot_manager_ui is None:
+                self.screenshot_manager_ui = ScreenshotManagerUI(
+                    self.screenshot_frame, self.root, self.storage_dir,
+                    self.translations, self.language_service.current_language, self.t
+                )
+            else:
+                self.screenshot_manager_ui.set_storage_dir(self.storage_dir)
+                self.screenshot_manager_ui.load_screenshots()
+            self.init_save_analyzer()
+            
+            # 标记其他标签页需要懒加载
+            self._lazy_load_pending = {
+                'tyrano': True,
+                'backup': True,
+                'runtime': True,
+                'others': True
+            }
+            self._start_file_monitor()
+            self._finish_loading()
         else:
             showinfo_relative(self.root, self.t("warning"), self.t("steam_detect_not_found"))
+    
+    def _finish_loading(self) -> None:
+        """完成加载流程，停止动画并触发预热"""
+        self.loading_animation.stop()
+        self._is_loading = False
+
+        self._ensure_active_tab_initialized()
+        
+        if self._lazy_load_pending.get('tyrano', False):
+            self.root.after(self.PREWARM_DELAY_MS, self._prewarm_tyrano)
+
+    def _ensure_active_tab_initialized(self) -> None:
+        """Initialize current tab if it's pending lazy load."""
+        if not self._lazy_load_pending:
+            return
+        if not hasattr(self, 'notebook') or not self.notebook:
+            return
+        try:
+            current_tab = self.notebook.index(self.notebook.select())
+        except (tk.TclError, AttributeError):
+            return
+        self._handle_lazy_load(current_tab)
 
 
 if __name__ == "__main__":
     root = ctk.CTk()
     app = SavTool(root)
     root.mainloop()
-

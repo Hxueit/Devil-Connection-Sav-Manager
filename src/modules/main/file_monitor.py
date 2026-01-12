@@ -121,7 +121,7 @@ class FileMonitor:
             self.start()
     
     def _monitor_loop(self) -> None:
-        """监控循环（在后台线程中运行）"""
+        """监控循环"""
         while self.monitor_running:
             try:
                 self._check_file_changes()
@@ -130,8 +130,19 @@ class FileMonitor:
             except Exception as e:
                 logger.error(f"Unexpected error in monitor loop: {e}", exc_info=True)
             
-            if self.monitor_running:
-                time.sleep(self.MONITOR_INTERVAL)
+            self._interruptible_sleep(self.MONITOR_INTERVAL)
+    
+    def _interruptible_sleep(self, total_seconds: float) -> None:
+        """可中断的 sleep，更快响应关闭信号
+        
+        Args:
+            total_seconds: 总睡眠时间（秒）
+        """
+        sleep_interval = 0.05
+        elapsed = 0.0
+        while elapsed < total_seconds and self.monitor_running:
+            time.sleep(sleep_interval)
+            elapsed += sleep_interval
     
     def _check_file_changes(self) -> None:
         """检查文件是否有变动（通过比较当前文件和内存缓存）"""
@@ -199,6 +210,10 @@ class FileMonitor:
             max_retries = self.FILE_READ_MAX_RETRIES
         
         for attempt in range(max_retries):
+            # 检查是否正在关闭
+            if not self.monitor_running:
+                return None
+            
             try:
                 save_content = self.save_file_service.read_file(save_file_path)
                 if save_content is not None:
@@ -212,7 +227,8 @@ class FileMonitor:
                 logger.warning(f"Unexpected error reading file: {e}")
             
             if attempt < max_retries - 1:
-                time.sleep(self.FILE_READ_RETRY_DELAY * (attempt + 1))
+                # 使用可中断的 sleep
+                self._interruptible_sleep(self.FILE_READ_RETRY_DELAY * (attempt + 1))
         
         return None
     
@@ -258,7 +274,7 @@ class FileMonitor:
             logger.error(
                 f"Unexpected error processing file changes: {e}", exc_info=True
             )
-            # Update cache even on error to avoid reprocessing
+            # 即使出错也更新缓存，避免重复处理
             self._update_memory_cache(current_save_content, current_hash)
     
     def _initialize_memory_cache(self) -> None:
@@ -336,7 +352,7 @@ class FileMonitor:
                     f"using lightweight cache strategy"
                 )
         except OSError:
-            # Cannot get file size, use default strategy
+            # 无法获取文件大小，使用默认策略
             self._use_lightweight_cache = False
     
     def _is_valid_storage_dir(self) -> bool:

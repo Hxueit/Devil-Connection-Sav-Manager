@@ -6,6 +6,7 @@
 import asyncio
 import logging
 import threading
+import time
 from pathlib import Path
 from typing import Optional, Dict, Any, Callable, Tuple
 
@@ -44,7 +45,8 @@ DEFAULT_KAG_STAT_COLLAPSED_FIELDS = [
     "stack",
     "popopo",
     "map_macro",
-    "fuki"
+    "fuki",
+    "three"
 ]
 
 
@@ -916,12 +918,13 @@ class RuntimeModifyTab:
             collapsed_fields=DEFAULT_KAG_STAT_COLLAPSED_FIELDS
         )
         
-        SaveFileViewer(
-            self.root,
-            str(self.storage_dir) if self.storage_dir else "",
-            kag_stat_data,
-            self.t,
-            None,
+        SaveFileViewer.open_or_focus(
+            viewer_id="runtime_kag_stat",
+            window=self.root,
+            storage_dir=str(self.storage_dir) if self.storage_dir else "",
+            save_data=kag_stat_data,
+            t_func=self.t,
+            on_close_callback=None,
             mode="runtime",
             viewer_config=viewer_config
         )
@@ -1054,18 +1057,21 @@ class RuntimeModifyTab:
             collapsed_fields=DEFAULT_SF_COLLAPSED_FIELDS
         )
         
-        SaveFileViewer(
-            self.root,
-            str(self.storage_dir) if self.storage_dir else "",
-            sf_data,
-            self.t,
-            None,
+        SaveFileViewer.open_or_focus(
+            viewer_id="runtime_sf",
+            window=self.root,
+            storage_dir=str(self.storage_dir) if self.storage_dir else "",
+            save_data=sf_data,
+            t_func=self.t,
+            on_close_callback=None,
             mode="runtime",
             viewer_config=viewer_config
         )
     
     def cleanup(self) -> None:
         """清理资源"""
+        self.state.is_closing = True
+        
         if hasattr(self, 'status_checker'):
             self.status_checker.stop()
         
@@ -1085,8 +1091,12 @@ class RuntimeModifyTab:
                 logger.debug(f"Error stopping game during cleanup: {e}")
         
         if self.state.executor:
-            self.state.executor.shutdown(wait=True)
-            self.state.executor = None
+            try:
+                self.state.executor.shutdown(wait=False, cancel_futures=True)
+            except Exception as e:
+                logger.debug(f"Error shutting down executor: {e}")
+            finally:
+                self.state.executor = None
     
     def set_storage_dir(self, storage_dir: Optional[str]) -> None:
         """设置存储目录

@@ -6,9 +6,7 @@
 from typing import Final, List, Tuple
 
 from src.utils.styles import Colors
-
-# 贴纸相关
-TOTAL_STICKERS: Final[int] = 132
+from src.constants import TOTAL_STICKERS
 
 # Canvas尺寸
 CANVAS_SIZE: Final[int] = 280

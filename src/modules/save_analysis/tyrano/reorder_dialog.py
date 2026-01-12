@@ -12,7 +12,7 @@ import customtkinter as ctk
 if TYPE_CHECKING:
     from src.modules.save_analysis.tyrano.analyzer import TyranoAnalyzer
 
-from src.components.draggable_list import DraggableList
+from src.modules.common.draggable_list import DraggableList
 from src.utils.ui_utils import (
     showinfo_relative,
     showwarning_relative,

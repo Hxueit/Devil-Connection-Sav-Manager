@@ -24,8 +24,17 @@ from src.modules.save_analysis.tyrano.constants import (
     TYRANO_SAVES_PER_PAGE,
 )
 from src.modules.save_analysis.tyrano.image_cache import ImageCache
-from src.modules.save_analysis.tyrano.save_slot import TyranoSaveSlot, IMGDATA_FIELD_KEY
-from src.modules.save_analysis.tyrano.image_utils import decode_image_data
+from src.modules.save_analysis.tyrano.save_slot import (
+    TyranoSaveSlot,
+    IMGDATA_FIELD_KEY,
+    DEFAULT_THUMBNAIL_SIZE,
+    LABEL_PADDING_X,
+    LABEL_PADDING_Y,
+    THUMBNAIL_HEIGHT_RATIO,
+    THUMBNAIL_MAX_WIDTH_RATIO,
+    THUMBNAIL_MIN_SIZE,
+)
+from src.modules.save_analysis.tyrano.image_utils import decode_image_data, ASPECT_RATIO_4_3
 from src.utils.ui_utils import (
     showwarning_relative,
     showinfo_relative,
@@ -94,21 +103,30 @@ class TyranoSaveViewer:
         self._separator: Optional[tk.Frame] = None
         self._slot_widgets_pool: List[TyranoSaveSlot] = []
         self._column_frames: List[ctk.CTkFrame] = []
+        self._nav_frame: Optional[ctk.CTkFrame] = None
         
         self._preload_executor: Optional[ThreadPoolExecutor] = None
         self._preload_in_progress = False
+        self._prefetch_in_progress = False
         
         self._current_page_load_id = 0
         self._page_switch_timer: Optional[str] = None
         self._is_destroyed = False
+        self._post_init_refresh_pending = False
+        self._post_init_refresh_attempts = 0
+        self._loading_overlay: Optional[ctk.CTkFrame] = None
+        self._loading_label: Optional[ctk.CTkLabel] = None
+        self._loading_visible = False
+        self._last_parent_size: Optional[Tuple[int, int]] = None
         
         self._create_ui()
         self._refresh_display()
+        self._schedule_post_init_refresh()
         self._start_background_preload()
     
     def cleanup(self) -> None:
         """清理资源"""
-        logger.debug("Cleaning up TyranoSaveViewer resources")
+        logger.debug("清理TyranoSaveViewer资源")
         
         self._is_destroyed = True
         self._preload_in_progress = False
@@ -120,13 +138,14 @@ class TyranoSaveViewer:
         if self._preload_executor:
             try:
                 self._preload_executor.shutdown(wait=False, cancel_futures=True)
-            except Exception:
-                pass
+            except (RuntimeError, AttributeError) as e:
+                logger.debug("关闭预加载执行器时出错: %s", e)
             finally:
                 self._preload_executor = None
         
         self._clear_slot_widgets()
         self._clear_caches()
+        self._destroy_loading_overlay()
     
     def _cancel_timer(self, timer_id: Optional[str]) -> None:
         """取消定时器"""
@@ -140,35 +159,89 @@ class TyranoSaveViewer:
     
     def _clear_slot_widgets(self) -> None:
         """清理存档槽组件引用"""
-        try:
-            for slot_widget in self.slot_widgets:
-                if hasattr(slot_widget, '_prepared_ctk_image'):
-                    slot_widget._prepared_ctk_image = None
-                if hasattr(slot_widget, '_image_label') and slot_widget._image_label:
+        for slot_widget in self.slot_widgets:
+            if hasattr(slot_widget, '_prepared_ctk_image'):
+                slot_widget._prepared_ctk_image = None
+            
+            if hasattr(slot_widget, '_image_label') and slot_widget._image_label:
+                if slot_widget._image_label.winfo_exists():
                     try:
-                        if slot_widget._image_label.winfo_exists():
-                            slot_widget._image_label.configure(image=None, text="")
+                        slot_widget._image_label.configure(image=None, text="")
                     except (tk.TclError, AttributeError):
                         pass
-        except Exception:
-            pass
     
     def _clear_caches(self) -> None:
         """清理缓存"""
+        self._image_cache = None
+        self._placeholder_cache.clear()
+        self._circle_cache.clear()
+
+    def _show_loading_overlay(self) -> None:
+        """显示加载遮罩，避免逐步渲染"""
+        if self._is_destroyed:
+            return
+        if not self.slots_frame or not self.slots_frame.winfo_exists():
+            return
+
+        if self._loading_overlay and self._loading_overlay.winfo_exists():
+            try:
+                self._loading_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+                self._loading_overlay.lift()
+                if self._loading_label and self._loading_label.winfo_exists():
+                    self._loading_label.configure(text=self.translate("loading"))
+                self._loading_visible = True
+            except (tk.TclError, AttributeError):
+                pass
+            return
+
         try:
-            self._image_cache = None
-            self._placeholder_cache.clear()
-            self._circle_cache.clear()
-        except Exception:
+            overlay = ctk.CTkFrame(self.slots_frame, fg_color=self.Colors.WHITE)
+            overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+            label = ctk.CTkLabel(
+                overlay,
+                text=self.translate("loading"),
+                font=self.get_cjk_font(FONT_SIZE_MEDIUM),
+                text_color=self.Colors.TEXT_SECONDARY,
+                fg_color="transparent"
+            )
+            label.place(relx=0.5, rely=0.5, anchor="center")
+            self._loading_overlay = overlay
+            self._loading_label = label
+            self._loading_visible = True
+        except (tk.TclError, AttributeError):
             pass
+
+    def _hide_loading_overlay(self) -> None:
+        """隐藏加载遮罩"""
+        if not self._loading_overlay or not self._loading_overlay.winfo_exists():
+            self._loading_visible = False
+            return
+        try:
+            self._loading_overlay.place_forget()
+        except (tk.TclError, AttributeError):
+            pass
+        self._loading_visible = False
+
+    def _destroy_loading_overlay(self) -> None:
+        """销毁加载遮罩资源"""
+        if self._loading_overlay and self._loading_overlay.winfo_exists():
+            try:
+                self._loading_overlay.destroy()
+            except (tk.TclError, AttributeError):
+                pass
+        self._loading_overlay = None
+        self._loading_label = None
+        self._loading_visible = False
     
     def _create_ui(self) -> None:
         """创建UI布局"""
         main_container = ctk.CTkFrame(self.parent, fg_color=self.Colors.WHITE)
         main_container.pack(fill="both", expand=True, padx=PADDING_MEDIUM, pady=PADDING_MEDIUM)
+        main_container.pack_propagate(False)
         
         self.slots_frame = ctk.CTkFrame(main_container, fg_color=self.Colors.WHITE)
         self.slots_frame.pack(fill="both", expand=True)
+        self.slots_frame.pack_propagate(False)
         
         self._create_navigation(main_container)
     
@@ -176,6 +249,7 @@ class TyranoSaveViewer:
         """创建翻页导航栏"""
         nav_frame = ctk.CTkFrame(parent, fg_color=self.Colors.WHITE)
         nav_frame.pack(side="bottom", fill="x", pady=PADDING_MEDIUM)
+        self._nav_frame = nav_frame
         
         nav_center_frame = ctk.CTkFrame(nav_frame, fg_color=self.Colors.WHITE)
         nav_center_frame.pack(anchor="center")
@@ -190,17 +264,7 @@ class TyranoSaveViewer:
     
     def _create_page_buttons(self, parent: ctk.CTkFrame) -> None:
         """创建翻页按钮"""
-        button_config = {
-            'width': BUTTON_WIDTH,
-            'height': BUTTON_HEIGHT,
-            'corner_radius': CORNER_RADIUS,
-            'fg_color': self.Colors.WHITE,
-            'hover_color': self.Colors.LIGHT_GRAY,
-            'border_width': 1,
-            'border_color': self.Colors.GRAY,
-            'text_color': self.Colors.TEXT_PRIMARY,
-            'font': self.get_cjk_font(FONT_SIZE_SMALL)
-        }
+        button_config = self._get_standard_button_config()
         
         self.prev_button = ctk.CTkButton(
             parent,
@@ -274,9 +338,9 @@ class TyranoSaveViewer:
         )
         self.jump_button.pack(side="left", padx=PADDING_SMALL)
     
-    def _create_reorder_button(self, parent: ctk.CTkFrame) -> None:
-        """创建重排序按钮"""
-        button_config = {
+    def _get_standard_button_config(self) -> Dict[str, Any]:
+        """获取标准按钮配置"""
+        return {
             'width': BUTTON_WIDTH,
             'height': BUTTON_HEIGHT,
             'corner_radius': CORNER_RADIUS,
@@ -287,56 +351,34 @@ class TyranoSaveViewer:
             'text_color': self.Colors.TEXT_PRIMARY,
             'font': self.get_cjk_font(FONT_SIZE_SMALL)
         }
-        
+    
+    def _create_reorder_button(self, parent: ctk.CTkFrame) -> None:
+        """创建重排序按钮"""
         self.reorder_button = ctk.CTkButton(
             parent,
             text=self.translate("tyrano_reorder_button"),
             command=self._open_reorder_dialog,
-            **button_config
+            **self._get_standard_button_config()
         )
         self.reorder_button.pack(side="right", padx=PADDING_SMALL)
     
     def _create_refresh_button(self, parent: ctk.CTkFrame) -> None:
         """创建刷新按钮"""
-        button_config = {
-            'width': BUTTON_WIDTH,
-            'height': BUTTON_HEIGHT,
-            'corner_radius': CORNER_RADIUS,
-            'fg_color': self.Colors.WHITE,
-            'hover_color': self.Colors.LIGHT_GRAY,
-            'border_width': 1,
-            'border_color': self.Colors.GRAY,
-            'text_color': self.Colors.TEXT_PRIMARY,
-            'font': self.get_cjk_font(FONT_SIZE_SMALL)
-        }
-        
         self.refresh_button = ctk.CTkButton(
             parent,
             text=self.translate("refresh"),
             command=self.refresh,
-            **button_config
+            **self._get_standard_button_config()
         )
         self.refresh_button.pack(side="right", padx=PADDING_SMALL)
     
     def _create_auto_saves_button(self, parent: ctk.CTkFrame) -> None:
         """创建自动存档按钮"""
-        button_config = {
-            'width': BUTTON_WIDTH,
-            'height': BUTTON_HEIGHT,
-            'corner_radius': CORNER_RADIUS,
-            'fg_color': self.Colors.WHITE,
-            'hover_color': self.Colors.LIGHT_GRAY,
-            'border_width': 1,
-            'border_color': self.Colors.GRAY,
-            'text_color': self.Colors.TEXT_PRIMARY,
-            'font': self.get_cjk_font(FONT_SIZE_SMALL)
-        }
-        
         self.auto_saves_button = ctk.CTkButton(
             parent,
             text=self.translate("tyrano_auto_saves_button"),
             command=self._on_auto_saves_click,
-            **button_config
+            **self._get_standard_button_config()
         )
         self.auto_saves_button.pack(side="right", padx=PADDING_SMALL)
     
@@ -360,23 +402,11 @@ class TyranoSaveViewer:
     
     def _create_import_button(self, parent: ctk.CTkFrame) -> None:
         """创建导入按钮"""
-        button_config = {
-            'width': BUTTON_WIDTH,
-            'height': BUTTON_HEIGHT,
-            'corner_radius': CORNER_RADIUS,
-            'fg_color': self.Colors.WHITE,
-            'hover_color': self.Colors.LIGHT_GRAY,
-            'border_width': 1,
-            'border_color': self.Colors.GRAY,
-            'text_color': self.Colors.TEXT_PRIMARY,
-            'font': self.get_cjk_font(FONT_SIZE_SMALL)
-        }
-        
         self.import_button = ctk.CTkButton(
             parent,
             text=self.translate("tyrano_import_button"),
             command=self._on_import_click,
-            **button_config
+            **self._get_standard_button_config()
         )
         self.import_button.pack(side="left", padx=PADDING_SMALL)
     
@@ -558,7 +588,7 @@ class TyranoSaveViewer:
             try:
                 slot_data = self._try_decode_content(content)
             except json.JSONDecodeError as e:
-                logger.error("Failed to parse JSON: %s", e)
+                logger.error("解析JSON失败: %s", e)
                 self._show_import_warning("tyrano_import_invalid_format")
                 return
             
@@ -609,7 +639,7 @@ class TyranoSaveViewer:
         except PermissionError as e:
             self._show_import_error(str(e))
         except Exception as e:
-            logger.error("Failed to import save slot: %s", e, exc_info=True)
+            logger.error("导入存档槽失败: %s", e, exc_info=True)
             self._show_import_error(str(e))
     
     def _show_import_warning(self, message_key: str) -> None:
@@ -654,6 +684,7 @@ class TyranoSaveViewer:
         """设置网格布局容器"""
         main_container = ctk.CTkFrame(self.slots_frame, fg_color=self.Colors.WHITE)
         main_container.pack(fill="both", expand=True, padx=PADDING_MEDIUM, pady=PADDING_SMALL)
+        main_container.grid_propagate(False)
         
         main_container.grid_columnconfigure(0, weight=1, uniform="column")
         main_container.grid_columnconfigure(1, weight=0, minsize=SEPARATOR_WIDTH)
@@ -749,7 +780,7 @@ class TyranoSaveViewer:
         current_load_id = self._current_page_load_id
         
         if len(self._slot_widgets_pool) < TYRANO_SAVES_PER_PAGE:
-            logger.warning("Slot widgets pool is insufficient, recreating widgets")
+            logger.warning("存档槽组件池不足，重新创建组件")
             self._clear_slots_frame()
             
             self._main_container = self._setup_grid_container()
@@ -761,13 +792,14 @@ class TyranoSaveViewer:
             self._load_all_images()
             return
         
+        self._ensure_layout_ready()
         reference_size = self._calculate_reference_size()
+        self._show_loading_overlay()
         
         for i, slot_widget in enumerate(self._slot_widgets_pool[:TYRANO_SAVES_PER_PAGE]):
             page_index = self._pool_index_to_page_index(i)
             slot_data = page_slots[page_index] if page_index < len(page_slots) else None
             global_index = base_index + page_index
-            # 使用 update_slot_data 确保按钮也正确更新
             slot_widget.update_slot_data(slot_data, global_index)
             slot_widget._image_hash = None
             slot_widget._prepared_ctk_image = None
@@ -800,27 +832,34 @@ class TyranoSaveViewer:
                     if not self._should_apply_updates(current_load_id):
                         return
                     
-                    if self.slots_frame.winfo_exists():
+                    should_repack = False
+                    if self.slots_frame.winfo_exists() and not self._loading_visible:
                         self.slots_frame.pack_forget()
+                        should_repack = True
                     
                     self._clear_text_frames()
                     
                     if not self._should_apply_updates(current_load_id):
                         return
                     
-                    self._apply_ui_updates(updates)
                     self._create_all_text_labels_hidden(reference_size)
+                    self._sync_layout()
+                    self._apply_ui_updates(updates)
                     
                     if not self._should_apply_updates(current_load_id):
                         return
                     
-                    if self.slots_frame.winfo_exists():
+                    self._hide_loading_overlay()
+                    
+                    if should_repack and self.slots_frame.winfo_exists():
                         self.slots_frame.pack(fill="both", expand=True)
                     
                     if self._is_first_load and not self._is_destroyed:
                         self._is_first_load = False
                         if self.parent.winfo_exists():
                             self.parent.bind("<Configure>", self._on_window_resize)
+
+                    self._prefetch_adjacent_pages()
                 except (tk.TclError, AttributeError):
                     pass
             
@@ -848,12 +887,30 @@ class TyranoSaveViewer:
     
     def _calculate_size_from_parent_container(self) -> Optional[Tuple[int, int]]:
         """从父容器计算尺寸"""
-        if not self.slots_frame.master:
+        if not self.slots_frame:
             return None
         
         try:
-            parent_width = self.slots_frame.master.winfo_width()
-            parent_height = self.slots_frame.master.winfo_height()
+            frame_width = self.slots_frame.winfo_width()
+            frame_height = self.slots_frame.winfo_height()
+
+            if frame_width > MIN_CONTAINER_SIZE and frame_height > MIN_CONTAINER_SIZE:
+                parent_width = frame_width
+                parent_height = frame_height
+            elif self.slots_frame.master:
+                parent_width = self.slots_frame.master.winfo_width()
+                parent_height = self.slots_frame.master.winfo_height()
+
+                nav_height = 0
+                if self._nav_frame and self._nav_frame.winfo_exists():
+                    nav_height = self._nav_frame.winfo_height()
+                    if nav_height <= MIN_CONTAINER_SIZE:
+                        nav_height = self._nav_frame.winfo_reqheight()
+
+                if nav_height > 0:
+                    parent_height = max(MIN_CONTAINER_SIZE, parent_height - nav_height - PADDING_MEDIUM * 2)
+            else:
+                return None
             
             if parent_width <= MIN_CONTAINER_SIZE or parent_height <= MIN_CONTAINER_SIZE:
                 return None
@@ -890,11 +947,11 @@ class TyranoSaveViewer:
         if not valid_sizes:
             return None
         
-        total_width = sum(w for w, _ in valid_sizes)
-        total_height = sum(h for _, h in valid_sizes)
         count = len(valid_sizes)
+        avg_width = sum(w for w, _ in valid_sizes) // count
+        avg_height = sum(h for _, h in valid_sizes) // count
         
-        return (total_width // count, total_height // count)
+        return (avg_width, avg_height)
     
     def _calculate_reference_size(self) -> Optional[Tuple[int, int]]:
         """计算参考尺寸"""
@@ -907,6 +964,118 @@ class TyranoSaveViewer:
             return size
         
         return (DEFAULT_CONTAINER_WIDTH, DEFAULT_CONTAINER_HEIGHT)
+
+    def _calculate_thumbnail_size_for_container(
+        self,
+        container_width: int,
+        container_height: int,
+        original_image: Optional[Image.Image] = None,
+        aspect_ratio: Optional[float] = None
+    ) -> Tuple[int, int]:
+        """计算缩略图尺寸（与存档槽一致的规则）"""
+        if container_width <= 0 or container_height <= 0:
+            return DEFAULT_THUMBNAIL_SIZE
+
+        max_width = int(container_width * THUMBNAIL_MAX_WIDTH_RATIO) - LABEL_PADDING_X * 2
+        max_height = int(container_height * THUMBNAIL_HEIGHT_RATIO) - LABEL_PADDING_Y * 2
+
+        available_width = max(max_width, THUMBNAIL_MIN_SIZE)
+        available_height = max(max_height, THUMBNAIL_MIN_SIZE)
+
+        if original_image:
+            orig_width, orig_height = original_image.size
+            ratio = (orig_width / orig_height) if orig_height > 0 else ASPECT_RATIO_4_3
+        elif aspect_ratio is not None:
+            ratio = aspect_ratio
+        else:
+            ratio = ASPECT_RATIO_4_3
+
+        width_by_height = int(available_height * ratio)
+        height_by_width = int(available_width / ratio)
+
+        if width_by_height <= available_width:
+            return (width_by_height, available_height)
+        return (available_width, height_by_width)
+
+    def _ensure_layout_ready(self) -> None:
+        """确保在读取尺寸前完成几何布局计算"""
+        if self._is_destroyed:
+            return
+        if not self.parent or not self.parent.winfo_exists():
+            return
+        
+        try:
+            if (
+                self._is_first_load
+                or self.parent.winfo_width() <= MIN_CONTAINER_SIZE
+                or self.parent.winfo_height() <= MIN_CONTAINER_SIZE
+            ):
+                self.parent.update_idletasks()
+        except (tk.TclError, AttributeError):
+            pass
+
+    def _sync_layout(self) -> None:
+        """在文本或组件变更后强制更新几何布局"""
+        if self._is_destroyed:
+            return
+        
+        try:
+            if self.slots_frame and self.slots_frame.winfo_exists():
+                self.slots_frame.update_idletasks()
+            elif self.parent and self.parent.winfo_exists():
+                self.parent.update_idletasks()
+        except (tk.TclError, AttributeError):
+            pass
+
+    def _schedule_post_init_refresh(self) -> None:
+        """在布局映射后刷新一次以修正初始尺寸"""
+        if self._is_destroyed or self._post_init_refresh_pending:
+            return
+        self._post_init_refresh_pending = True
+        self._post_init_refresh_attempts = 0
+        self._post_init_refresh_step()
+
+    def _post_init_refresh_step(self) -> None:
+        """尝试延迟刷新直到组件被映射"""
+        if self._is_destroyed:
+            self._post_init_refresh_pending = False
+            return
+        if self._post_init_refresh_attempts >= 5:
+            self._post_init_refresh_pending = False
+            return
+        self._post_init_refresh_attempts += 1
+
+        def _try_refresh() -> None:
+            if self._is_destroyed:
+                self._post_init_refresh_pending = False
+                return
+            if not self.parent or not self.parent.winfo_exists():
+                self._post_init_refresh_pending = False
+                return
+            try:
+                target_widget = self.slots_frame if self.slots_frame and self.slots_frame.winfo_exists() else self.parent
+                if (
+                    not target_widget.winfo_ismapped()
+                    or target_widget.winfo_width() <= MIN_CONTAINER_SIZE
+                    or target_widget.winfo_height() <= MIN_CONTAINER_SIZE
+                ):
+                    self._post_init_refresh_step()
+                    return
+            except (tk.TclError, AttributeError):
+                self._post_init_refresh_pending = False
+                return
+
+            self._ensure_layout_ready()
+            self._refresh_display()
+            self._post_init_refresh_pending = False
+
+        try:
+            if self.parent.winfo_exists():
+                self.parent.after(120, _try_refresh)
+            else:
+                self._post_init_refresh_pending = False
+        except (tk.TclError, AttributeError):
+            self._post_init_refresh_pending = False
     
     def _get_container_size_for_slot(
         self,
@@ -969,8 +1138,8 @@ class TyranoSaveViewer:
                     self._placeholder_cache
                 )
                 processed_results[slot_widget] = (pil_image, placeholder_text)
-            except Exception as e:
-                logger.debug("Failed to process image for slot %d: %s", slot_widget.slot_index, e)
+            except (ValueError, OSError, AttributeError) as e:
+                logger.debug("处理存档槽 %d 的图片失败: %s", slot_widget.slot_index, e)
                 placeholder_text = slot_widget.translate("tyrano_image_decode_failed")
                 processed_results[slot_widget] = (None, placeholder_text)
         
@@ -978,6 +1147,9 @@ class TyranoSaveViewer:
     
     def _create_ctk_image_from_pil(self, pil_image: Image.Image) -> Optional[ctk.CTkImage]:
         """从PIL Image创建CTkImage"""
+        if not pil_image:
+            return None
+        
         try:
             image_size = (pil_image.width, pil_image.height)
             return ctk.CTkImage(
@@ -985,8 +1157,8 @@ class TyranoSaveViewer:
                 dark_image=pil_image,
                 size=image_size
             )
-        except Exception as e:
-            logger.debug(f"Failed to create CTkImage: {e}", exc_info=True)
+        except (AttributeError, TypeError) as e:
+            logger.debug("创建CTkImage失败: %s", e, exc_info=True)
             return None
     
     def _determine_placeholder_text(
@@ -1064,7 +1236,7 @@ class TyranoSaveViewer:
         try:
             label.configure(**base_config)
         except (tk.TclError, AttributeError) as e:
-            logger.debug(f"Failed to configure label with image: {e}")
+            logger.debug("配置标签图片失败: %s", e)
     
     def _get_cached_placeholder_ctk_image(
         self,
@@ -1113,7 +1285,7 @@ class TyranoSaveViewer:
         try:
             label.configure(**base_config)
         except (tk.TclError, AttributeError) as e:
-            logger.debug(f"Failed to configure label with placeholder: {e}")
+            logger.debug("配置标签占位符失败: %s", e)
     
     def _apply_ui_updates(self, updates: List[Tuple[ctk.CTkLabel, Optional[ctk.CTkImage], Optional[str], Optional[Tuple[int, int]]]]) -> None:
         """批量更新UI组件"""
@@ -1128,7 +1300,7 @@ class TyranoSaveViewer:
                     display_text = placeholder_text or ""
                     self._configure_label_with_placeholder(label, display_text, image_size)
             except (tk.TclError, AttributeError) as e:
-                logger.debug("Failed to update label: %s", e)
+                logger.debug("更新标签失败: %s", e)
                 continue
     
     def _load_all_images(self) -> None:
@@ -1139,7 +1311,9 @@ class TyranoSaveViewer:
         self._current_page_load_id += 1
         current_load_id = self._current_page_load_id
         
+        self._ensure_layout_ready()
         reference_size = self._calculate_reference_size()
+        self._show_loading_overlay()
         tasks = self._prepare_image_tasks(reference_size)
         
         def process_and_update():
@@ -1166,13 +1340,17 @@ class TyranoSaveViewer:
                     if not self._should_apply_updates(current_load_id):
                         return
                     
-                    self._apply_ui_updates(updates)
                     self._create_all_text_labels_hidden(reference_size)
+                    self._sync_layout()
+                    self._apply_ui_updates(updates)
+                    self._hide_loading_overlay()
                     
                     if self._is_first_load and not self._is_destroyed:
                         self._is_first_load = False
                         if self.parent.winfo_exists():
                             self.parent.bind("<Configure>", self._on_window_resize)
+
+                    self._prefetch_adjacent_pages()
                 except (tk.TclError, AttributeError):
                     pass
             
@@ -1264,17 +1442,19 @@ class TyranoSaveViewer:
     
     def _refresh_display_debounced(self) -> None:
         """防抖刷新显示"""
-        if self._page_switch_timer and self.parent.winfo_exists():
+        if not self.parent or not self.parent.winfo_exists():
+            return
+        
+        if self._page_switch_timer:
             try:
                 self.parent.after_cancel(self._page_switch_timer)
             except (tk.TclError, ValueError):
                 pass
         
-        if self.parent.winfo_exists():
-            self._page_switch_timer = self.parent.after(
-                PAGE_SWITCH_DEBOUNCE_MS,
-                self._refresh_display
-            )
+        self._page_switch_timer = self.parent.after(
+            PAGE_SWITCH_DEBOUNCE_MS,
+            self._refresh_display
+        )
     
     def _jump_to_page(self) -> None:
         """跳转到指定页面"""
@@ -1324,17 +1504,34 @@ class TyranoSaveViewer:
     
     def _on_slot_click(self, slot_index: int) -> None:
         """存档槽点击事件"""
-        logger.debug(f"Save slot clicked: {slot_index}")
+        logger.debug("存档槽被点击: %d", slot_index)
     
     def _on_window_resize(self, event: Optional[tk.Event] = None) -> None:
         """窗口大小变化时的回调"""
-        if self._resize_timer:
-            self.parent.after_cancel(self._resize_timer)
+        if not self.parent or not self.parent.winfo_exists():
+            return
         
-        self._resize_timer = self.parent.after(
-            RESIZE_DEBOUNCE_MS,
-            self._refresh_display
-        )
+        try:
+            current_size = (self.parent.winfo_width(), self.parent.winfo_height())
+        except (tk.TclError, AttributeError):
+            return
+
+        if self._last_parent_size == current_size:
+            return
+        
+        self._last_parent_size = current_size
+
+        if self._resize_timer and self.parent.winfo_exists():
+            try:
+                self.parent.after_cancel(self._resize_timer)
+            except (tk.TclError, ValueError):
+                pass
+        
+        if self.parent.winfo_exists():
+            self._resize_timer = self.parent.after(
+                RESIZE_DEBOUNCE_MS,
+                self._refresh_display
+            )
     
     def update_ui_texts(self) -> None:
         """更新UI文本（用于语言切换）"""
@@ -1361,6 +1558,9 @@ class TyranoSaveViewer:
         
         if hasattr(self, 'auto_saves_button') and self.auto_saves_button.winfo_exists():
             self.auto_saves_button.configure(text=self.translate("tyrano_auto_saves_button"))
+
+        if self._loading_label and self._loading_label.winfo_exists():
+            self._loading_label.configure(text=self.translate("loading"))
         
         self._refresh_display()
     
@@ -1375,15 +1575,17 @@ class TyranoSaveViewer:
         if self._is_destroyed or self._preload_in_progress:
             return
         self._preload_in_progress = True
-        
+
+        self._ensure_layout_ready()
+        reference_size = self._calculate_reference_size()
+        container_width, container_height = reference_size
+
         def preload_worker():
             try:
                 if self._is_destroyed or not self.analyzer.save_slots:
                     return
                 
                 import hashlib
-                thumb_size = (120, 90)
-                
                 for slot_data in self.analyzer.save_slots:
                     if self._is_destroyed:
                         return
@@ -1397,16 +1599,34 @@ class TyranoSaveViewer:
                     
                     img_hash = hashlib.md5(image_data.encode('utf-8')).hexdigest()
                     
-                    if self._image_cache.get_thumbnail(img_hash, thumb_size):
-                        continue
-                    
                     try:
-                        self._preload_single_thumbnail(image_data, img_hash, thumb_size)
-                    except Exception:
-                        pass
+                        original_image = self._image_cache.get_original(img_hash)
+                        if original_image is None:
+                            original_image = decode_image_data(image_data)
+                            if not original_image:
+                                continue
+                            self._image_cache.put_original(img_hash, original_image)
+
+                        thumb_size = self._calculate_thumbnail_size_for_container(
+                            container_width,
+                            container_height,
+                            original_image
+                        )
+
+                        if self._image_cache.get_thumbnail(img_hash, thumb_size):
+                            continue
+
+                        self._preload_single_thumbnail(
+                            image_data,
+                            img_hash,
+                            thumb_size,
+                            original_image=original_image
+                        )
+                    except (ValueError, OSError, AttributeError) as e:
+                        logger.debug("预加载缩略图失败: %s", e)
                 
             except Exception as e:
-                logger.debug("Background preload failed: %s", e)
+                logger.debug("后台预加载失败: %s", e)
             finally:
                 self._preload_in_progress = False
         
@@ -1417,24 +1637,106 @@ class TyranoSaveViewer:
         self,
         image_data: str,
         img_hash: str,
-        thumb_size: Tuple[int, int]
+        thumb_size: Tuple[int, int],
+        original_image: Optional[Image.Image] = None
     ) -> None:
         """预加载单个缩略图"""
         try:
             if self._image_cache.get_thumbnail(img_hash, thumb_size):
                 return
             
-            original_image = decode_image_data(image_data)
+            if original_image is None:
+                original_image = decode_image_data(image_data)
             if not original_image:
                 return
             
-            self._image_cache.put_original(img_hash, original_image)
+            if self._image_cache.get_original(img_hash) is None:
+                self._image_cache.put_original(img_hash, original_image)
             thumbnail = original_image.resize(thumb_size, Image.Resampling.BILINEAR)
             self._image_cache.put_thumbnail(img_hash, thumb_size, thumbnail)
             
-        except Exception as e:
-            logger.debug("Failed to preload thumbnail: %s", e)
+        except (ValueError, OSError, AttributeError) as e:
+            logger.debug("预加载缩略图失败: %s", e)
     
     def _prefetch_adjacent_pages(self) -> None:
         """预取邻近页面的缩略图"""
-        pass
+        if self._is_destroyed or self._prefetch_in_progress:
+            return
+        if self._preload_in_progress:
+            return
+        if not self.analyzer or not self.analyzer.save_slots:
+            return
+
+        current_page = self.analyzer.current_page
+        total_pages = self.analyzer.total_pages
+        if current_page < MIN_PAGE_NUMBER or total_pages <= MIN_PAGE_NUMBER:
+            return
+
+        pages_to_prefetch: List[int] = []
+        if current_page > MIN_PAGE_NUMBER:
+            pages_to_prefetch.append(current_page - 1)
+        if current_page < total_pages:
+            pages_to_prefetch.append(current_page + 1)
+        if not pages_to_prefetch:
+            return
+
+        self._ensure_layout_ready()
+        reference_size = self._calculate_reference_size()
+        container_width, container_height = reference_size
+        self._prefetch_in_progress = True
+
+        def prefetch_worker() -> None:
+            try:
+                import hashlib
+                slots = self.analyzer.save_slots
+                slots_len = len(slots)
+                for page in pages_to_prefetch:
+                    if self._is_destroyed:
+                        return
+
+                    start_index = (page - MIN_PAGE_NUMBER) * TYRANO_SAVES_PER_PAGE
+                    if start_index >= slots_len:
+                        continue
+
+                    end_index = min(start_index + TYRANO_SAVES_PER_PAGE, slots_len)
+                    for slot_data in slots[start_index:end_index]:
+                        if self._is_destroyed:
+                            return
+                        if not slot_data:
+                            continue
+                        image_data = slot_data.get(IMGDATA_FIELD_KEY)
+                        if not image_data:
+                            continue
+
+                        img_hash = hashlib.md5(image_data.encode('utf-8')).hexdigest()
+                        try:
+                            original_image = self._image_cache.get_original(img_hash)
+                            if original_image is None:
+                                original_image = decode_image_data(image_data)
+                                if not original_image:
+                                    continue
+                                self._image_cache.put_original(img_hash, original_image)
+
+                            thumb_size = self._calculate_thumbnail_size_for_container(
+                                container_width,
+                                container_height,
+                                original_image
+                            )
+
+                            if self._image_cache.get_thumbnail(img_hash, thumb_size):
+                                continue
+
+                            self._preload_single_thumbnail(
+                                image_data,
+                                img_hash,
+                                thumb_size,
+                                original_image=original_image
+                            )
+                        except (ValueError, OSError, AttributeError) as e:
+                            logger.debug("预取缩略图失败: %s", e)
+                            continue
+            finally:
+                self._prefetch_in_progress = False
+
+        thread = threading.Thread(target=prefetch_worker, daemon=True)
+        thread.start()

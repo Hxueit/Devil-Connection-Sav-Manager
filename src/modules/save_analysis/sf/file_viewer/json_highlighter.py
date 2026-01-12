@@ -12,8 +12,6 @@ from src.utils.styles import Colors, get_mono_font
 def apply_json_syntax_highlight(text_widget: tk.Text, content: str) -> None:
     """应用JSON语法高亮
     
-    优化：使用单次遍历替代多次正则匹配，提高性能
-    
     Args:
         text_widget: 文本widget
         content: 要高亮的JSON内容

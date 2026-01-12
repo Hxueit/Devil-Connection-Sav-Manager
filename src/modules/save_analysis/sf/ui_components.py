@@ -31,6 +31,9 @@ LABEL_WRAPLENGTH_RATIO = 0.7
 TOOLTIP_WRAPLENGTH_RATIO = 0.85
 HORIZONTAL_LIST_SCROLL_THRESHOLD = 10
 
+# 标签文本换行宽度（0 = 不换行）
+LABEL_TEXT_WRAPLENGTH = 400
+
 
 def create_section(
     parent: tk.Widget,
@@ -234,7 +237,7 @@ def add_info_line(
             line_frame, 
             textvariable=label_var, 
             font=get_cjk_font(LABEL_FONT_SIZE), 
-            wraplength=200, 
+            wraplength=LABEL_TEXT_WRAPLENGTH, 
             foreground=text_color if text_color else None
         )
     else:
@@ -242,7 +245,7 @@ def add_info_line(
             line_frame, 
             text=f"{label}:", 
             font=get_cjk_font(LABEL_FONT_SIZE), 
-            wraplength=200, 
+            wraplength=LABEL_TEXT_WRAPLENGTH, 
             foreground=text_color if text_color else None
         )
     label_widget.pack(side="left", padx=5)
@@ -325,7 +328,7 @@ def add_list_info(
         line_frame, 
         text=f"{label}:", 
         font=get_cjk_font(LABEL_FONT_SIZE), 
-        wraplength=200
+            wraplength=LABEL_TEXT_WRAPLENGTH
     )
     label_widget.pack(side="left", padx=5)
     
@@ -501,7 +504,7 @@ def add_info_line_with_tooltip(
             line_frame, 
             textvariable=label_var, 
             font=get_cjk_font(LABEL_FONT_SIZE), 
-            wraplength=200, 
+            wraplength=LABEL_TEXT_WRAPLENGTH, 
             foreground=text_color if text_color else None
         )
     else:
@@ -509,7 +512,7 @@ def add_info_line_with_tooltip(
             line_frame, 
             text=f"{label}:", 
             font=get_cjk_font(LABEL_FONT_SIZE), 
-            wraplength=200, 
+            wraplength=LABEL_TEXT_WRAPLENGTH, 
             foreground=text_color if text_color else None
         )
     label_widget.pack(side="left", padx=5)

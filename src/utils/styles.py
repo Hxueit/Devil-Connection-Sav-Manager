@@ -400,7 +400,7 @@ def _configure_ttk_styles(style: ttk.Style) -> None:
         "TNotebook",
         borderwidth=0,
         background=Colors.LIGHT_GRAY,
-        padding=(8, 6, 8, 0)
+        padding=(8, 0, 8, 0)
     )
     style.configure(
         "TNotebook.Tab",

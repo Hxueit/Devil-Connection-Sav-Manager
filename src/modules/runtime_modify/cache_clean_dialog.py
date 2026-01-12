@@ -84,7 +84,18 @@ class CacheCleanDialog(ctk.CTkToplevel):
         self.title(self.t("cache_clean_dialog_title"))
         self.geometry("550x550")
         self.minsize(500, 450)
+        self.transient(self.master)
         center_window(self)
+        self.after(0, self._raise_to_front)
+
+    def _raise_to_front(self) -> None:
+        try:
+            if not self.winfo_exists():
+                return
+            self.lift()
+            self.focus_force()
+        except tk.TclError:
+            pass
     
     def t(self, key: str, **kwargs: Any) -> str:
         """翻译函数"""

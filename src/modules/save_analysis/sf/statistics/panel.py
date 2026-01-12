@@ -11,6 +11,7 @@ from typing import Dict, Any, Optional, Callable
 import customtkinter as ctk
 
 from src.utils.styles import Colors, get_cjk_font
+from ..ui_components import LABEL_TEXT_WRAPLENGTH
 from .constants import (
     CANVAS_SIZE,
     TOTAL_STICKERS,
@@ -503,7 +504,7 @@ class StatisticsPanel:
             font=get_cjk_font(14),
             fg=text_color,
             bg=Colors.WHITE,
-            wraplength=200
+            wraplength=LABEL_TEXT_WRAPLENGTH
         )
         neo_label.pack()
         

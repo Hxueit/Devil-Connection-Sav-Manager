@@ -6,6 +6,7 @@
 
 from typing import Dict, Any, Optional, Callable
 from src.utils.styles import Colors
+from src.constants import TOTAL_ENDINGS, TOTAL_CHARACTERS, TOTAL_STICKERS
 
 
 def get_field_configs():
@@ -98,9 +99,17 @@ def get_field_configs():
             "button_command_factory": None,  # 将在运行时设置
             "fields": [
                 {
+                    "widget_key": "total_endings.count",
+                    "data_path": None,
+                    "label_key": "total_endings",
+                    "var_name": None,
+                    "formatter": lambda v, cd: TOTAL_ENDINGS,
+                    "is_computed": True
+                },
+                {
                     "widget_key": "endings.count",
                     "data_path": "endings",
-                    "label_key": "total_endings",
+                    "label_key": "current_collected_endings",
                     "var_name": "endings",
                     "formatter": lambda v, cd: len(cd["endings"]),
                     "is_computed": True
@@ -108,10 +117,12 @@ def get_field_configs():
                 {
                     "widget_key": "collectedEndings.count",
                     "data_path": "collectedEndings",
-                    "label_key": "collected_endings",
+                    "label_key": "total_collected_endings",
                     "var_name": "collectedEndings",
                     "formatter": lambda v, cd: len(cd["collected_endings"]),
-                    "is_computed": True
+                    "is_computed": True,
+                    "has_tooltip": True,
+                    "tooltip_key": "total_collected_endings_tooltip"
                 },
                 {
                     "widget_key": "missing_endings",
@@ -135,7 +146,7 @@ def get_field_configs():
                     "data_path": None,
                     "label_key": "total_stickers",
                     "var_name": None,
-                    "formatter": lambda v, cd: 132,
+                    "formatter": lambda v, cd: TOTAL_STICKERS,
                     "is_computed": True
                 },
                 {
@@ -170,22 +181,30 @@ def get_field_configs():
             "title_key": "characters_statistics",
             "fields": [
                 {
+                    "widget_key": "total_characters.count",
+                    "data_path": None,
+                    "label_key": "total_characters",
+                    "var_name": None,
+                    "formatter": lambda v, cd: TOTAL_CHARACTERS,
+                    "is_computed": True
+                },
+                {
                     "widget_key": "characters.count",
                     "data_path": "characters",
-                    "label_key": "total_characters",
+                    "label_key": "current_collected_characters",
                     "var_name": "characters",
                     "formatter": lambda v, cd: max(0, len(cd["characters"])),
-                    "is_computed": True,
-                    "has_tooltip": True,
-                    "tooltip_key": "characters_statistics_note"
+                    "is_computed": True
                 },
                 {
                     "widget_key": "collectedCharacters.count",
                     "data_path": "collectedCharacters",
-                    "label_key": "collected_characters",
+                    "label_key": "total_collected_characters",
                     "var_name": "collectedCharacters",
                     "formatter": lambda v, cd: max(0, len(cd["collected_characters"])),
-                    "is_computed": True
+                    "is_computed": True,
+                    "has_tooltip": True,
+                    "tooltip_key": "total_collected_characters_tooltip"
                 },
                 {
                     "widget_key": "missing_characters",

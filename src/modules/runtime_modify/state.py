@@ -27,6 +27,9 @@ class RuntimeModifyState:
     status_check_job: Optional[str] = None
     executor: Optional[ThreadPoolExecutor] = None
     
+    # 关闭状态标志
+    is_closing: bool = False
+    
     def reset(self) -> None:
         """重置状态"""
         self.is_launching = False
@@ -37,4 +40,5 @@ class RuntimeModifyState:
         self.last_hook_check_time = 0.0
         self.checking_hook = False
         self.status_check_job = None
+        self.is_closing = False
 

@@ -1,6 +1,15 @@
 """文件查看器模块
 
 提供存档文件的查看和编辑功能，包括JSON语法高亮、折叠显示、搜索等。
+
+本模块已重构，使用子模块分离职责：
+- file_viewer.config: 配置常量
+- file_viewer.models: 数据模型
+- file_viewer.viewer_registry: 查看器注册表
+- file_viewer.json_formatter: JSON格式化
+- file_viewer.file_saver: 文件保存服务
+- file_viewer.runtime_injector_service: 运行时注入服务
+- file_viewer.search_handler: 搜索功能
 """
 
 import asyncio
@@ -8,7 +17,6 @@ import json
 import logging
 import threading
 import urllib.parse
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Literal, Optional, Tuple
 
@@ -18,7 +26,6 @@ from tkinter import Scrollbar, messagebox, ttk
 from src.utils.styles import Colors, get_cjk_font, get_mono_font
 from src.utils.ui_utils import (
     askyesno_relative,
-    restore_and_activate_window,
     set_window_icon,
     showerror_relative,
     showinfo_relative,
@@ -28,44 +35,70 @@ from src.utils.hint_animation import HintAnimation
 from src.modules.screenshot.animation_constants import CHECKBOX_STYLE_NORMAL, CHECKBOX_STYLE_HINT
 
 from .file_viewer.json_highlighter import apply_json_syntax_highlight
+from .file_viewer.config import (
+    DEFAULT_SF_COLLAPSED_FIELDS,
+    SAVE_FILE_NAME,
+    CLOSE_CALLBACK_DELAY_MS,
+    REFRESH_AFTER_INJECT_DELAY_MS,
+    SINGLE_LINE_LIST_FIELDS,
+    DEFAULT_WINDOW_SIZE,
+    HINT_WRAPLENGTH,
+    CHECKBOX_PADX,
+    USER_EDIT_HIGHLIGHT_COLOR,
+)
+from .file_viewer.models import ViewerConfig
+from .file_viewer.viewer_registry import (
+    register_viewer,
+    unregister_viewer,
+    focus_existing_viewer,
+    is_viewer_alive,
+)
+from .file_viewer.json_formatter import JSONFormatter
+from .file_viewer.file_saver import FileSaver
+from .file_viewer.runtime_injector_service import RuntimeInjectorService
+from .file_viewer.search_handler import SearchHandler
+from .file_viewer.ui_builder import UIBuilder
+from .file_viewer.editor_controller import EditorController
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_SF_COLLAPSED_FIELDS = ["record", "_tap_effect", "initialVars"]
-SAVE_FILE_NAME = "DevilConnection_sf.sav"
-CLOSE_CALLBACK_DELAY_MS = 100
-REFRESH_AFTER_INJECT_DELAY_MS = 200
-SINGLE_LINE_LIST_FIELDS = frozenset([
-    "endings", "collectedEndings", "omakes", "characters",
-    "collectedCharacters", "sticker", "gallery", "ngScene"
-])
-DEFAULT_WINDOW_SIZE = "1200x900"
-HINT_WRAPLENGTH = 850
-CHECKBOX_PADX = 5
-
-_current_save_file_viewer: Optional['SaveFileViewer'] = None
-
-
-@dataclass
-class ViewerConfig:
-    """查看器配置类，适用于 file 和 runtime 模式"""
-    ws_url: Optional[str] = None
-    service: Optional[Any] = None
-    inject_method: str = "sf"
-    enable_edit_by_default: bool = False
-    save_button_text: str = "save_file"
-    show_enable_edit_checkbox: bool = False
-    show_collapse_checkbox: bool = False
-    show_hint_label: bool = False
-    title_key: str = "save_file_viewer_title"
-    collapsed_fields: List[str] = field(default_factory=list)
-    custom_load_func: Optional[Callable[[], Optional[Dict[str, Any]]]] = None
-    custom_save_func: Optional[Callable[[Dict[str, Any]], bool]] = None
-    on_save_callback: Optional[Callable[[Dict[str, Any]], None]] = None
+__all__ = [
+    "SaveFileViewer",
+    "ViewerConfig",
+    "DEFAULT_SF_COLLAPSED_FIELDS",
+]
 
 
 class SaveFileViewer:
     """存档文件查看器"""
+    
+    @classmethod
+    def open_or_focus(
+        cls,
+        viewer_id: str,
+        **kwargs
+    ) -> 'SaveFileViewer':
+        """工厂方法：打开新窗口或聚焦已存在的窗口
+        
+        Args:
+            viewer_id: 唯一标识符，用于区分不同的编辑器实例
+            **kwargs: 传递给 __init__ 的参数
+            
+        Returns:
+            SaveFileViewer 实例（新创建或已存在的）
+            
+        Note:
+            如果窗口已存在，只会聚焦该窗口，不会刷新数据。
+            这是为了避免覆盖用户正在编辑但未保存的内容。
+        """
+        existing = focus_existing_viewer(viewer_id)
+        if existing is not None:
+            return existing
+        
+        # 使用 cls 创建实例以支持子类继承
+        viewer = cls(**kwargs, _viewer_id=viewer_id)
+        register_viewer(viewer_id, viewer)
+        return viewer
     
     def __init__(
         self,
@@ -75,7 +108,8 @@ class SaveFileViewer:
         t_func: Callable[[str], str],
         on_close_callback: Optional[Callable] = None,
         mode: Literal["file", "runtime"] = "file",
-        viewer_config: Optional[ViewerConfig] = None
+        viewer_config: Optional[ViewerConfig] = None,
+        _viewer_id: Optional[str] = None
     ) -> None:
         """初始化文件查看器
         
@@ -87,13 +121,9 @@ class SaveFileViewer:
             on_close_callback: 窗口关闭时的回调函数
             mode: 模式，"file"为文件模式，"runtime"为运行时模式
             viewer_config: 查看器配置（通用配置，适用于两种模式）
+            _viewer_id: 内部使用，用于注册表管理
         """
-        global _current_save_file_viewer
-        
-        if _current_save_file_viewer is not None:
-            if self._try_restore_existing_viewer(_current_save_file_viewer):
-                return
-        
+        self._viewer_id = _viewer_id
         self.window = window
         self.storage_dir = storage_dir
         self.save_data = save_data
@@ -101,37 +131,46 @@ class SaveFileViewer:
         self.on_close_callback = on_close_callback
         self.mode = mode
         self.viewer_config = viewer_config or ViewerConfig()
-        self.original_save_data = self._deep_copy_data(save_data)
+        self.original_save_data = JSONFormatter._deep_copy_data(save_data)
         self._data_was_saved = False  # 标志位：是否保存过数据
+        
+        # 初始化服务模块
+        self.json_formatter = JSONFormatter(
+            self.viewer_config.collapsed_fields or [],
+            t_func
+        )
+        self.file_saver = FileSaver(
+            storage_dir,
+            self.viewer_config,
+            t_func,
+            None  # window 将在 _create_viewer_window 后设置
+        )
+        self.runtime_injector = RuntimeInjectorService(
+            None,  # window 将在 _create_viewer_window 后设置
+            self.viewer_config,
+            t_func
+        )
         
         root_window = self._find_root_window(window)
         self.viewer_window = self._create_viewer_window(root_window)
-        _current_save_file_viewer = self
+        
+        # 更新服务模块的窗口引用
+        self.file_saver.window = self.viewer_window
+        self.runtime_injector.window = self.viewer_window
+        
+        self._bind_destroy_cleanup()
         
         self._setup_ui()
     
-    def _try_restore_existing_viewer(self, existing_viewer: 'SaveFileViewer') -> bool:
-        """尝试恢复已存在的查看器窗口
+    def _bind_destroy_cleanup(self) -> None:
+        """绑定窗口销毁事件，确保从注册表中移除"""
+        def on_destroy(event):
+            # <Destroy> 事件会在子控件销毁时也触发，需检查是否为窗口本身
+            if event.widget is self.viewer_window:
+                if self._viewer_id:
+                    unregister_viewer(self._viewer_id)
         
-        Args:
-            existing_viewer: 已存在的查看器实例
-            
-        Returns:
-            是否成功恢复窗口
-        """
-        if not hasattr(existing_viewer, 'viewer_window'):
-            _current_save_file_viewer = None
-            return False
-        
-        if not existing_viewer.viewer_window.winfo_exists():
-            _current_save_file_viewer = None
-            return False
-        
-        if restore_and_activate_window(existing_viewer.viewer_window):
-            return True
-        
-        _current_save_file_viewer = None
-        return False
+        self.viewer_window.bind("<Destroy>", on_destroy)
     
     def _find_root_window(self, window: tk.Widget) -> tk.Tk:
         """查找根窗口"""
@@ -152,222 +191,61 @@ class SaveFileViewer:
     
     def _deep_copy_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """深拷贝数据"""
-        return json.loads(json.dumps(data))
+        return JSONFormatter._deep_copy_data(data)
     
     def _setup_ui(self) -> None:
         """设置UI界面"""
-        self._setup_modal_styles()
-        main_frame = self._create_main_frame()
+        # 初始化UI构建器
+        self.ui_builder = UIBuilder(self.viewer_window, self.t)
+        self.ui_builder.setup_modal_styles()
+        
+        main_frame = self.ui_builder.create_main_frame()
         
         if self.viewer_config.show_hint_label:
-            self._create_hint_label(main_frame)
+            self.ui_builder.create_hint_label(main_frame)
         
-        toolbar = self._create_toolbar(main_frame)
-        text_widget, line_numbers = self._create_text_widgets(main_frame)
-        self.line_numbers = line_numbers  # 保存为实例变量，供其他方法使用
+        toolbar = self.ui_builder.create_toolbar(main_frame)
         
-        self._setup_text_widget_handlers(text_widget, line_numbers)
-        self._setup_toolbar_controls(toolbar, text_widget)
-    
-    def _setup_modal_styles(self) -> None:
-        """设置模态窗口样式"""
-        modal_style = ttk.Style(self.viewer_window)
-        
-        modal_style.configure(
-            "Modal.TLabel",
-            background=Colors.MODAL_BG,
-            foreground="gray",
-            borderwidth=0,
-            relief="flat"
+        # 创建文本组件
+        initial_content = self.json_formatter.format_display_data(self.save_data)
+        text_widget, line_numbers = self.ui_builder.create_text_widgets(
+            main_frame,
+            initial_content,
+            self.viewer_config.enable_edit_by_default
         )
-        modal_style.map("Modal.TLabel",
-                       background=[("active", Colors.MODAL_BG),
-                                  ("!active", Colors.MODAL_BG)])
+        self.line_numbers = line_numbers
+        self.text_widget = text_widget
         
-        modal_style.configure(
-            "Modal.TCheckbutton",
-            background=Colors.MODAL_BG,
-            foreground=Colors.TEXT_PRIMARY,
-            borderwidth=0,
-            relief="flat"
-        )
-        modal_style.map("Modal.TCheckbutton",
-                       background=[("active", Colors.MODAL_BG),
-                                  ("!active", Colors.MODAL_BG),
-                                  ("selected", Colors.MODAL_BG)])
-    
-    def _create_main_frame(self) -> tk.Frame:
-        """创建主框架"""
-        main_frame = tk.Frame(self.viewer_window, bg=Colors.MODAL_BG)
-        main_frame.pack(fill="both", expand=True, padx=5, pady=5)
-        return main_frame
-    
-    def _create_hint_label(self, parent: tk.Widget) -> None:
-        """创建提示标签"""
-        hint_frame = tk.Frame(parent, bg=Colors.MODAL_BG)
-        hint_frame.pack(fill="x", pady=(0, 10))
-        hint_label = ttk.Label(
-            hint_frame,
-            text=self.t("viewer_hint_text"),
-            font=get_cjk_font(9),
-            wraplength=HINT_WRAPLENGTH,
-            justify="left",
-            style="Modal.TLabel"
-        )
-        hint_label.pack(anchor="w", padx=5)
-    
-    def _create_toolbar(self, parent: tk.Widget) -> tk.Frame:
-        """创建工具栏"""
-        toolbar = tk.Frame(parent, bg=Colors.MODAL_BG)
-        toolbar.pack(fill="x", pady=(0, 5))
-        return toolbar
-    
-    def _create_text_widgets(self, parent: tk.Widget) -> Tuple[tk.Text, tk.Text]:
-        """创建文本显示组件"""
-        self.search_matches: List[Tuple[str, str]] = []
-        self.current_search_pos = [0]
-        self.search_results_label: Optional[ttk.Label] = None
-        
-        text_frame = tk.Frame(parent)
-        text_frame.pack(fill="both", expand=True)
-        
-        mono_font = get_mono_font(10)
-        
-        line_numbers = tk.Text(
-            text_frame,
-            font=mono_font,
-            bg=Colors.CODE_GUTTER_BG,
-            fg=Colors.TEXT_MUTED,
-            width=4,
-            padx=5,
-            pady=2,
-            state="disabled",
-            wrap="none",
-            highlightthickness=0,
-            borderwidth=0
-        )
-        line_numbers.pack(side="left", fill="y")
-        
-        text_container = tk.Frame(text_frame)
-        text_container.pack(side="left", fill="both", expand=True)
-        
-        v_scrollbar = Scrollbar(text_container, orient="vertical")
-        v_scrollbar.pack(side="right", fill="y")
-        
-        h_scrollbar = Scrollbar(text_container, orient="horizontal")
-        h_scrollbar.pack(side="bottom", fill="x")
-        
-        text_widget = tk.Text(
-            text_container,
-            font=mono_font,
-            bg=Colors.CODE_BG,
-            fg=Colors.TEXT_DARK,
-            yscrollcommand=lambda *args: (v_scrollbar.set(*args), self._update_line_numbers(text_widget, line_numbers)),
-            xscrollcommand=h_scrollbar.set,
-            wrap="none",
-            tabs=("2c", "4c", "6c", "8c", "10c", "12c", "14c", "16c")
-        )
-        text_widget.pack(side="left", fill="both", expand=True)
-        v_scrollbar.config(command=lambda *args: (text_widget.yview(*args), self._update_line_numbers(text_widget, line_numbers)))
-        h_scrollbar.config(command=text_widget.xview)
-        
-        initial_content = self._format_display_data()
-        text_widget.insert("1.0", initial_content)
+        # 应用语法高亮
         apply_json_syntax_highlight(text_widget, initial_content)
         self._update_line_numbers(text_widget, line_numbers)
         
-        if self.viewer_config.enable_edit_by_default:
-            text_widget.config(state="normal")
-        else:
-            text_widget.config(state="disabled")
-        
-        return text_widget, line_numbers
+        # 设置工具栏控件
+        self._setup_toolbar_controls(toolbar, text_widget, line_numbers)
     
     def _format_display_data(self) -> str:
         """格式化显示数据"""
-        collapsed_fields = self._collect_collapsed_fields()
-        display_data = self._deep_copy_data(self.save_data)
-        collapsed_text = self.t("collapsed_field_text")
-        
-        for field_key in collapsed_fields.keys():
-            if "." in field_key:
-                self._replace_nested_field(display_data, field_key, collapsed_text)
-            else:
-                if isinstance(display_data, dict) and field_key in display_data:
-                    display_data[field_key] = collapsed_text
-        
-        return self._format_json_custom(display_data)
+        return self.json_formatter.format_display_data(self.save_data)
     
-    def _replace_nested_field(self, data: Dict[str, Any], field_key: str, replacement: str) -> None:
-        """替换嵌套字段"""
-        key_parts = field_key.split(".")
-        nested_obj = data
-        for part in key_parts[:-1]:
-            if not isinstance(nested_obj, dict) or part not in nested_obj:
-                return
-            nested_obj = nested_obj[part]
-        if isinstance(nested_obj, dict) and key_parts[-1] in nested_obj:
-            nested_obj[key_parts[-1]] = replacement
-    
-    def _format_json_custom(self, obj: Any, indent: int = 0) -> str:
-        """自定义JSON格式化，列表字段在一行内显示"""
-        indent_str = "  " * indent
-        
-        if isinstance(obj, dict):
-            items = []
-            for key, value in obj.items():
-                if key in SINGLE_LINE_LIST_FIELDS and isinstance(value, list):
-                    value_str = json.dumps(value, ensure_ascii=False)
-                elif isinstance(value, (dict, list)):
-                    value_str = self._format_json_custom(value, indent + 1)
-                else:
-                    value_str = json.dumps(value, ensure_ascii=False)
-                items.append(f'"{key}": {value_str}')
-            
-            item_separator = ",\n" + indent_str + "  "
-            return f"{{\n{indent_str}  {item_separator.join(items)}\n{indent_str}}}"
-        elif isinstance(obj, list):
-            formatted_items = [
-                self._format_json_custom(item, indent + 1) if isinstance(item, (dict, list))
-                else json.dumps(item, ensure_ascii=False)
-                for item in obj
-            ]
-            item_separator = ",\n" + indent_str + "  "
-            return f"[\n{indent_str}  {item_separator.join(formatted_items)}\n{indent_str}]"
-        else:
-            return json.dumps(obj, ensure_ascii=False)
     
     def _update_line_numbers(self, text_widget: tk.Text, line_numbers: tk.Text) -> None:
         """更新行号显示"""
-        line_numbers.config(state="normal")
-        line_numbers.delete("1.0", "end")
-        
-        content = text_widget.get("1.0", "end-1c")
-        line_count = content.count('\n') + 1 if content else 1
-        
-        line_numbers.insert("end", "\n".join(str(i) for i in range(1, line_count + 1)) + "\n")
-        line_numbers.config(state="disabled")
-        line_numbers.yview_moveto(text_widget.yview()[0])
-    
-    def _setup_text_widget_handlers(self, text_widget: tk.Text, line_numbers: tk.Text) -> None:
-        """设置文本组件事件处理"""
-        text_widget.tag_config("user_edit", background="#fff9c4")
-        text_widget.config(undo=True)
-        
-        def on_text_change(*args):
-            self._update_line_numbers(text_widget, line_numbers)
-            if hasattr(self, '_enable_edit_var') and self._enable_edit_var.get():
-                if hasattr(self, '_detect_and_highlight_changes'):
-                    self._detect_and_highlight_changes()
-        
-        text_widget.bind("<<Modified>>", on_text_change)
-        text_widget.bind("<KeyRelease>", lambda e: self._update_line_numbers(text_widget, line_numbers))
-        text_widget.bind("<Button-1>", lambda e: self._update_line_numbers(text_widget, line_numbers))
+        if hasattr(self, 'ui_builder'):
+            self.ui_builder.update_line_numbers(text_widget, line_numbers)
+        else:
+            line_numbers.config(state="normal")
+            line_numbers.delete("1.0", "end")
+            content = text_widget.get("1.0", "end-1c")
+            line_count = content.count('\n') + 1 if content else 1
+            line_numbers.insert("end", "\n".join(str(i) for i in range(1, line_count + 1)) + "\n")
+            line_numbers.config(state="disabled")
+            line_numbers.yview_moveto(text_widget.yview()[0])
     
     def _setup_toolbar_controls(
         self,
         toolbar: tk.Frame,
-        text_widget: tk.Text
+        text_widget: tk.Text,
+        line_numbers: tk.Text
     ) -> None:
         """设置工具栏控件"""
         disable_collapse_var = tk.BooleanVar(value=False)
@@ -475,11 +353,9 @@ class SaveFileViewer:
             scroll_position = text_widget.yview()[0]
             text_widget.config(state="normal")
             
-            text_widget.tag_delete("search_highlight")
-            self.search_matches.clear()
-            self.current_search_pos[0] = 0
-            if self.search_results_label:
-                self.search_results_label.config(text="")
+            # 清除搜索高亮
+            if hasattr(self, 'search_handler'):
+                self.search_handler.clear_search()
             
             if disable_collapse_var.get():
                 full_json = json.dumps(self.save_data, ensure_ascii=False, indent=2)
@@ -489,7 +365,7 @@ class SaveFileViewer:
                 original_content = full_json
                 collapsed_text_ranges.clear()
             else:
-                formatted_json = self._format_display_data()
+                formatted_json = self.json_formatter.format_display_data(self.save_data)
                 text_widget.delete("1.0", "end")
                 text_widget.insert("1.0", formatted_json)
                 apply_json_syntax_highlight(text_widget, formatted_json)
@@ -526,6 +402,7 @@ class SaveFileViewer:
             )
             disable_collapse_checkbox.pack(side="left", padx=5)
         
+        # 创建搜索组件
         search_frame = tk.Frame(toolbar, bg=Colors.MODAL_BG)
         search_frame.pack(side="left", padx=5)
         
@@ -535,10 +412,19 @@ class SaveFileViewer:
         self.search_results_label = ttk.Label(search_frame, text="", style="Modal.TLabel")
         self.search_results_label.pack(side="left", padx=2)
         
+        # 初始化搜索处理器
+        self.search_handler = SearchHandler(
+            text_widget,
+            search_entry,
+            self.search_results_label,
+            self.t
+        )
+        
         def copy_to_clipboard():
             self.viewer_window.clipboard_clear()
-            full_json = json.dumps(self.save_data, ensure_ascii=False, indent=2)
-            self.viewer_window.clipboard_append(full_json)
+            # 复制文本编辑器中当前显示的内容
+            current_display_content = text_widget.get("1.0", "end-1c")
+            self.viewer_window.clipboard_append(current_display_content)
         
         copy_button = ttk.Button(toolbar, text=self.t("copy_to_clipboard"), command=copy_to_clipboard)
         copy_button.pack(side="left", padx=5)
@@ -579,7 +465,12 @@ class SaveFileViewer:
             if self.mode == "runtime":
                 self._refresh_from_runtime(text_widget, update_display)
             else:
-                self._refresh_from_file(text_widget, update_display)
+                reloaded_data = self.file_saver.load_save_file()
+                if reloaded_data is None:
+                    return
+                self.save_data = reloaded_data
+                self.original_save_data = JSONFormatter._deep_copy_data(reloaded_data)
+                update_display()
         
         refresh_button = ttk.Button(toolbar_right, text=self.t("refresh"), command=refresh_save_file)
         refresh_button.pack(side="right", padx=5)
@@ -603,14 +494,9 @@ class SaveFileViewer:
                         self.save_button.config(state="disabled")
                     text_widget.tag_remove("user_edit", "1.0", "end")
             else:
-                reloaded_data = self._load_save_file()
+                reloaded_data = self.file_saver.load_save_file()
                 if reloaded_data is None:
                     enable_edit_var.set(False)
-                    showerror_relative(
-                        self.viewer_window,
-                        self.t("error"),
-                        self.t("save_file_not_found")
-                    )
                     return
                 
                 self.save_data = reloaded_data
@@ -663,21 +549,11 @@ class SaveFileViewer:
         
         def _restore_collapsed_fields(edited_data: Dict[str, Any]) -> None:
             """恢复被折叠的字段值"""
-            if disable_collapse_var.get() or not isinstance(self.save_data, dict):
-                return
-            
-            collapsed_text = self.t("collapsed_field_text")
-            fields_to_check = self._get_collapsed_fields_list()
-            
-            for field_path in fields_to_check:
-                if "." in field_path:
-                    self._restore_nested_collapsed_field(edited_data, field_path, collapsed_text)
-                else:
-                    if (field_path in edited_data and
-                        isinstance(edited_data[field_path], str) and
-                        edited_data[field_path] == collapsed_text and
-                        field_path in self.save_data):
-                        edited_data[field_path] = self.save_data[field_path]
+            self.json_formatter.restore_collapsed_fields(
+                edited_data,
+                self.save_data,
+                disable_collapse_var.get()
+            )
         
         def save_save_file() -> None:
             nonlocal original_content
@@ -721,57 +597,13 @@ class SaveFileViewer:
         )
         self.save_button.pack(side="right", padx=5)
         
-        def find_text(direction: str = "next") -> None:
-            search_term = search_entry.get()
-            if not search_term:
-                if self.search_results_label:
-                    self.search_results_label.config(text="")
-                return
-            
-            was_disabled = text_widget.cget("state") == "disabled"
-            if was_disabled:
-                text_widget.config(state="normal")
-            
-            content = text_widget.get("1.0", "end-1c")
-            text_widget.tag_delete("search_highlight")
-            text_widget.tag_config("search_highlight", background="yellow")
-            
-            self.search_matches.clear()
-            start_pos = "1.0"
-            while True:
-                pos = text_widget.search(search_term, start_pos, "end", nocase=True)
-                if not pos:
-                    break
-                end_pos = f"{pos}+{len(search_term)}c"
-                self.search_matches.append((pos, end_pos))
-                text_widget.tag_add("search_highlight", pos, end_pos)
-                start_pos = end_pos
-            
-            if self.search_matches:
-                if direction == "next":
-                    self.current_search_pos[0] = (self.current_search_pos[0] + 1) % len(self.search_matches)
-                else:
-                    self.current_search_pos[0] = (self.current_search_pos[0] - 1) % len(self.search_matches)
-                
-                pos, end_pos = self.search_matches[self.current_search_pos[0]]
-                text_widget.see(pos)
-                text_widget.mark_set("insert", pos)
-                text_widget.see(pos)
-                
-                if self.search_results_label:
-                    self.search_results_label.config(text=f"{self.current_search_pos[0] + 1}/{len(self.search_matches)}")
-            else:
-                if self.search_results_label:
-                    self.search_results_label.config(text=self.t("search_not_found"))
-            
-            if was_disabled:
-                text_widget.config(state="disabled")
-        
         def find_next():
-            find_text("next")
+            if hasattr(self, 'search_handler'):
+                self.search_handler.find_next()
         
         def find_prev():
-            find_text("prev")
+            if hasattr(self, 'search_handler'):
+                self.search_handler.find_prev()
         
         find_next_button = ttk.Button(search_frame, text="↓", command=find_next, width=3)
         find_next_button.pack(side="left", padx=2)
@@ -797,19 +629,18 @@ class SaveFileViewer:
         search_entry.bind("<Return>", on_search_enter)
         
         def on_window_close() -> None:
-            global _current_save_file_viewer
-            
             if _has_unsaved_changes():
                 if not _confirm_discard_changes():
                     return
             
             self.viewer_window.destroy()
-            if _current_save_file_viewer is self:
-                _current_save_file_viewer = None
+            if self._viewer_id:
+                unregister_viewer(self._viewer_id)
             
-            # 只有保存过数据时才调用关闭回调（避免重复刷新）
             if self.on_close_callback and self._data_was_saved:
-                self.viewer_window.after(CLOSE_CALLBACK_DELAY_MS, self.on_close_callback)
+                root = self._find_root_window(self.window)
+                if root and root.winfo_exists():
+                    root.after(CLOSE_CALLBACK_DELAY_MS, self.on_close_callback)
         
         self.viewer_window.protocol("WM_DELETE_WINDOW", on_window_close)
     
@@ -819,120 +650,52 @@ class SaveFileViewer:
         field_path: str,
         collapsed_text: str
     ) -> None:
-        """恢复嵌套的折叠字段值
-        
-        Args:
-            edited_data: 编辑后的数据
-            field_path: 字段路径，如 "stat.map_label"
-            collapsed_text: 折叠文本占位符
-        """
-        path_parts = field_path.split(".")
-        if len(path_parts) < 2:
-            return
-        
-        original_value = self._resolve_nested_field(field_path)
-        if original_value is None:
-            return
-        
-        current_edited = edited_data
-        for part in path_parts[:-1]:
-            if not isinstance(current_edited, dict) or part not in current_edited:
-                return
-            current_edited = current_edited[part]
-        
-        if not isinstance(current_edited, dict):
-            return
-        
-        last_part = path_parts[-1]
-        if (last_part in current_edited and
-            isinstance(current_edited[last_part], str) and
-            current_edited[last_part] == collapsed_text):
-            current_edited[last_part] = original_value
+        """恢复嵌套的折叠字段值"""
+        self.json_formatter._restore_nested_collapsed_field(
+            edited_data,
+            self.save_data,
+            field_path,
+            collapsed_text
+        )
     
     def _load_save_file(self) -> Optional[Dict[str, Any]]:
         """从文件系统加载存档文件"""
-        if self.viewer_config and self.viewer_config.custom_load_func:
-            return self.viewer_config.custom_load_func()
-        from .save_data_service import load_save_file
-        return load_save_file(self.storage_dir)
+        return self.file_saver.load_save_file()
     
     def _refresh_from_file(self, text_widget: tk.Text, update_display: Callable) -> None:
         """从文件系统刷新数据"""
-        reloaded_data = self._load_save_file()
+        reloaded_data = self.file_saver.load_save_file()
         if reloaded_data is None:
-            showerror_relative(
-                self.viewer_window,
-                self.t("error"),
-                self.t("save_file_not_found")
-            )
             return
         
         self.save_data = reloaded_data
-        self.original_save_data = self._deep_copy_data(reloaded_data)
+        self.original_save_data = JSONFormatter._deep_copy_data(reloaded_data)
         update_display()
     
     def _refresh_from_runtime(self, text_widget: tk.Text, update_display: Callable) -> None:
         """从运行时内存刷新数据"""
-        if not self.viewer_config.service or not self.viewer_config.ws_url:
-            showerror_relative(
-                self.viewer_window,
-                self.t("error"),
-                self.t("runtime_modify_sf_game_not_running")
-            )
-            return
+        def on_complete(data: Optional[Dict[str, Any]], error: Optional[str]) -> None:
+            if error:
+                showerror_relative(
+                    self.viewer_window,
+                    self.t("error"),
+                    error
+                )
+                return
+            
+            if data is None:
+                showerror_relative(
+                    self.viewer_window,
+                    self.t("error"),
+                    self.t("runtime_modify_sf_error_empty_data")
+                )
+                return
+            
+            self.save_data = data
+            self.original_save_data = JSONFormatter._deep_copy_data(data)
+            update_display()
         
-        if self.viewer_config.inject_method == "kag_stat":
-            read_method = self.viewer_config.service.read_tyrano_kag_stat
-            read_error_key = "runtime_modify_kag_stat_read_failed"
-        else:
-            read_method = self.viewer_config.service.read_tyrano_variable_sf
-            read_error_key = "runtime_modify_sf_read_failed"
-        
-        def read_in_thread():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                data, error = loop.run_until_complete(read_method(self.viewer_config.ws_url))
-                self.viewer_window.after(0, lambda: self._on_runtime_read_complete(
-                    data, error, read_error_key, update_display
-                ))
-            finally:
-                loop.close()
-        
-        thread = threading.Thread(target=read_in_thread, daemon=True)
-        thread.start()
-    
-    def _on_runtime_read_complete(
-        self,
-        data: Optional[Dict[str, Any]],
-        error: Optional[str],
-        error_key: str,
-        update_display: Callable
-    ) -> None:
-        """运行时读取完成回调"""
-        if error:
-            showerror_relative(
-                self.viewer_window,
-                self.t("error"),
-                self.t(error_key).format(error=error)
-            )
-            return
-        
-        if data is None:
-            if error_key == "runtime_modify_kag_stat_read_failed":
-                error_msg = self.t("runtime_modify_kag_stat_read_failed").format(error="Empty data")
-            else:
-                error_msg = self.t("runtime_modify_sf_error_empty_data")
-            showerror_relative(
-                self.viewer_window,
-                self.t("error"),
-                self.t(error_key).format(error=error_msg)
-            )
-            return
-        
-        self.save_data = data
-        self.original_save_data = self._deep_copy_data(data)
-        update_display()
+        self.runtime_injector.refresh_from_runtime(on_complete)
     
     def _save_to_file(
         self,
@@ -1035,106 +798,58 @@ class SaveFileViewer:
         update_display: Callable,
         get_current_text_content: Callable[[], str]
     ) -> None:
-        """保存到运行时内存"""
-        if not self.viewer_config.service or not self.viewer_config.ws_url:
-            showerror_relative(
-                self.viewer_window,
-                self.t("error"),
-                self.t("runtime_modify_sf_game_not_running")
-            )
-            text_widget.config(state="normal" if enable_edit_var.get() else "disabled")
-            return
-        
-        if self.viewer_config.inject_method == "kag_stat":
-            confirm_key = "runtime_modify_kag_stat_confirm_inject"
-        else:
-            confirm_key = "runtime_modify_sf_confirm_inject"
-        
-        user_confirmed = messagebox.askyesno(
-            self.t("save_confirm_title"),
-            self.t(confirm_key),
-            parent=self.viewer_window
-        )
-        
-        if not user_confirmed:
-            text_widget.config(state="normal" if enable_edit_var.get() else "disabled")
-            return
-        
+        """保存到运行时内存（使用 RuntimeInjectorService）"""
         original_content_wrapper = [content]
         self._original_content_wrapper = original_content_wrapper
         
-        if self.viewer_config.inject_method == "kag_stat":
-            self._inject_kag_stat_async(
-                edited_data,
-                content,
-                enable_edit_var,
-                text_widget,
-                update_display,
-                get_current_text_content,
-                original_content_wrapper
-            )
-        else:
-            self._check_changes_and_inject_async(
-                edited_data,
-                content,
-                enable_edit_var,
-                text_widget,
-                update_display,
-                get_current_text_content,
-                original_content_wrapper
-            )
+        def on_success(saved_data: Dict[str, Any]) -> None:
+            """保存成功回调"""
+            self.save_data = saved_data
+            self.original_save_data = JSONFormatter._deep_copy_data(saved_data)
+            self._data_was_saved = True
+            original_content_wrapper[0] = get_current_text_content()
+            
+            # 如果是运行时模式，刷新数据
+            if self.mode == "runtime" and self.runtime_injector.is_available():
+                def on_refresh_complete(refreshed_data: Optional[Dict[str, Any]], error: Optional[str]) -> None:
+                    if error:
+                        logger.warning(f"Failed to refresh after inject: {error}")
+                        return
+                    if refreshed_data:
+                        self.save_data = refreshed_data
+                        self.original_save_data = JSONFormatter._deep_copy_data(refreshed_data)
+                        original_content_wrapper[0] = get_current_text_content()
+                    update_display()
+                    text_widget.config(state="normal" if enable_edit_var.get() else "disabled")
+                
+                self.runtime_injector.refresh_after_inject(on_refresh_complete)
+            else:
+                update_display()
+                text_widget.config(state="normal" if enable_edit_var.get() else "disabled")
+        
+        def on_error(error_msg: str) -> None:
+            """保存失败回调"""
+            text_widget.config(state="normal" if enable_edit_var.get() else "disabled")
+        
+        self.runtime_injector.save_to_runtime(
+            edited_data,
+            self.original_save_data,
+            on_success,
+            on_error,
+            require_confirmation=True
+        )
     
     def _get_collapsed_fields_list(self) -> List[str]:
         """获取要折叠的字段列表"""
-        if self.viewer_config and self.viewer_config.collapsed_fields:
-            return self.viewer_config.collapsed_fields
-        return []
+        return self.viewer_config.collapsed_fields if self.viewer_config else []
     
     def _collect_collapsed_fields(self) -> Dict[str, Any]:
-        """收集需要折叠的字段
-        
-        Returns:
-            字段路径到字段值的映射字典
-        """
-        if not isinstance(self.save_data, dict):
-            return {}
-        
-        collapsed_fields: Dict[str, Any] = {}
-        fields_to_collapse = set(self._get_collapsed_fields_list())
-        
-        for field_path in fields_to_collapse:
-            if "." in field_path:
-                field_value = self._resolve_nested_field(field_path)
-                if field_value is not None:
-                    collapsed_fields[field_path] = field_value
-            elif field_path in self.save_data:
-                collapsed_fields[field_path] = self.save_data[field_path]
-        
-        return collapsed_fields
+        """收集需要折叠的字段"""
+        return {}
     
     def _resolve_nested_field(self, field_path: str) -> Optional[Any]:
-        """解析嵌套字段路径并返回字段值
-        
-        Args:
-            field_path: 字段路径，如 "stat.map_label"
-            
-        Returns:
-            字段值，如果路径不存在则返回 None
-        """
-        path_parts = field_path.split(".")
-        if len(path_parts) < 2:
-            return None
-        
-        current_obj = self.save_data
-        for part in path_parts[:-1]:
-            if not isinstance(current_obj, dict) or part not in current_obj:
-                return None
-            current_obj = current_obj[part]
-        
-        if isinstance(current_obj, dict) and path_parts[-1] in current_obj:
-            return current_obj[path_parts[-1]]
-        
-        return None
+        """解析嵌套字段路径并返回字段值"""
+        return self.json_formatter._resolve_nested_field(self.save_data, field_path)
     
     def _check_changes_and_inject_async(
         self,
