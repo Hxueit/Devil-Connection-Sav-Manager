@@ -61,6 +61,7 @@ EMPTY_PAGE_TEXT: Final[str] = "0/0"
 MIN_CONTAINER_SIZE: Final[int] = 1
 DEFAULT_CONTAINER_WIDTH: Final[int] = 300
 DEFAULT_CONTAINER_HEIGHT: Final[int] = 150
+FULL_PRELOAD_ENABLED: Final[bool] = False
 
 
 class TyranoSaveViewer:
@@ -1572,6 +1573,8 @@ class TyranoSaveViewer:
     
     def _start_background_preload(self) -> None:
         """启动后台预加载所有缩略图"""
+        if not FULL_PRELOAD_ENABLED:
+            return
         if self._is_destroyed or self._preload_in_progress:
             return
         self._preload_in_progress = True
@@ -1605,7 +1608,6 @@ class TyranoSaveViewer:
                             original_image = decode_image_data(image_data)
                             if not original_image:
                                 continue
-                            self._image_cache.put_original(img_hash, original_image)
 
                         thumb_size = self._calculate_thumbnail_size_for_container(
                             container_width,
@@ -1650,8 +1652,6 @@ class TyranoSaveViewer:
             if not original_image:
                 return
             
-            if self._image_cache.get_original(img_hash) is None:
-                self._image_cache.put_original(img_hash, original_image)
             thumbnail = original_image.resize(thumb_size, Image.Resampling.BILINEAR)
             self._image_cache.put_thumbnail(img_hash, thumb_size, thumbnail)
             
@@ -1715,7 +1715,6 @@ class TyranoSaveViewer:
                                 original_image = decode_image_data(image_data)
                                 if not original_image:
                                     continue
-                                self._image_cache.put_original(img_hash, original_image)
 
                             thumb_size = self._calculate_thumbnail_size_for_container(
                                 container_width,

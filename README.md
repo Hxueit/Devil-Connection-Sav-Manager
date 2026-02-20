@@ -123,7 +123,9 @@ python main.py
 ## 注意事項
 
 - セーブデータを変更する前に、必ず `_storage` フォルダ全体のバックアップを取ることを強く推奨します（ツール内にバックアップ機能があります）
-- 本ツールは現在 Windows 環境でのみ動作確認を行っています。MacOS および Linux での動作は未検証です。
+- 本ツールは Windows および Linux（EndeavourOS, Linux 6.12.73-1-lts）で動作確認しています。
+  - Linuxでは基本機能は動作しますが、「実行時変更」は現在 Steam版のみ対応しています。
+  - macOSは未検証です。
 - 本ツールは《でびるコネクショん》公式および開発者とは一切関係ありません。完全に有志による非公式ツールです。ゲーム本体のファイルは変更せず、ローカルに保存されているスクリーンショット保存ファイルおよびセーブデータのみを操作します。もし開発者様にとって不都合がございましたら、GitHub Issues にてご連絡ください。直ちに公開停止など対応いたします。
 
 ## ライセンス
@@ -255,7 +257,9 @@ pip install -r requirements.txt
 ## 注意事项
 
 - 修改存档文件前，强烈建议先**备份**你的存档文件夹（工具内提供此功能）。
-- 当前版本仅在 Windows 环境下测试过，macOS 和 Linux 未验证，可能无法正常运行。
+- 当前版本仅在 Windows 和 Linux（EndeavourOS, Linux 6.12.73-1-lts）测试过。
+  - Linux 下大部分功能应当可用，“运行时修改”目前仅支持 Steam 版本。
+  - macOS 尚未测试。
 - 本工具与游戏《でびるコネクショん》官方及开发者完全无关，仅为玩家自制工具。工具不涉及修改游戏核心文件，仅操作本地存储的截图保存文件以及存档文件。
 
 ## 许可证
@@ -386,8 +390,10 @@ python main.py
 
 ## Important Notes
 
-- Before modifying save files, it is strongly recommended to **backup*- your save folder (the tool provides this feature).
-- This tool is currently tested only on Windows. MacOS and Linux have not been tested and the tool may not work properly on those platforms.
+- Before modifying save files, it is strongly recommended to **backup** your save folder (the tool provides this feature).
+- This tool has only been tested on Windows and Linux (EndeavourOS, Linux 6.12.73-1-lts).
+  - On Linux, most features should work fine. Runtime modification currently only works with the Steam version.
+  - macOS has not been tested.
 - This tool is completely unofficial and has no affiliation with the developers of でびるコネクショん. It does not modify core game files, it only operates on locally stored screenshot save files and save files. If the developers have any issues with it, please let me know via GitHub Issues, and I will handle it immediately.
 
 ## License

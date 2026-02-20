@@ -911,9 +911,29 @@ class TyranoSaveSlot:
         dialog.title(self.translate("tyrano_imgdata_dialog_title"))
         dialog.geometry("450x400")
         dialog.transient(self.root_window)
-        dialog.grab_set()
+        self._apply_modal_grab(dialog)
         self._set_window_icon_with_retry(dialog)
         return dialog
+    
+    def _apply_modal_grab(self, dialog: Any) -> None:
+        """以跨平台安全方式应用模态grab"""
+        try:
+            dialog.deiconify()
+            dialog.update_idletasks()
+        except (tk.TclError, RuntimeError):
+            pass
+        self._try_grab_set(dialog, retry_count=12)
+    
+    def _try_grab_set(self, dialog: Any, retry_count: int) -> None:
+        """尝试设置grab，窗口未可见时延迟重试"""
+        if retry_count <= 0:
+            return
+        try:
+            if not dialog.winfo_exists():
+                return
+            dialog.grab_set()
+        except tk.TclError:
+            dialog.after(30, lambda: self._try_grab_set(dialog, retry_count - 1))
     
     def _set_window_icon_with_retry(self, dialog: Any) -> None:
         """设置窗口图标（带重试机制）"""

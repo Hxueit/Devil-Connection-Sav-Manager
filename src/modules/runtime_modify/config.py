@@ -21,13 +21,17 @@ class RuntimeModifyConfig:
     GAME_STARTUP_DELAY: Final[float] = 3.0
     CDP_RETRY_DELAY: Final[float] = 1.0
     CDP_MAX_RETRIES: Final[int] = 3
+    DIRECT_CDP_MAX_WAIT: Final[float] = 10.0
+    STEAM_CDP_MAX_WAIT: Final[float] = 60.0
     
     # 游戏可执行文件名
     GAME_EXE_NAME: Final[str] = "DevilConnection.exe"
+    GAME_APP_ID: Final[str] = "3054820"
     
     # CDP相关
     CDP_LIST_URL_TEMPLATE: Final[str] = "http://127.0.0.1:{port}/json/list"
     CDP_TIMEOUT_PARAM: Final[str] = "t"
+    CDP_PING_TIMEOUT: Final[float] = 0.8
     
     # 状态检查间隔（毫秒）
     STATUS_CHECK_INTERVAL_MS: Final[int] = 2000
@@ -41,4 +45,3 @@ class RuntimeModifyConfig:
     # 关闭时的等待设置（毫秒）
     SHUTDOWN_POLL_INTERVAL_MS: Final[int] = 100
     SHUTDOWN_MAX_WAIT_MS: Final[int] = 2000
-

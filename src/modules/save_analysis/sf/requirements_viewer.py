@@ -6,11 +6,14 @@
 import tkinter as tk
 from tkinter import Scrollbar
 from typing import Dict, Any, Set, List, Callable
+import platform
 
 from src.utils.styles import Colors, get_cjk_font
 from src.utils.ui_utils import set_window_icon
 from .visual_effects import create_rounded_rect, wrap_text
 import customtkinter as ctk
+
+TEXT_SELECT_CURSOR = 'ibeam' if platform.system() == "Windows" else 'xterm'
 
 
 class RequirementsViewer:
@@ -222,7 +225,7 @@ class RequirementsViewer:
                 highlightthickness=0,
                 selectbackground='#4A90E2',
                 selectforeground='white',
-                cursor='ibeam',
+                cursor=TEXT_SELECT_CURSOR,
                 state=tk.NORMAL,
                 padx=0,
                 pady=0,

@@ -36,6 +36,7 @@ from .data_extractor import (
     get_progress_color,
     load_neo_content,
     create_font_object,
+    format_mp_value_for_display,
 )
 from .ring_animator import (
     draw_background_ring,
@@ -326,7 +327,7 @@ class StatisticsPanel:
     def _create_mp_display(
         self,
         parent: tk.Widget,
-        whole_total_mp: int
+        whole_total_mp: Any
     ) -> tk.Label:
         """创建MP显示
         
@@ -348,12 +349,15 @@ class StatisticsPanel:
             bg=Colors.WHITE
         )
         mp_label_title.pack()
+
+        mp_display_text, is_anomalous_mp = format_mp_value_for_display(whole_total_mp)
+        mp_text_color = Colors.TEXT_WARNING_AQUA if is_anomalous_mp else Colors.TEXT_INFO
         
         mp_label_value = tk.Label(
             mp_frame,
-            text=f"{whole_total_mp:,}",
+            text=mp_display_text,
             font=get_cjk_font(32, "bold"),
-            fg=Colors.TEXT_INFO,
+            fg=mp_text_color,
             bg=Colors.WHITE
         )
         mp_label_value.pack()
@@ -587,8 +591,10 @@ class StatisticsPanel:
         )
         
         if _is_widget_valid(mp_label_value):
+            mp_display_text, is_anomalous_mp = format_mp_value_for_display(whole_total_mp)
+            mp_text_color = Colors.TEXT_WARNING_AQUA if is_anomalous_mp else Colors.TEXT_INFO
             try:
-                mp_label_value.config(text=f"{whole_total_mp:,}")
+                mp_label_value.config(text=mp_display_text, fg=mp_text_color)
             except (tk.TclError, RuntimeError):
                 pass
         

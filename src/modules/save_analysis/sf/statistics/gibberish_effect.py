@@ -21,7 +21,11 @@ from .constants import (
     JUDGE_SEPARATOR,
     JUDGE_TEXT_Y_POSITION,
 )
-from .data_extractor import load_neo_content, create_font_object
+from .data_extractor import (
+    load_neo_content,
+    create_font_object,
+    format_mp_value_for_display,
+)
 from ..visual_effects import generate_gibberish_text
 
 logger = logging.getLogger(__name__)
@@ -90,7 +94,7 @@ class GibberishEffectManager:
         stickers_percent: float,
         collected_stickers: int,
         mp_label_value: Optional[tk.Label],
-        whole_total_mp: int,
+        whole_total_mp: Any,
         judge_canvas: Optional[ctk.CTkCanvas],
         judge_data: Dict[str, int],
         neo_label: Optional[tk.Label],
@@ -137,7 +141,8 @@ class GibberishEffectManager:
         if mp_label_title:
             self._add_label(mp_label_title, self.t("total_mp"))
         if mp_label_value:
-            self._add_label(mp_label_value, f"{whole_total_mp:,}")
+            mp_display_text, _ = format_mp_value_for_display(whole_total_mp)
+            self._add_label(mp_label_value, mp_display_text)
         
         if judge_canvas:
             full_text = f"{judge_data['perfect']:,} - {judge_data['good']:,} - {judge_data['bad']:,}"
