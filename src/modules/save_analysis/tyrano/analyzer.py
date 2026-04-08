@@ -336,6 +336,84 @@ class TyranoAnalyzer:
             (save_date == "" and img_data == "" and isinstance(stat, dict) and len(stat) == 0)
         )
     
+    def _create_empty_slot(self) -> Dict[str, Any]:
+        """创建空存档槽（NO SAVE格式）"""
+        return {
+            "title": "NO SAVE",
+            "save_date": "",
+            "img_data": "",
+            "stat": {}
+        }
+
+    def clear_slots(self, indices: List[int]) -> bool:
+        """将指定存档槽清空为NO SAVE
+
+        Args:
+            indices: 要清空的存档槽索引列表（从0开始）
+
+        Returns:
+            成功返回True，失败返回False
+        """
+        if not self.save_data or not self.save_slots:
+            logger.error("Cannot clear: save data not loaded")
+            return False
+
+        valid_indices = [i for i in indices if 0 <= i < len(self.save_slots)]
+        if not valid_indices:
+            logger.error("No valid indices to clear")
+            return False
+
+        try:
+            for i in valid_indices:
+                self.save_slots[i] = self._create_empty_slot()
+
+            self.save_data[_DATA_FIELD_KEY] = self.save_slots
+            tyrano_file_path = self.storage_dir / TYRANO_SAV_FILENAME
+            self.tyrano_service.save_tyrano_save_file(tyrano_file_path, self.save_data)
+
+            logger.info("Successfully cleared %d save slots", len(valid_indices))
+            return True
+        except Exception as e:
+            logger.error("Failed to clear slots: %s", e, exc_info=True)
+            return False
+
+    def remove_slots(self, indices: List[int]) -> bool:
+        """删除指定存档槽（后续槽位前移）
+
+        Args:
+            indices: 要删除的存档槽索引列表（从0开始）
+
+        Returns:
+            成功返回True，失败返回False
+        """
+        if not self.save_data or not self.save_slots:
+            logger.error("Cannot remove: save data not loaded")
+            return False
+
+        valid_indices = sorted(
+            [i for i in indices if 0 <= i < len(self.save_slots)],
+            reverse=True
+        )
+        if not valid_indices:
+            logger.error("No valid indices to remove")
+            return False
+
+        try:
+            for i in valid_indices:
+                self.save_slots.pop(i)
+
+            self.save_data[_DATA_FIELD_KEY] = self.save_slots
+            self._calculate_pagination(len(self.save_slots))
+
+            tyrano_file_path = self.storage_dir / TYRANO_SAV_FILENAME
+            self.tyrano_service.save_tyrano_save_file(tyrano_file_path, self.save_data)
+
+            logger.info("Successfully removed %d save slots, %d remaining", len(valid_indices), len(self.save_slots))
+            return True
+        except Exception as e:
+            logger.error("Failed to remove slots: %s", e, exc_info=True)
+            return False
+
     def import_slot(self, slot_data: Dict[str, Any]) -> bool:
         """导入存档槽
         

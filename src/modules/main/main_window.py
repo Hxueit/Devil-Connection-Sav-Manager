@@ -731,6 +731,8 @@ class SavTool:
     
     def _trigger_ab_initio(self) -> None:
         """触发AB INITIO事件：显示蓝色toast"""
+        if not self.toast_enabled:
+            return
         toast_message = "AB INITIO"
         toast = Toast(
             self.root,

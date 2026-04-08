@@ -210,3 +210,6 @@ __marimo__/
 
 # Temporary files
 .tempfiles/
+
+# Claude
+CLAUDE.md

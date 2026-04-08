@@ -47,6 +47,9 @@
   - 単一スロットのインポート、エクスポート
   - 単一スロット内容の編集
   - 並び替え
+  - セーブの削除
+    - 複数選択可能な専用ウィンドウを提供します。削除モードは2種類：空セーブに消去 / スロットごと削除（以降のデータは一つずつ前に詰められます）
+    - 実測では、削除後にゲーム内でエラーが発生する場合があります。ゲーム内でいくつかセーブし直すと回復できることがありますが、念のためバックアップを取ることをお勧めします
 
 ### 🛠️ 実行時変更
 
@@ -118,7 +121,7 @@ python main.py
 
 ### Q：このツールは何の役に立つの？
 
-- A：大きな実用性はそこまでありません。個人的にはステッカーの埋め作業で抜けをすぐ確認できる点が一番便利だと思います。
+- A：大きな実用性はそこまでありません。個人的にはステッカーの埋め作業で抜けをすぐ確認できる点や、セーブ数値を弄りながら様々な差分を探りたい場合に重宝すると思います。
 
 ## 注意事項
 
@@ -184,6 +187,9 @@ MIT License
   - 快捷的导入/导出单存档
   - 修改单个存档槽内的内容
   - 重排序
+  - 删除存档
+    - 提供一个单独的可多选的删除视窗，两种删除模式：抹除为空存档/一并删除槽位（后续存档均向前移动）
+    - 请注意实测有时候删除会导致游戏内报错，通过再在游戏内存几个档可能可以恢复，不过我还是建议你备份一下以防万一
 
 ### 🛠️ 运行时修改
 
@@ -252,7 +258,7 @@ pip install -r requirements.txt
 
 ### Q：这个项目有什么用？
 
-- A：没什么很大的实际用途。我个人认为最实用的大概就是快速的查漏补缺贴纸，可以玩玩。
+- A：没什么很大的实际用途。我个人认为最实用的大概就是快速的查漏补缺贴纸，以及如果想要通过改存档数值来探寻不同差分大概会比较趁手，可以玩玩。
 
 ## 注意事项
 
@@ -317,6 +323,9 @@ The tool consists of multiple tabs:
   - Quick import and export for a single save slot
   - Edit the contents of a single save slot
   - Reorder save slots
+  - Delete saves
+    - Opens a dedicated window with multi-select support and two delete modes: clear to an empty save slot, or remove the slot entirely (subsequent saves shift forward by the number of slots removed)
+    - Note: in testing, deletion can sometimes cause in-game errors. Saving a few times in-game afterwards may resolve it, but backing up beforehand is recommended just in case
 
 ### 🛠️ Runtime Modify
 
@@ -386,7 +395,7 @@ python main.py
 
 ### Q: What is this tool actually useful for?
 
-- A: It does not have huge practical value. The most useful part IMO is probably checking missing stickers. Feel free to try it out.
+- A: It does not have huge practical value. The most useful part IMO is probably checking missing stickers, and if you want to tweak save values to explore different dialog variations it may come in handy. Feel free to try it out.
 
 ## Important Notes
 
