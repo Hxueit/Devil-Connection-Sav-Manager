@@ -62,12 +62,11 @@ class RuntimeModifyUIBuilder:
         on_stop_clicked: Callable[[], None],
         on_sf_edit_clicked: Callable[[], None],
         on_tyrano_edit_clicked: Callable[[], None],
-        on_cache_clean_clicked: Callable[[], None],
+        on_misc_clicked: Callable[[], None],
         on_open_console_clicked: Callable[[], None],
         on_toggle_description: Callable[[], None],
         update_status: Callable[[str], None],
-        update_hook_status: Callable[[Optional[bool]], None],
-        on_force_fast_forward_clicked: Optional[Callable[[], None]] = None
+        update_hook_status: Callable[[Optional[bool]], None]
     ) -> Dict[str, Any]:
         """构建所有UI组件
         
@@ -78,12 +77,11 @@ class RuntimeModifyUIBuilder:
             on_stop_clicked: 停止按钮点击回调
             on_sf_edit_clicked: sf编辑按钮点击回调
             on_tyrano_edit_clicked: tyrano编辑按钮点击回调
-            on_cache_clean_clicked: 清理缓存按钮点击回调
+            on_misc_clicked: 杂项按钮点击回调
             on_open_console_clicked: 打开控制台按钮点击回调
             on_toggle_description: 切换描述回调
             update_status: 更新状态文本回调
             update_hook_status: 更新Hook状态回调
-            on_force_fast_forward_clicked: 强制启用快进按钮点击回调
             
         Returns:
             包含所有UI组件引用的字典
@@ -111,8 +109,7 @@ class RuntimeModifyUIBuilder:
             content_frame,
             on_launch_clicked,
             on_stop_clicked,
-            update_hook_status,
-            on_force_fast_forward_clicked
+            update_hook_status
         )
         
         status_section = self.create_status_section(
@@ -120,7 +117,7 @@ class RuntimeModifyUIBuilder:
             on_open_console_clicked,
             on_sf_edit_clicked,
             on_tyrano_edit_clicked,
-            on_cache_clean_clicked,
+            on_misc_clicked,
             update_status
         )
         
@@ -284,8 +281,7 @@ class RuntimeModifyUIBuilder:
         parent: ctk.CTkFrame,
         on_launch_clicked: Callable[[], None],
         on_stop_clicked: Callable[[], None],
-        update_hook_status: Callable[[Optional[bool]], None],
-        on_force_fast_forward_clicked: Optional[Callable[[], None]] = None
+        update_hook_status: Callable[[Optional[bool]], None]
     ) -> Dict[str, Any]:
         """创建操作区域
         
@@ -294,7 +290,6 @@ class RuntimeModifyUIBuilder:
             on_launch_clicked: 启动按钮点击回调
             on_stop_clicked: 停止按钮点击回调
             update_hook_status: 更新Hook状态回调
-            on_force_fast_forward_clicked: 强制启用快进按钮点击回调
             
         Returns:
             包含操作相关组件的字典
@@ -333,38 +328,11 @@ class RuntimeModifyUIBuilder:
         )
         hook_status_label.pack(side="left", padx=(10, 0))
         
-        force_fast_forward_button = ctk.CTkButton(
-            btn_row,
-            text=self.t("runtime_modify_force_fast_forward"),
-            command=on_force_fast_forward_clicked if on_force_fast_forward_clicked else None,
-            corner_radius=8,
-            fg_color=Colors.WHITE,
-            hover_color=Colors.LIGHT_GRAY,
-            border_width=1,
-            border_color=Colors.GRAY,
-            text_color=Colors.TEXT_PRIMARY,
-            font=get_cjk_font(9),
-            width=100,
-            height=28,
-            state="disabled"
-        )
-        force_fast_forward_button.pack(side="right", padx=(10, 0))
-        
-        hint_label = ctk.CTkLabel(
-            btn_row,
-            text=self.t("runtime_modify_force_fast_forward_hint"),
-            font=get_cjk_font(8),
-            text_color=Colors.TEXT_SECONDARY
-        )
-        hint_label.pack(side="right", padx=(5, 0))
-        
         return {
             "launch_button": launch_button,
             "stop_button": stop_button,
             "game_status_label": game_status_label,
             "hook_status_label": hook_status_label,
-            "force_fast_forward_button": force_fast_forward_button,
-            "force_fast_forward_hint": hint_label,
         }
     
     def create_status_section(
@@ -373,7 +341,7 @@ class RuntimeModifyUIBuilder:
         on_open_console_clicked: Callable[[], None],
         on_sf_edit_clicked: Callable[[], None],
         on_tyrano_edit_clicked: Callable[[], None],
-        on_cache_clean_clicked: Callable[[], None],
+        on_misc_clicked: Callable[[], None],
         update_status: Callable[[str], None]
     ) -> Dict[str, Any]:
         """创建状态显示区域
@@ -383,7 +351,7 @@ class RuntimeModifyUIBuilder:
             on_open_console_clicked: 打开控制台按钮点击回调
             on_sf_edit_clicked: sf编辑按钮点击回调
             on_tyrano_edit_clicked: tyrano编辑按钮点击回调
-            on_cache_clean_clicked: 清理缓存按钮点击回调
+            on_misc_clicked: 杂项按钮点击回调
             update_status: 更新状态文本回调
             
         Returns:
@@ -452,19 +420,19 @@ class RuntimeModifyUIBuilder:
         separator2.pack(side="left", padx=(10, 10))
         separator2.pack_propagate(False)
         
-        cache_clean_button = self.create_standard_button(
+        misc_button = self.create_standard_button(
             button_row,
-            self.t("cache_clean_button"),
-            on_cache_clean_clicked
+            self.t("runtime_modify_misc_button"),
+            on_misc_clicked
         )
-        cache_clean_button.pack(side="left")
-        cache_clean_button.configure(state="disabled")
+        misc_button.pack(side="left")
+        misc_button.configure(state="disabled")
         
         return {
             "status_text": status_text,
             "open_console_button": open_console_button,
             "sf_edit_button": sf_edit_button,
             "tyrano_edit_button": tyrano_edit_button,
-            "cache_clean_button": cache_clean_button,
+            "misc_button": misc_button,
         }
 

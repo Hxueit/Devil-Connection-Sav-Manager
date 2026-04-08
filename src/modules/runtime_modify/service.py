@@ -5,10 +5,12 @@
 import asyncio
 import json
 import logging
+import platform
+import shutil
 import subprocess
 import time
 from pathlib import Path
-from typing import Awaitable, Callable, Optional, Tuple, Dict, Any, List
+from typing import Awaitable, Callable, Optional, Tuple, Dict, Any, List, Set
 
 import requests
 import websockets
@@ -23,6 +25,15 @@ _TARGET_TYPES = ("page", "webview")
 # 评分关键词
 _SCORE_KEYWORDS_TITLE = ("恶魔", "devil", "でびるコネクショん", "でびる")
 _SCORE_KEYWORDS_URL = ("app.asar", "index.html")
+_EXCLUDE_KEYWORDS_TITLE = ("devtools", "steam", "about:blank")
+_EXCLUDE_KEYWORDS_URL = (
+    "devtools://",
+    "chrome://",
+    "edge://",
+    "about:blank",
+    "chrome-extension://",
+    "steam://",
+)
 # 评分权重
 _SCORE_WEIGHT_TITLE = 10
 _SCORE_WEIGHT_URL = 5
@@ -92,6 +103,7 @@ _JS_FORCE_FAST_FORWARD_INJECT = """(function() {
 _JS_FORCE_FAST_FORWARD_REMOVE = """(function() {
     return { success: true, message: 'no_cleanup_needed' };
 })()"""
+_INJECTED_TITLE_SUFFIX = " - DCSM Injected"
 
 # JSON转义字符映射
 _JSON_ESCAPE_MAP = {
@@ -128,6 +140,128 @@ class RuntimeModifyService:
         """初始化服务"""
         self.game_process: Optional[subprocess.Popen[bytes]] = None
         self.game_exe_path: Optional[Path] = None  # 保存exe路径，用于检测外部启动的游戏
+        self.last_cdp_port: Optional[int] = None
+        self.last_launch_mode: str = "unknown"
+    
+    def _build_exe_launch_cmd(self, exe_path: Path, port: int) -> List[str]:
+        """构建直接启动游戏exe的命令"""
+        return [
+            str(exe_path),
+            f"--remote-debugging-port={port}"
+        ]
+    
+    def _is_steam_install_path(self, exe_path: Path) -> bool:
+        """根据路径判断是否为Steam库中的安装"""
+        try:
+            resolved_path = exe_path.resolve()
+            lower_parts = [part.lower() for part in resolved_path.parts]
+            return "steamapps" in lower_parts and "common" in lower_parts
+        except (OSError, RuntimeError):
+            return False
+    
+    def _guess_steam_binary_from_game_path(self, exe_path: Path) -> Optional[str]:
+        """根据游戏路径推断Steam可执行文件"""
+        try:
+            resolved = exe_path.resolve()
+            lower_parts = [part.lower() for part in resolved.parts]
+            if "steamapps" not in lower_parts:
+                return None
+            
+            steamapps_index = lower_parts.index("steamapps")
+            steam_root = Path(*resolved.parts[:steamapps_index])
+            
+            if platform.system() == "Windows":
+                steam_exe = steam_root / "steam.exe"
+                if steam_exe.exists() and steam_exe.is_file():
+                    return str(steam_exe)
+            else:
+                steam_sh = steam_root / "steam.sh"
+                if steam_sh.exists() and steam_sh.is_file():
+                    return str(steam_sh)
+                steam_bin = steam_root / "steam"
+                if steam_bin.exists() and steam_bin.is_file():
+                    return str(steam_bin)
+        except (OSError, RuntimeError, ValueError):
+            return None
+        
+        return None
+    
+    def _build_steam_launch_candidates(self, exe_path: Path, port: int) -> List[List[str]]:
+        """构建可能可用的Steam启动命令候选列表"""
+        launch_args = [
+            "-applaunch",
+            RuntimeModifyConfig.GAME_APP_ID,
+            f"--remote-debugging-port={port}"
+        ]
+        
+        candidates: List[List[str]] = []
+        seen: Set[Tuple[str, ...]] = set()
+        
+        guessed_steam_binary = self._guess_steam_binary_from_game_path(exe_path)
+        if guessed_steam_binary:
+            cmd = [guessed_steam_binary, *launch_args]
+            candidates.append(cmd)
+            seen.add(tuple(cmd))
+        
+        if shutil.which("steam"):
+            cmd = ["steam", *launch_args]
+            cmd_key = tuple(cmd)
+            if cmd_key not in seen:
+                candidates.append(cmd)
+                seen.add(cmd_key)
+        
+        if platform.system() != "Windows" and shutil.which("flatpak"):
+            cmd = ["flatpak", "run", "com.valvesoftware.Steam", *launch_args]
+            cmd_key = tuple(cmd)
+            if cmd_key not in seen:
+                candidates.append(cmd)
+        
+        return candidates
+    
+    def _start_process(self, cmd: List[str]) -> subprocess.Popen[bytes]:
+        """统一的子进程启动封装"""
+        creation_flags = (
+            subprocess.CREATE_NO_WINDOW
+            if hasattr(subprocess, "CREATE_NO_WINDOW")
+            else 0
+        )
+        
+        return subprocess.Popen(
+            cmd,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=creation_flags
+        )
+    
+    def _is_cdp_alive(self, port: Optional[int]) -> bool:
+        """通过CDP端口探测判断游戏是否仍在运行"""
+        if not isinstance(port, int):
+            return False
+        
+        if not (RuntimeModifyConfig.MIN_PORT <= port <= RuntimeModifyConfig.MAX_PORT):
+            return False
+        
+        url = RuntimeModifyConfig.CDP_LIST_URL_TEMPLATE.format(port=port)
+        url += f"?{RuntimeModifyConfig.CDP_TIMEOUT_PARAM}={int(time.time() * 1000)}"
+        
+        try:
+            response = requests.get(url, timeout=RuntimeModifyConfig.CDP_PING_TIMEOUT)
+            response.raise_for_status()
+            target_list = response.json()
+            if not isinstance(target_list, list):
+                return False
+            return self.pick_target(target_list) is not None
+        except (requests.RequestException, ValueError, TypeError):
+            return False
+    
+    async def _close_game_via_cdp(self, port: int) -> bool:
+        """尝试通过CDP执行window.close关闭游戏窗口"""
+        ws_url, _ = await self.fetch_ws_url(port)
+        if not ws_url:
+            return False
+        
+        _, error = await self.eval_expr(ws_url, "window.close(); true")
+        return error is None
     
     def launch_game(self, exe_path: Path, port: int) -> subprocess.Popen[bytes]:
         """启动游戏进程
@@ -161,33 +295,32 @@ class RuntimeModifyService:
                 f"{RuntimeModifyConfig.MAX_PORT}]"
             )
         
-        cmd = [
-            str(exe_path),
-            f"--remote-debugging-port={port}",
-            "--remote-allow-origins=*"
-        ]
-        
-        logger.info(f"Launching game: {' '.join(cmd)}")
-        
         # 保存exe路径，用于后续检测外部启动的游戏
         self.game_exe_path = exe_path
+        self.last_cdp_port = port
         
-        creation_flags = (
-            subprocess.CREATE_NO_WINDOW
-            if hasattr(subprocess, 'CREATE_NO_WINDOW')
-            else 0
-        )
+        launch_attempts: List[Tuple[str, List[str]]] = []
         
-        try:
-            self.game_process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                creationflags=creation_flags
-            )
-            return self.game_process
-        except OSError as e:
-            raise subprocess.SubprocessError(f"Failed to start process: {e}") from e
+        if self._is_steam_install_path(exe_path):
+            for steam_cmd in self._build_steam_launch_candidates(exe_path, port):
+                launch_attempts.append(("steam", steam_cmd))
+        
+        launch_attempts.append(("direct", self._build_exe_launch_cmd(exe_path, port)))
+        
+        errors: List[str] = []
+        
+        for launch_type, cmd in launch_attempts:
+            logger.info(f"Launching game ({launch_type}): {' '.join(cmd)}")
+            try:
+                self.game_process = self._start_process(cmd)
+                self.last_launch_mode = launch_type
+                return self.game_process
+            except OSError as e:
+                error_msg = f"{launch_type} launch failed: {e}"
+                logger.warning(error_msg)
+                errors.append(error_msg)
+        
+        raise subprocess.SubprocessError("Failed to start process: " + " | ".join(errors))
     
     def is_game_running(self) -> bool:
         """检查游戏进程是否仍在运行
@@ -208,35 +341,50 @@ class RuntimeModifyService:
         # 回退路径：通过exe路径检测系统进程（可以检测外部启动的游戏）
         if self.game_exe_path:
             from src.modules.runtime_modify.utils import is_game_running_by_path
-            return is_game_running_by_path(self.game_exe_path)
+            if is_game_running_by_path(self.game_exe_path):
+                return True
         
-        return False
+        return self._is_cdp_alive(self.last_cdp_port)
     
     def stop_game(self) -> None:
         """关闭游戏进程
         
         先尝试优雅终止（terminate），如果超时则强制杀死（kill）。
         """
-        if self.game_process is None:
-            return
-        
         process = self.game_process
         self.game_process = None
         
-        try:
-            process.terminate()
+        if process is not None:
             try:
-                process.wait(timeout=RuntimeModifyConfig.GAME_STARTUP_DELAY)
-            except subprocess.TimeoutExpired:
-                logger.warning("Process termination timeout, forcing kill")
-                process.kill()
-                process.wait()
-        except ProcessLookupError:
-            # 进程已经不存在
-            logger.debug("Process already terminated")
-        except OSError as e:
-            logger.error(f"Error stopping game process: {e}", exc_info=True)
-            raise
+                process.terminate()
+                try:
+                    process.wait(timeout=RuntimeModifyConfig.GAME_STARTUP_DELAY)
+                except subprocess.TimeoutExpired:
+                    logger.warning("Process termination timeout, forcing kill")
+                    process.kill()
+                    process.wait()
+            except ProcessLookupError:
+                # 进程已经不存在
+                logger.debug("Process already terminated")
+            except OSError as e:
+                logger.error(f"Error stopping game process: {e}", exc_info=True)
+                raise
+        
+        if not self._is_cdp_alive(self.last_cdp_port):
+            return
+        
+        if self.last_cdp_port is None:
+            return
+        
+        try:
+            loop = asyncio.new_event_loop()
+            try:
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(self._close_game_via_cdp(self.last_cdp_port))
+            finally:
+                loop.close()
+        except Exception as e:
+            logger.debug(f"Failed to close game via CDP: {e}")
     
     def _score_target(self, target: Dict[str, Any]) -> int:
         """计算目标页面的相关性分数
@@ -249,12 +397,29 @@ class RuntimeModifyService:
         """
         title = (target.get("title") or "").lower()
         url = (target.get("url") or "").lower()
+        ws_url = (target.get("webSocketDebuggerUrl") or "").lower()
+        
+        if not ws_url:
+            return -1000
+        
+        if any(keyword in title for keyword in _EXCLUDE_KEYWORDS_TITLE):
+            return -100
+        if any(keyword in url for keyword in _EXCLUDE_KEYWORDS_URL):
+            return -100
         
         score = 0
         if any(keyword in title for keyword in _SCORE_KEYWORDS_TITLE):
             score += _SCORE_WEIGHT_TITLE
         if any(keyword in url for keyword in _SCORE_KEYWORDS_URL):
             score += _SCORE_WEIGHT_URL
+        
+        # file://通常是游戏主页面，更倾向选择
+        if url.startswith("file://"):
+            score += 3
+        
+        # TYRANO相关路径优先级更高
+        if "tyrano" in url or "kag" in url:
+            score += 8
         
         return score
     
@@ -272,7 +437,7 @@ class RuntimeModifyService:
         
         pages = [
             target for target in target_list
-            if target.get("type") in _TARGET_TYPES
+            if target.get("type") in _TARGET_TYPES and target.get("webSocketDebuggerUrl")
         ]
         
         if not pages:
@@ -405,7 +570,7 @@ class RuntimeModifyService:
     ) -> Tuple[bool, Optional[str], Optional[Dict[str, Any]]]:
         """测试JS注入功能
         
-        执行 typeof TYRANO 来测试注入是否成功，并在成功后修改窗口标题
+        执行 typeof TYRANO 来测试目标页面是否已就绪
         
         Args:
             ws_url: WebSocket调试URL
@@ -420,20 +585,6 @@ class RuntimeModifyService:
             return False, error_message, None
         
         if tyrano_type == _EXPECTED_TYRANO_TYPE:
-            # 修改窗口标题，添加注入标识（避免重复添加）
-            try:
-                title_modify_expr = (
-                    'if (typeof document !== "undefined" && document.title && '
-                    '!document.title.includes(" - DCSM Injected")) { '
-                    'document.title = document.title + " - DCSM Injected"; '
-                    '}'
-                )
-                _, title_error = await self.eval_expr(ws_url, title_modify_expr)
-                if title_error is not None:
-                    logger.debug(f"Failed to modify window title: {title_error.get('message', str(title_error))}")
-            except Exception as e:
-                logger.debug(f"Exception while modifying window title: {e}")
-            
             return True, None, {"tyrano_type": tyrano_type}
         else:
             return (
@@ -442,25 +593,86 @@ class RuntimeModifyService:
                 {"tyrano_type": tyrano_type}
             )
     
+    async def mark_window_title(self, ws_url: str) -> bool:
+        """安全地为游戏窗口标题添加注入标记"""
+        suffix_json = json.dumps(_INJECTED_TITLE_SUFFIX)
+        expression = (
+            "(function(){"
+            "try {"
+            "if (typeof document === 'undefined' || !document || typeof document.title !== 'string') {"
+            "return {ok:false,reason:'document_unavailable'};"
+            "}"
+            f"if (document.title.includes({suffix_json})) {{"
+            "return {ok:true,already:true};"
+            "}"
+            f"document.title = document.title + {suffix_json};"
+            "return {ok:true,already:false};"
+            "} catch (e) {"
+            "return {ok:false,reason:String(e)};"
+            "}"
+            "})()"
+        )
+        
+        value, error = await self.eval_expr(ws_url, expression)
+        if error is not None:
+            logger.debug(
+                "Failed to mark window title via CDP: %s",
+                error.get("message", str(error))
+            )
+            return False
+        
+        if isinstance(value, dict):
+            return bool(value.get("ok"))
+        
+        return False
+    
+    def _is_tyrano_not_ready_failure(
+        self,
+        error_message: Optional[str],
+        extra_info: Optional[Dict[str, Any]]
+    ) -> bool:
+        """判断失败是否属于可重试的“游戏尚未就绪”场景"""
+        if extra_info and extra_info.get("tyrano_type") == "undefined":
+            return True
+        
+        if not error_message:
+            return False
+        
+        normalized = error_message.lower()
+        return (
+            "websocket" in normalized or
+            "cannot find context" in normalized or
+            "execution context" in normalized
+        )
+    
     async def _connect_cdp_with_retry(
         self,
-        port: int
+        port: int,
+        max_wait_seconds: float
     ) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
         """带重试的CDP连接
         
         Args:
             port: CDP端口
+            max_wait_seconds: 最大等待时间（秒）
             
         Returns:
             (WebSocket URL, 目标页面信息)
         """
-        for attempt in range(RuntimeModifyConfig.CDP_MAX_RETRIES):
+        if max_wait_seconds <= 0:
+            return None, None
+        
+        deadline = time.monotonic() + max_wait_seconds
+        
+        while True:
             ws_url, target = await self.fetch_ws_url(port)
             if ws_url:
                 return ws_url, target
             
-            if attempt < RuntimeModifyConfig.CDP_MAX_RETRIES - 1:
-                await asyncio.sleep(RuntimeModifyConfig.CDP_RETRY_DELAY)
+            if time.monotonic() >= deadline:
+                break
+            
+            await asyncio.sleep(RuntimeModifyConfig.CDP_RETRY_DELAY)
         
         return None, None
     
@@ -478,34 +690,98 @@ class RuntimeModifyService:
         Returns:
             (是否成功, 错误信息, 额外信息)
         """
+        result_info: Dict[str, Any] = {"launch_mode": self.last_launch_mode}
+        
         try:
             self.launch_game(exe_path, port)
         except FileNotFoundError as e:
-            return False, str(e), None
+            return False, str(e), result_info
         except (subprocess.SubprocessError, ValueError) as e:
-            return False, f"Failed to start game: {e}", None
+            return False, f"Failed to start game: {e}", result_info
+        
+        result_info["launch_mode"] = self.last_launch_mode
         
         await asyncio.sleep(RuntimeModifyConfig.GAME_STARTUP_DELAY)
+        connect_wait = (
+            RuntimeModifyConfig.STEAM_CDP_MAX_WAIT
+            if self.last_launch_mode == "steam"
+            else RuntimeModifyConfig.DIRECT_CDP_MAX_WAIT
+        )
+        logger.info(
+            "Waiting up to %.1fs for CDP endpoint (launch_mode=%s, port=%s)",
+            connect_wait,
+            self.last_launch_mode,
+            port
+        )
         
-        ws_url, target = await self._connect_cdp_with_retry(port)
-        if ws_url is None:
-            return False, "Cannot connect to CDP debug port", None
+        deadline = time.monotonic() + connect_wait
+        last_error: Optional[str] = None
+        last_extra: Dict[str, Any] = {}
+        last_target: Optional[Dict[str, Any]] = None
         
-        success, error_message, extra_info = await self.test_injection(ws_url)
-        
-        if success:
-            result_info = extra_info or {}
-            result_info["ws_url"] = ws_url
-            # 生成devtools inspector URL，去掉ws://前缀
-            ws_path = ws_url.replace("ws://", "") if ws_url.startswith("ws://") else ws_url
-            inspector_url = f"http://127.0.0.1:{port}/devtools/inspector.html?ws={ws_path}"
-            result_info["inspector_url"] = inspector_url
+        while time.monotonic() < deadline:
+            ws_url, target = await self.fetch_ws_url(port)
+            if ws_url is None:
+                await asyncio.sleep(RuntimeModifyConfig.CDP_RETRY_DELAY)
+                continue
+            
             if target:
-                result_info["target_title"] = target.get("title", "")
-                result_info["target_url"] = target.get("url", "")
-            return True, None, result_info
-        else:
-            return False, error_message, extra_info
+                last_target = target
+            
+            success, error_message, extra_info = await self.test_injection(ws_url)
+            if success:
+                result_info.update(extra_info or {})
+                title_marked = await self.mark_window_title(ws_url)
+                result_info["title_marked"] = title_marked
+                result_info["ws_url"] = ws_url
+                ws_path = ws_url.replace("ws://", "") if ws_url.startswith("ws://") else ws_url
+                result_info["inspector_url"] = f"http://127.0.0.1:{port}/devtools/inspector.html?ws={ws_path}"
+                if target:
+                    result_info["target_title"] = target.get("title", "")
+                    result_info["target_url"] = target.get("url", "")
+                return True, None, result_info
+            
+            last_error = error_message
+            if extra_info:
+                last_extra = extra_info
+            
+            if target:
+                logger.debug(
+                    "Target not ready yet (title=%s, url=%s, error=%s)",
+                    target.get("title", ""),
+                    target.get("url", ""),
+                    error_message
+                )
+            
+            if self._is_tyrano_not_ready_failure(error_message, extra_info):
+                await asyncio.sleep(RuntimeModifyConfig.CDP_RETRY_DELAY)
+                continue
+            
+            # 目标可能在启动过程中切换，非TYRANO错误也继续重试直到超时
+            await asyncio.sleep(RuntimeModifyConfig.CDP_RETRY_DELAY)
+        
+        logger.warning(
+            "CDP/TYRANO not ready within %.1fs (launch_mode=%s, port=%s, last_error=%s)",
+            connect_wait,
+            self.last_launch_mode,
+            port,
+            last_error
+        )
+        
+        if last_target:
+            result_info["target_title"] = last_target.get("title", "")
+            result_info["target_url"] = last_target.get("url", "")
+        if last_extra:
+            result_info.update(last_extra)
+        
+        if self.is_game_running():
+            result_info["pending_cdp"] = True
+            return False, "Game may not be fully started yet, retrying...", result_info
+        
+        if last_error:
+            return False, last_error, result_info
+        
+        return False, "Cannot connect to CDP debug port", result_info
     
     async def _read_tyrano_json_variable(
         self,

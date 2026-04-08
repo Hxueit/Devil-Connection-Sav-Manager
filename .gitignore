@@ -138,6 +138,7 @@ celerybeat.pid
 .env
 .envrc
 .venv
+.linuxvenv
 env/
 venv/
 ENV/
@@ -206,3 +207,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Temporary files
+.tempfiles/
+
+# Claude
+CLAUDE.md

@@ -5,6 +5,8 @@
 
 import bisect
 import logging
+import math
+import re
 import urllib.parse
 from pathlib import Path
 from tkinter import font as tkfont
@@ -23,6 +25,7 @@ from .constants import (
 )
 
 logger = logging.getLogger(__name__)
+_NUMERIC_STRING_PATTERN = re.compile(r"^[+-]?\d+(?:\.\d+)?$")
 
 
 def get_progress_color(stickers_percent: float, is_fanatic_route: bool) -> str:
@@ -113,6 +116,52 @@ def extract_judge_data(save_data: Dict[str, Any]) -> Dict[str, int]:
         "good": safe_int(judge_counts.get("good"), 0),
         "bad": safe_int(judge_counts.get("bad"), 0),
     }
+
+
+def format_mp_value_for_display(whole_total_mp: Any) -> Tuple[str, bool]:
+    """格式化MP显示值并标记是否异常
+
+    Args:
+        whole_total_mp: 原始MP值，可能是数字、数字字符串或异常字符
+
+    Returns:
+        (display_text, is_anomalous) 元组
+    """
+    if whole_total_mp is None:
+        return "0", False
+
+    if isinstance(whole_total_mp, bool):
+        return f"{int(whole_total_mp):,}", False
+
+    if isinstance(whole_total_mp, int):
+        return f"{whole_total_mp:,}", False
+
+    if isinstance(whole_total_mp, float):
+        if not math.isfinite(whole_total_mp):
+            return str(whole_total_mp), True
+        if whole_total_mp.is_integer():
+            return f"{int(whole_total_mp):,}", False
+        formatted = f"{whole_total_mp:,.2f}".rstrip("0").rstrip(".")
+        return formatted, False
+
+    if isinstance(whole_total_mp, str):
+        raw_text = whole_total_mp.strip()
+        if not raw_text:
+            return "-", True
+
+        normalized_text = raw_text.replace(",", "")
+        if _NUMERIC_STRING_PATTERN.fullmatch(normalized_text):
+            if "." in normalized_text:
+                float_value = float(normalized_text)
+                if float_value.is_integer():
+                    return f"{int(float_value):,}", False
+                formatted = f"{float_value:,.2f}".rstrip("0").rstrip(".")
+                return formatted, False
+            return f"{int(normalized_text):,}", False
+
+        return raw_text, True
+
+    return str(whole_total_mp), True
 
 
 def load_neo_content(storage_dir: str) -> Optional[Tuple[Optional[str], str]]:

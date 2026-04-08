@@ -61,6 +61,7 @@ EMPTY_PAGE_TEXT: Final[str] = "0/0"
 MIN_CONTAINER_SIZE: Final[int] = 1
 DEFAULT_CONTAINER_WIDTH: Final[int] = 300
 DEFAULT_CONTAINER_HEIGHT: Final[int] = 150
+FULL_PRELOAD_ENABLED: Final[bool] = False
 
 
 class TyranoSaveViewer:
@@ -259,6 +260,7 @@ class TyranoSaveViewer:
         self._create_jump_controls(nav_center_frame)
         self._create_import_button(nav_frame)
         self._create_refresh_button(nav_frame)
+        self._create_delete_button(nav_frame)
         self._create_reorder_button(nav_frame)
         self._create_auto_saves_button(nav_frame)
     
@@ -362,6 +364,31 @@ class TyranoSaveViewer:
         )
         self.reorder_button.pack(side="right", padx=PADDING_SMALL)
     
+    def _create_delete_button(self, parent: ctk.CTkFrame) -> None:
+        """创建删除按钮"""
+        self.delete_button = ctk.CTkButton(
+            parent,
+            text=self.translate("tyrano_delete_button"),
+            command=self._open_delete_dialog,
+            **self._get_standard_button_config()
+        )
+        self.delete_button.pack(side="right", padx=PADDING_SMALL)
+
+    def _open_delete_dialog(self) -> None:
+        """打开删除对话框"""
+        from src.modules.save_analysis.tyrano.delete_dialog import TyranoDeleteDialog
+
+        TyranoDeleteDialog(
+            self.parent,
+            self.root_window,
+            self.analyzer,
+            self._image_cache,
+            self.translate,
+            self.get_cjk_font,
+            self.Colors,
+            on_save_callback=self.refresh
+        )
+
     def _create_refresh_button(self, parent: ctk.CTkFrame) -> None:
         """创建刷新按钮"""
         self.refresh_button = ctk.CTkButton(
@@ -1559,6 +1586,9 @@ class TyranoSaveViewer:
         if hasattr(self, 'auto_saves_button') and self.auto_saves_button.winfo_exists():
             self.auto_saves_button.configure(text=self.translate("tyrano_auto_saves_button"))
 
+        if hasattr(self, 'delete_button') and self.delete_button.winfo_exists():
+            self.delete_button.configure(text=self.translate("tyrano_delete_button"))
+
         if self._loading_label and self._loading_label.winfo_exists():
             self._loading_label.configure(text=self.translate("loading"))
         
@@ -1572,6 +1602,8 @@ class TyranoSaveViewer:
     
     def _start_background_preload(self) -> None:
         """启动后台预加载所有缩略图"""
+        if not FULL_PRELOAD_ENABLED:
+            return
         if self._is_destroyed or self._preload_in_progress:
             return
         self._preload_in_progress = True
@@ -1605,7 +1637,6 @@ class TyranoSaveViewer:
                             original_image = decode_image_data(image_data)
                             if not original_image:
                                 continue
-                            self._image_cache.put_original(img_hash, original_image)
 
                         thumb_size = self._calculate_thumbnail_size_for_container(
                             container_width,
@@ -1650,8 +1681,6 @@ class TyranoSaveViewer:
             if not original_image:
                 return
             
-            if self._image_cache.get_original(img_hash) is None:
-                self._image_cache.put_original(img_hash, original_image)
             thumbnail = original_image.resize(thumb_size, Image.Resampling.BILINEAR)
             self._image_cache.put_thumbnail(img_hash, thumb_size, thumbnail)
             
@@ -1715,7 +1744,6 @@ class TyranoSaveViewer:
                                 original_image = decode_image_data(image_data)
                                 if not original_image:
                                     continue
-                                self._image_cache.put_original(img_hash, original_image)
 
                             thumb_size = self._calculate_thumbnail_size_for_container(
                                 container_width,

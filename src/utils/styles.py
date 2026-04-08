@@ -116,6 +116,7 @@ class Colors:
     TEXT_INFO_BRIGHT = "#00bfff"
     TEXT_HIGHLIGHT = "#D554BC"
     TEXT_WARNING_ORANGE = "#FF6B35"  # 红橙色，用于提示
+    TEXT_OLIVE_GREEN = "#3b5e40"     # 深茶绿色，用于异常文本显示等
     
     # 强调色
     ACCENT_PINK = "#d6336c"

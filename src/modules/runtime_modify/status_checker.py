@@ -135,19 +135,7 @@ class StatusChecker:
             return False
         
         try:
-            if self.service.game_process is not None:
-                if self.service.game_process.poll() is None:
-                    return True
-                self.service.game_process = None
-            
-            if self.state.is_closing:
-                return False
-            
-            if self.service.game_exe_path:
-                from src.modules.runtime_modify.utils import is_game_running_by_path
-                return is_game_running_by_path(self.service.game_exe_path)
-            
-            return False
+            return self.service.is_game_running()
         except (OSError, ProcessLookupError) as e:
             logger.debug(f"OS error checking game status: {e}")
             if self.service.game_process is not None:

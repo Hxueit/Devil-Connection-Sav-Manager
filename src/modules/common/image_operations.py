@@ -81,6 +81,27 @@ EXPORT_FORMAT_CONFIG = {
 }
 
 
+def apply_modal_grab_safely(dialog: Toplevel, retry_count: int = 12, delay_ms: int = 30) -> None:
+    """以跨平台安全方式设置模态grab"""
+    try:
+        dialog.deiconify()
+        dialog.update_idletasks()
+    except (tk.TclError, RuntimeError):
+        pass
+    
+    def try_grab(remaining: int) -> None:
+        if remaining <= 0:
+            return
+        try:
+            if not dialog.winfo_exists():
+                return
+            dialog.grab_set()
+        except tk.TclError:
+            dialog.after(delay_ms, lambda: try_grab(remaining - 1))
+    
+    try_grab(retry_count)
+
+
 class ImageExportHelper:
     """图片导出助手类"""
     
@@ -139,7 +160,7 @@ class ImageExportHelper:
         dialog.configure(bg=self.Colors.WHITE)
         self._set_window_icon_with_retry(dialog)
         dialog.transient(self.root)
-        dialog.grab_set()
+        apply_modal_grab_safely(dialog)
         
         format_label = tk.Label(
             dialog,
@@ -447,7 +468,7 @@ class ImageReplaceHelper:
         dialog.configure(bg=self.Colors.WHITE)
         self._set_window_icon_with_retry(dialog)
         dialog.transient(self.root)
-        dialog.grab_set()
+        apply_modal_grab_safely(dialog)
         return dialog
     
     def _set_window_icon_with_retry(self, dialog: Toplevel) -> None:

@@ -10,4 +10,5 @@ SAVE_SLOT_WIDTH: Final[int] = 300
 SAVE_SLOT_HEIGHT: Final[int] = 150
 
 TYRANO_SAV_FILENAME: Final[str] = "DevilConnection_tyrano_data.sav"
+TYRANO_QUICK_SAVE_FILENAME: Final[str] = "DevilConnection_tyrano_quick_save.sav"
 

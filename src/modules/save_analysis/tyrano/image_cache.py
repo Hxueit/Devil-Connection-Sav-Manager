@@ -11,8 +11,8 @@ from PIL import Image
 
 logger = logging.getLogger(__name__)
 
-L1_CACHE_MAX_SIZE: int = 50
-L2_CACHE_MAX_SIZE: int = 500
+L1_CACHE_MAX_SIZE: int = 12
+L2_CACHE_MAX_SIZE: int = 120
 
 
 class ImageCache:
@@ -119,5 +119,4 @@ class ImageCache:
         """清空所有缓存"""
         self._l1_cache.clear()
         self._l2_cache.clear()
-
 
