@@ -1,0 +1,95 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v0.5.2)'
+        required: true
+
+jobs:
+  build-windows:
+    name: Build Windows EXE
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Determine tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install "nuitka[onefile]"
+
+      - name: Build with Nuitka
+        run: |
+          python -m nuitka `
+            --onefile `
+            --assume-yes-for-downloads `
+            --windows-icon-from-ico=icon.ico `
+            --enable-plugin=tk-inter `
+            --output-dir=dist `
+            --output-filename=dcsm_${{ steps.tag.outputs.tag }}.exe `
+            --windows-console-mode=disable `
+            --lto=yes `
+            --nofollow-import-to=src.modules.save_analysis.sf.debug `
+            --nofollow-import-to=pythonnet `
+            --nofollow-import-to=clr_loader `
+            --nofollow-import-to=cryptography `
+            --nofollow-import-to=bcrypt `
+            --nofollow-import-to=zstandard `
+            --nofollow-import-to=unittest `
+            --nofollow-import-to=pydoc `
+            --nofollow-import-to=doctest `
+            --nofollow-import-to=test `
+            --include-package=websockets `
+            main.py
+
+      - name: Upload EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dcsm-windows
+          path: dist/dcsm_${{ steps.tag.outputs.tag }}.exe
+
+  release:
+    name: Create GitHub Release
+    needs: build-windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Determine tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: DCSM ${{ steps.tag.outputs.tag }}
+          draft: true
+          files: dcsm-windows/dcsm_${{ steps.tag.outputs.tag }}.exe
