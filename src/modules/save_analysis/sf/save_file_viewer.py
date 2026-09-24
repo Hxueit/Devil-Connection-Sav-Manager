@@ -32,6 +32,7 @@ from src.utils.ui_utils import (
     showwarning_relative,
 )
 from src.utils.hint_animation import HintAnimation
+from src.utils.sav_io import write_sav
 from src.modules.screenshot.animation_constants import CHECKBOX_STYLE_NORMAL, CHECKBOX_STYLE_HINT
 
 from .file_viewer.json_highlighter import apply_json_syntax_highlight
@@ -756,13 +757,9 @@ class SaveFileViewer:
         
         # 默认保存逻辑：保存到 DevilConnection_sf.sav
         save_file_path = Path(self.storage_dir) / SAVE_FILE_NAME
-        json_str = json.dumps(edited_data, ensure_ascii=False)
-        encoded_content = urllib.parse.quote(json_str)
-        
         try:
-            with open(save_file_path, 'w', encoding='utf-8') as file_handle:
-                file_handle.write(encoded_content)
-        except (OSError, IOError, PermissionError) as file_error:
+            write_sav(save_file_path, edited_data)
+        except (OSError, TypeError, ValueError) as file_error:
             showerror_relative(
                 self.viewer_window,
                 self.t("error"),

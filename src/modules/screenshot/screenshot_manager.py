@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Optional, Tuple, List, Dict, Callable, Any
 from PIL import Image, UnidentifiedImageError
 
+from src.utils.sav_io import write_sav
+
 logger = logging.getLogger(__name__)
 
 # 常量定义
@@ -96,9 +98,7 @@ class ScreenshotManager:
         Raises:
             OSError: 文件写入失败
         """
-        json_str = json.dumps(data, ensure_ascii=False)
-        encoded_data = urllib.parse.quote(json_str)
-        sav_path.write_text(encoded_data, encoding='utf-8')
+        write_sav(sav_path, data)
     
     def scan_sav_files(self) -> Dict[str, List[Optional[str]]]:
         """扫描存储目录中的截图文件
@@ -325,9 +325,7 @@ class ScreenshotManager:
         image_data = image_path.read_bytes()
         png_base64 = base64.b64encode(image_data).decode('utf-8')
         data_uri = f"data:image/png;base64,{png_base64}"
-        json_str = json.dumps(data_uri)
-        encoded_data = urllib.parse.quote(json_str)
-        sav_path.write_text(encoded_data, encoding='utf-8')
+        write_sav(sav_path, data_uri)
     
     def _get_thumb_size(self) -> Tuple[int, int]:
         """从现有文件推断缩略图尺寸
@@ -417,9 +415,7 @@ class ScreenshotManager:
             jpeg_data = temp_thumb_path.read_bytes()
             jpeg_base64 = base64.b64encode(jpeg_data).decode('utf-8')
             data_uri = f"data:image/jpeg;base64,{jpeg_base64}"
-            json_str = json.dumps(data_uri)
-            encoded_data = urllib.parse.quote(json_str)
-            thumb_sav_path.write_text(encoded_data, encoding='utf-8')
+            write_sav(thumb_sav_path, data_uri)
         finally:
             if temp_thumb_path and temp_thumb_path.exists():
                 try:

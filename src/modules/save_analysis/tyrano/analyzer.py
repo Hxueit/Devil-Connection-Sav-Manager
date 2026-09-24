@@ -297,22 +297,29 @@ class TyranoAnalyzer:
             logger.error("Invalid order: indices must be 0 to %d", len(self.save_slots) - 1)
             return False
         
-        try:
-            reordered_slots = [self.save_slots[i] for i in new_order]
-            self.save_slots = reordered_slots
-            
-            if _DATA_FIELD_KEY in self.save_data:
-                self.save_data[_DATA_FIELD_KEY] = reordered_slots
-            
-            tyrano_file_path = self.storage_dir / TYRANO_SAV_FILENAME
-            self.tyrano_service.save_tyrano_save_file(tyrano_file_path, self.save_data)
-            
-            logger.info("Successfully reordered %d save slots", len(self.save_slots))
-            return True
-            
-        except Exception as e:
-            logger.error("Failed to reorder slots: %s", e, exc_info=True)
+        if not self._write_slots([self.save_slots[i] for i in new_order]):
             return False
+        logger.info("Successfully reordered %d save slots", len(self.save_slots))
+        return True
+    
+    def _write_slots(self, new_slots: List[Dict[str, Any]], repaginate: bool = False) -> bool:
+        """把新的存档槽列表写入文件，写入成功后才更新内存中的状态
+        
+        写入失败时内存状态保持不变，避免下一次保存把失败的修改一起写进去。
+        """
+        new_save_data = {**self.save_data, _DATA_FIELD_KEY: new_slots}
+        try:
+            tyrano_file_path = self.storage_dir / TYRANO_SAV_FILENAME
+            self.tyrano_service.save_tyrano_save_file(tyrano_file_path, new_save_data)
+        except Exception as e:
+            logger.error("Failed to write save slots: %s", e, exc_info=True)
+            return False
+        
+        self.save_data = new_save_data
+        self.save_slots = new_slots
+        if repaginate:
+            self._calculate_pagination(len(new_slots))
+        return True
     
     def _is_empty_save(self, slot_data: Optional[Dict[str, Any]]) -> bool:
         """判断存档是否为空存档（NO SAVE类型）
@@ -363,19 +370,14 @@ class TyranoAnalyzer:
             logger.error("No valid indices to clear")
             return False
 
-        try:
-            for i in valid_indices:
-                self.save_slots[i] = self._create_empty_slot()
+        new_slots = list(self.save_slots)
+        for i in valid_indices:
+            new_slots[i] = self._create_empty_slot()
 
-            self.save_data[_DATA_FIELD_KEY] = self.save_slots
-            tyrano_file_path = self.storage_dir / TYRANO_SAV_FILENAME
-            self.tyrano_service.save_tyrano_save_file(tyrano_file_path, self.save_data)
-
-            logger.info("Successfully cleared %d save slots", len(valid_indices))
-            return True
-        except Exception as e:
-            logger.error("Failed to clear slots: %s", e, exc_info=True)
+        if not self._write_slots(new_slots):
             return False
+        logger.info("Successfully cleared %d save slots", len(valid_indices))
+        return True
 
     def remove_slots(self, indices: List[int]) -> bool:
         """删除指定存档槽（后续槽位前移）
@@ -398,21 +400,13 @@ class TyranoAnalyzer:
             logger.error("No valid indices to remove")
             return False
 
-        try:
-            for i in valid_indices:
-                self.save_slots.pop(i)
+        removed = set(valid_indices)
+        new_slots = [slot for i, slot in enumerate(self.save_slots) if i not in removed]
 
-            self.save_data[_DATA_FIELD_KEY] = self.save_slots
-            self._calculate_pagination(len(self.save_slots))
-
-            tyrano_file_path = self.storage_dir / TYRANO_SAV_FILENAME
-            self.tyrano_service.save_tyrano_save_file(tyrano_file_path, self.save_data)
-
-            logger.info("Successfully removed %d save slots, %d remaining", len(valid_indices), len(self.save_slots))
-            return True
-        except Exception as e:
-            logger.error("Failed to remove slots: %s", e, exc_info=True)
+        if not self._write_slots(new_slots, repaginate=True):
             return False
+        logger.info("Successfully removed %d save slots, %d remaining", len(removed), len(new_slots))
+        return True
 
     def import_slot(self, slot_data: Dict[str, Any]) -> bool:
         """导入存档槽
@@ -433,35 +427,22 @@ class TyranoAnalyzer:
             logger.error("Cannot import: save data not loaded")
             return False
         
-        if _DATA_FIELD_KEY not in self.save_data:
-            self.save_data[_DATA_FIELD_KEY] = []
-        
-        if not self.save_slots:
-            self.save_slots = []
-        
+        new_slots = list(self.save_slots)
         empty_slot_index = next(
-            (i for i, slot in enumerate(self.save_slots) if self._is_empty_save(slot)),
+            (i for i, slot in enumerate(new_slots) if self._is_empty_save(slot)),
             None
         )
         
-        try:
-            if empty_slot_index is not None:
-                self.save_slots[empty_slot_index] = slot_data
-                logger.info("Replaced empty slot at index %d with imported save", empty_slot_index)
-            else:
-                self.save_slots.append(slot_data)
-                logger.info("Added imported save to end of list (total slots: %d)", len(self.save_slots))
-            
-            self.save_data[_DATA_FIELD_KEY] = self.save_slots
-            self._calculate_pagination(len(self.save_slots))
-            
-            tyrano_file_path = self.storage_dir / TYRANO_SAV_FILENAME
-            self.tyrano_service.save_tyrano_save_file(tyrano_file_path, self.save_data)
-            
-            logger.info("Successfully imported save slot")
-            return True
-            
-        except Exception as e:
-            logger.error("Failed to import slot: %s", e, exc_info=True)
+        if empty_slot_index is not None:
+            new_slots[empty_slot_index] = slot_data
+        else:
+            new_slots.append(slot_data)
+        
+        if not self._write_slots(new_slots, repaginate=True):
             return False
+        if empty_slot_index is not None:
+            logger.info("Replaced empty slot at index %d with imported save", empty_slot_index)
+        else:
+            logger.info("Added imported save to end of list (total slots: %d)", len(new_slots))
+        return True
 

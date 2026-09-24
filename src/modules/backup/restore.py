@@ -160,6 +160,9 @@ class BackupRestore:
         """
         还原备份的核心实现
         
+        先完整解压到同级临时目录，全部成功后再与 _storage 交换，
+        任何一步失败都不会动到现有的 _storage。
+        
         Args:
             zip_path: 备份zip文件路径
             storage_dir: _storage文件夹路径
@@ -171,64 +174,44 @@ class BackupRestore:
             logger.error(f"备份文件不存在: {zip_path}")
             return False
         
-        try:
-            if storage_dir.exists():
-                BackupRestore._clear_directory(storage_dir)
-            
-            storage_dir.mkdir(parents=True, exist_ok=True)
-            
-            with zipfile.ZipFile(zip_path, 'r') as zipf:
-                for member in zipf.namelist():
-                    if member == BACKUP_INFO_FILENAME:
-                        continue
-                    
-                    try:
-                        zipf.extract(member, storage_dir)
-                    except (zipfile.BadZipFile, OSError) as e:
-                        logger.warning(f"无法解压文件: {member}, 错误: {e}")
-                        continue
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"还原备份失败: {zip_path}, 错误: {e}", exc_info=True)
-            return False
-    
-    @staticmethod
-    def _clear_directory(directory: Path) -> None:
-        """
-        清空目录内容
+        staging_dir = storage_dir.with_name(f".{storage_dir.name}.restoring")
+        old_dir = storage_dir.with_name(f".{storage_dir.name}.old")
         
-        Args:
-            directory: 要清空的目录路径
-        """
         try:
-            for file_path in directory.rglob('*'):
-                if file_path.is_file():
-                    try:
-                        file_path.unlink()
-                    except (OSError, PermissionError) as e:
-                        logger.warning(f"无法删除文件: {file_path}, 错误: {e}")
-            
-            dirs_to_remove = [
-                d for d in directory.rglob('*')
-                if d.is_dir()
-            ]
-            dirs_to_remove.sort(key=lambda p: len(p.parts), reverse=True)
-            
-            for dir_path in dirs_to_remove:
-                try:
-                    dir_path.rmdir()
-                except (OSError, PermissionError) as e:
-                    logger.warning(f"无法删除目录: {dir_path}, 错误: {e}")
-            
-            if any(directory.iterdir()):
-                shutil.rmtree(directory)
-                directory.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(zip_path, 'r') as zipf:
+                bad_member = zipf.testzip()
+                if bad_member is not None:
+                    logger.error(f"备份文件已损坏: {zip_path}, 损坏的文件: {bad_member}")
+                    return False
                 
+                shutil.rmtree(staging_dir, ignore_errors=True)
+                staging_dir.mkdir(parents=True)
+                for member in zipf.namelist():
+                    if member != BACKUP_INFO_FILENAME:
+                        zipf.extract(member, staging_dir)
         except Exception as e:
-            logger.error(f"清空目录失败: {directory}, 错误: {e}", exc_info=True)
-            raise
+            logger.error(f"解压备份失败: {zip_path}, 错误: {e}", exc_info=True)
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            return False
+        
+        try:
+            shutil.rmtree(old_dir, ignore_errors=True)
+            if storage_dir.exists():
+                storage_dir.rename(old_dir)
+            try:
+                staging_dir.rename(storage_dir)
+            except OSError:
+                if old_dir.exists():
+                    old_dir.rename(storage_dir)
+                raise
+        except OSError as e:
+            # Windows 下游戏正在运行、文件被占用时重命名会失败
+            logger.error(f"替换存档目录失败: {storage_dir}, 错误: {e}", exc_info=True)
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            return False
+        
+        shutil.rmtree(old_dir, ignore_errors=True)
+        return True
     
     def delete_backup(self, zip_path: str | Path) -> bool:
         """

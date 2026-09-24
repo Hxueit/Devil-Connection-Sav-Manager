@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Tuple, Final
 
 from src.modules.others.config import OthersTabConfig
+from src.utils.sav_io import write_text_atomic
 
 logger = logging.getLogger(__name__)
 
@@ -129,8 +130,7 @@ class TyranoService:
         
         try:
             tyrano_path.parent.mkdir(parents=True, exist_ok=True)
-            with tyrano_path.open('w', encoding='utf-8') as f:
-                f.write(encoded_content)
+            write_text_atomic(tyrano_path, encoded_content)
         except PermissionError:
             logger.error(f"Permission denied writing file: {tyrano_path}")
             raise
@@ -206,8 +206,7 @@ class TyranoService:
         
         try:
             file_path.parent.mkdir(parents=True, exist_ok=True)
-            with file_path.open('w', encoding='utf-8') as f:
-                json.dump(save_data, f, ensure_ascii=False, indent=2)
+            write_text_atomic(file_path, json.dumps(save_data, ensure_ascii=False, indent=2))
         except MemoryError:
             logger.error("Insufficient memory to serialize JSON data")
             raise ValueError("Insufficient memory to save data. Please close other programs and try again.")
