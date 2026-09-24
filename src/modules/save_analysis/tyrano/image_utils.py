@@ -72,6 +72,8 @@ class ImageCache:
         """返回适合放进 slot_size 大小的存档槽卡片的缩略图；图片无法解码时返回 None"""
         if not isinstance(image_data, str):
             return None
+        # 用 md5 而不是 base64 字符串本身作键：缓存就不会一直引用几百 KB 的字符串
+        # （重新读文件后旧字符串可以被释放）；算 md5 比解码图片快得多
         key = hashlib.md5(image_data.encode("utf-8")).hexdigest()
         original = self._get(self._originals, key)
         if original is None:

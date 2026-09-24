@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 import customtkinter as ctk
 
 from src.modules.save_analysis.sf.save_file_viewer import SaveFileViewer, ViewerConfig
-from src.modules.save_analysis.tyrano.save_slot import TYRANO_COLLAPSED_FIELDS, button_style, create_dialog
+from src.modules.save_analysis.tyrano.save_slot import TYRANO_COLLAPSED_FIELDS
 from src.utils.sav_io import read_sav, write_sav
-from src.utils.styles import Colors, get_cjk_font
-from src.utils.ui_utils import showerror_relative, showinfo_relative
+from src.utils.styles import Colors, get_cjk_font, white_button
+from src.utils.ui_utils import create_dialog, showerror_relative, showinfo_relative, widget_alive
 
 if TYPE_CHECKING:
     from src.modules.save_analysis.tyrano.save_viewer import TyranoSaveViewer
@@ -30,10 +30,11 @@ class TyranoAutoSavesDialog:
     """自动存档列表"""
 
     def __init__(self, viewer: "TyranoSaveViewer") -> None:
-        self.translate = t = viewer.translate
+        self.t = t = viewer.t
         self.storage_dir = Path(viewer.analyzer.storage_dir)
 
-        self.dialog = create_dialog(viewer.root_window, t("tyrano_auto_saves_dialog_title"), "500x280")
+        self.dialog = create_dialog(viewer.root_window, t("tyrano_auto_saves_dialog_title"), "500x280",
+                                    modal=False, use_ctk=True)
         main_frame = ctk.CTkFrame(self.dialog, fg_color=Colors.WHITE)
         main_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
@@ -50,30 +51,30 @@ class TyranoAutoSavesDialog:
             ctk.CTkLabel(row, font=get_cjk_font(11), width=80,
                          text=t("tyrano_auto_save_file_exists" if exists else "tyrano_auto_save_file_not_exists"),
                          text_color="#4CAF50" if exists else "#757575").pack(side="left", padx=(0, 20))
-            ctk.CTkButton(row, text=t("tyrano_auto_save_edit_button"),
-                          command=lambda p=file_path, k=name_key: self._open_editor(p, k),
-                          state="normal" if exists else "disabled",
-                          **button_style(80, 30, 10)).pack(side="right", padx=(0, 10))
+            white_button(row, t("tyrano_auto_save_edit_button"),
+                         lambda p=file_path, k=name_key: self._open_editor(p, k),
+                         width=80, height=30, state="normal" if exists else "disabled",
+                         ).pack(side="right", padx=(0, 10))
             if desc_key:
                 ctk.CTkLabel(row_container, text=t(desc_key), font=get_cjk_font(9),
                              text_color=Colors.TEXT_SECONDARY, anchor="w", justify="left",
                              ).pack(fill="x", padx=(10, 10), pady=(0, 5))
 
     def _open_editor(self, file_path: Path, name_key: str) -> None:
-        t = self.translate
+        t = self.t
         try:
             save_data = read_sav(file_path)
         except FileNotFoundError:
-            error = "文件不存在"
+            error = t("tyrano_auto_save_error_not_found")
         except PermissionError:
-            error = "无权限读取文件"
+            error = t("tyrano_auto_save_error_no_permission")
         except (OSError, ValueError) as e:
             logger.error("Failed to load auto save file %s: %s", file_path, e, exc_info=True)
             error = str(e)
         else:
             error = None
         if error is not None:
-            showerror_relative(self.dialog, t("error"), t("tyrano_auto_save_load_failed").format(error=error))
+            showerror_relative(self.dialog, t("error"), t("tyrano_auto_save_load_failed", error=error))
             return
 
         def load() -> Optional[Dict[str, Any]]:
@@ -110,5 +111,5 @@ class TyranoAutoSavesDialog:
             viewer_config=config,
         )
         window = getattr(editor, "viewer_window", None)
-        if window is not None and window.winfo_exists():
+        if widget_alive(window):
             window.title(f"{t('tyrano_auto_saves_dialog_title')} - {t(name_key)}")

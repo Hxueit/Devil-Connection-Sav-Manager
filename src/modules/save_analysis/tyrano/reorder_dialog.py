@@ -12,10 +12,11 @@ from src.modules.common.draggable_list import DraggableList
 from src.modules.save_analysis.tyrano.analyzer import describe_slot
 from src.modules.save_analysis.tyrano.constants import TYRANO_SAVES_PER_PAGE
 from src.modules.save_analysis.tyrano.image_utils import create_placeholder_image
-from src.modules.save_analysis.tyrano.save_slot import button_style, create_dialog
 from src.utils.images import decode_image_data
-from src.utils.styles import Colors, get_cjk_font
-from src.utils.ui_utils import askyesno_relative, showinfo_relative, showwarning_relative
+from src.utils.styles import Colors, get_cjk_font, white_button
+from src.utils.ui_utils import (
+    askyesno_relative, bind_mousewheel, create_dialog, showinfo_relative, showwarning_relative,
+)
 
 if TYPE_CHECKING:
     from src.modules.save_analysis.tyrano.save_viewer import TyranoSaveViewer
@@ -30,12 +31,13 @@ class TyranoReorderDialog:
 
     def __init__(self, viewer: "TyranoSaveViewer") -> None:
         self.viewer = viewer
-        self.translate = t = viewer.translate
+        self.t = t = viewer.t
         self._slots = list(viewer.analyzer.save_slots)
         self._original_order = list(range(len(self._slots)))
         self._current_order = list(self._original_order)
 
-        self.dialog = create_dialog(viewer.root_window, t("tyrano_reorder_title"), "450x600")
+        self.dialog = create_dialog(viewer.root_window, t("tyrano_reorder_title"), "450x600",
+                                    modal=False, use_ctk=True)
         self.dialog.protocol("WM_DELETE_WINDOW", self._on_close)
 
         main_frame = ctk.CTkFrame(self.dialog, fg_color=Colors.WHITE)
@@ -53,10 +55,10 @@ class TyranoReorderDialog:
 
         button_frame = ctk.CTkFrame(main_frame, fg_color=Colors.WHITE)
         button_frame.pack(side="bottom", fill="x", pady=(10, 0))
-        ctk.CTkButton(button_frame, text=t("tyrano_reorder_preview"), command=self._show_preview,
-                      **button_style(120, 35, 12)).pack(side="left", padx=(0, 10))
-        ctk.CTkButton(button_frame, text=t("tyrano_reorder_save"), command=self._save_order,
-                      **button_style(120, 35, 12)).pack(side="right")
+        white_button(button_frame, t("tyrano_reorder_preview"), self._show_preview,
+                     width=120, height=35, font=get_cjk_font(12)).pack(side="left", padx=(0, 10))
+        white_button(button_frame, t("tyrano_reorder_save"), self._save_order,
+                     width=120, height=35, font=get_cjk_font(12)).pack(side="right")
 
     def _on_order_changed(self, new_order: List[int]) -> None:
         self._current_order = new_order
@@ -65,8 +67,8 @@ class TyranoReorderDialog:
         return self._current_order != self._original_order
 
     def _on_close(self) -> None:
-        if self._is_dirty() and not askyesno_relative(self.dialog, self.translate("warning"),
-                                                      self.translate("unsaved_changes_warning")):
+        if self._is_dirty() and not askyesno_relative(self.dialog, self.t("warning"),
+                                                      self.t("unsaved_changes_warning")):
             return
         self.dialog.destroy()
 
@@ -82,13 +84,13 @@ class TyranoReorderDialog:
     def _show_preview(self) -> None:
         changed_pages = self._changed_pages()
         if not changed_pages:
-            showinfo_relative(self.dialog, self.translate("info"), self.translate("tyrano_reorder_preview_empty"))
+            showinfo_relative(self.dialog, self.t("info"), self.t("tyrano_reorder_preview_empty"))
             return
         show_reorder_preview(self.dialog, self._slots, self._original_order, self._current_order,
-                             changed_pages, self.translate)
+                             changed_pages, self.t)
 
     def _save_order(self) -> None:
-        t = self.translate
+        t = self.t
         if not self._is_dirty():
             showinfo_relative(self.dialog, t("info"), t("tyrano_reorder_no_changes"))
             return
@@ -99,8 +101,7 @@ class TyranoReorderDialog:
             showwarning_relative(self.dialog, t("error"), t("tyrano_reorder_save_failed"))
             return
         showinfo_relative(self.dialog, t("info"), t("tyrano_reorder_save_success"))
-        self._original_order = list(self._current_order)
-        self.viewer.refresh()
+        self.viewer.refresh_display()
         self.dialog.destroy()
 
 
@@ -110,11 +111,10 @@ def show_reorder_preview(
     original_order: List[int],
     new_order: List[int],
     changed_pages: List[int],
-    translate: Callable[[str], str],
+    t: Callable[..., str],
 ) -> None:
     """对每个变动的页面，左右并排显示原顺序和新顺序的缩略图"""
-    t = translate
-    dialog = create_dialog(master, t("tyrano_reorder_preview_title"), "750x600")
+    dialog = create_dialog(master, t("tyrano_reorder_preview_title"), "750x600", modal=False, use_ctk=True)
     main_frame = ctk.CTkFrame(dialog, fg_color=Colors.WHITE)
     main_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
@@ -155,7 +155,7 @@ def show_reorder_preview(
             ctk.CTkLabel(cell, text="", image=thumbnail(slots[slot_index]), fg_color="transparent").pack(side="left")
 
     for page in changed_pages:
-        ctk.CTkLabel(content, text=t("tyrano_reorder_page_label").format(page=page), font=get_cjk_font(14, "bold"),
+        ctk.CTkLabel(content, text=t("tyrano_reorder_page_label", page=page), font=get_cjk_font(14, "bold"),
                      fg_color="transparent", text_color=Colors.TEXT_PRIMARY).pack(anchor="w", pady=(15, 10))
         page_frame = ctk.CTkFrame(content, fg_color=Colors.LIGHT_GRAY, corner_radius=8)
         page_frame.pack(fill="x", pady=(0, 10), padx=5)
@@ -174,13 +174,4 @@ def show_reorder_preview(
 
     canvas.pack(side="left", fill="both", expand=True)
     scrollbar.pack(side="right", fill="y")
-
-    def on_mousewheel(event: tk.Event) -> None:
-        canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-
-    def bind_mousewheel(widget: tk.Misc) -> None:
-        widget.bind("<MouseWheel>", on_mousewheel)
-        for child in widget.winfo_children():
-            bind_mousewheel(child)
-
-    bind_mousewheel(dialog)
+    bind_mousewheel(dialog, lambda direction: canvas.yview_scroll(direction, "units"))

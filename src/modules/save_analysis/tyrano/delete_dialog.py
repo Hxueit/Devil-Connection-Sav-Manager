@@ -9,16 +9,12 @@ import customtkinter as ctk
 from src.modules.save_analysis.tyrano.analyzer import describe_slot, is_empty_save
 from src.modules.save_analysis.tyrano.constants import TYRANO_SAVES_PER_PAGE
 from src.modules.save_analysis.tyrano.image_utils import slot_thumbnail
-from src.modules.save_analysis.tyrano.save_slot import (
-    SlotCard,
-    build_slot_grid,
-    button_style,
-    create_dialog,
-    slot_size_for_area,
-)
+from src.modules.save_analysis.tyrano.save_slot import PageNavBar, SlotCard, build_slot_grid, slot_size_for_area
 from src.utils.background import run_in_background
 from src.utils.styles import Colors, get_cjk_font
-from src.utils.ui_utils import askyesno_relative, showinfo_relative, showwarning_relative
+from src.utils.ui_utils import (
+    askyesno_relative, create_dialog, showinfo_relative, showwarning_relative, widget_alive,
+)
 
 if TYPE_CHECKING:
     from src.modules.save_analysis.tyrano.save_viewer import TyranoSaveViewer
@@ -38,13 +34,13 @@ class TyranoDeleteDialog:
     def __init__(self, viewer: "TyranoSaveViewer") -> None:
         self.viewer = viewer
         self.analyzer = viewer.analyzer
-        self.translate = t = viewer.translate
+        self.t = t = viewer.t
         self._selected: Set[int] = set()
         self._current_page = 1
         self._load_id = 0
 
-        self.dialog = create_dialog(viewer.root_window, t("tyrano_delete_title"), "750x580")
-        self.dialog.protocol("WM_DELETE_WINDOW", self.dialog.destroy)
+        self.dialog = create_dialog(viewer.root_window, t("tyrano_delete_title"), "750x580",
+                                    modal=False, use_ctk=True)
         self._delete_mode = tk.StringVar(master=self.dialog, value=MODE_CLEAR)
 
         main_frame = ctk.CTkFrame(self.dialog, fg_color=Colors.WHITE)
@@ -58,25 +54,7 @@ class TyranoDeleteDialog:
         # 翻页
         nav = ctk.CTkFrame(bottom, fg_color=Colors.WHITE)
         nav.pack(side="top", fill="x", pady=(0, 5))
-        center = ctk.CTkFrame(nav, fg_color=Colors.WHITE)
-        center.pack(anchor="center")
-        self._prev_btn = ctk.CTkButton(center, text=t("prev_page"), command=self._go_prev, **button_style())
-        self._prev_btn.pack(side="left", padx=5)
-        self._next_btn = ctk.CTkButton(center, text=t("next_page"), command=self._go_next, **button_style())
-        self._next_btn.pack(side="left", padx=5)
-        self._page_label = ctk.CTkLabel(center, text="1/1", font=get_cjk_font(12), fg_color="transparent",
-                                        text_color=Colors.TEXT_PRIMARY, width=60, anchor="center")
-        self._page_label.pack(side="left", padx=10)
-        jump_frame = ctk.CTkFrame(center, fg_color=Colors.WHITE)
-        jump_frame.pack(side="left", padx=20)
-        ctk.CTkLabel(jump_frame, text=t("jump_to_page"), font=get_cjk_font(10), fg_color="transparent",
-                     text_color=Colors.TEXT_PRIMARY).pack(side="left", padx=5)
-        self._jump_entry = ctk.CTkEntry(jump_frame, width=80, height=30, corner_radius=8, fg_color=Colors.WHITE,
-                                        text_color=Colors.TEXT_PRIMARY, border_color=Colors.GRAY,
-                                        font=get_cjk_font(10))
-        self._jump_entry.pack(side="left", padx=5)
-        self._jump_entry.bind("<Return>", lambda e: self._jump_to_page())
-        ctk.CTkButton(jump_frame, text=t("jump"), command=self._jump_to_page, **button_style()).pack(side="left", padx=5)
+        self._page_bar = PageNavBar(nav, t, self._go_to_page)
 
         # 删除模式 + 删除按钮
         action = ctk.CTkFrame(bottom, fg_color=Colors.WHITE)
@@ -107,32 +85,17 @@ class TyranoDeleteDialog:
     def _total_pages(self) -> int:
         return max(1, (len(self.analyzer.save_slots) + TYRANO_SAVES_PER_PAGE - 1) // TYRANO_SAVES_PER_PAGE)
 
-    # --- 翻页 ---
-
-    def _go_prev(self) -> None:
-        self._current_page = self._current_page - 1 if self._current_page > 1 else self._total_pages
+    def _go_to_page(self, page: int) -> None:
+        self._current_page = page
         self._refresh_display()
-
-    def _go_next(self) -> None:
-        self._current_page = self._current_page + 1 if self._current_page < self._total_pages else 1
-        self._refresh_display()
-
-    def _jump_to_page(self) -> None:
-        try:
-            page = int(self._jump_entry.get().strip())
-        except ValueError:
-            return
-        if 1 <= page <= self._total_pages:
-            self._current_page = page
-            self._refresh_display()
 
     # --- 显示 ---
 
     def _refresh_display(self) -> None:
-        if not self.dialog.winfo_exists():
+        if not widget_alive(self.dialog):
             return
         self._current_page = min(self._current_page, self._total_pages)
-        self._page_label.configure(text=f"{self._current_page}/{self._total_pages}")
+        self._page_bar.show(self._current_page, self._total_pages)
 
         slots = self.analyzer.save_slots
         first = (self._current_page - 1) * TYRANO_SAVES_PER_PAGE
@@ -151,7 +114,7 @@ class TyranoDeleteDialog:
         self._load_page_images()
 
     def _load_page_images(self) -> None:
-        if not self.dialog.winfo_exists():
+        if not widget_alive(self.dialog):
             return
         self._load_id += 1
         load_id = self._load_id
@@ -160,8 +123,8 @@ class TyranoDeleteDialog:
             or (300, 150)
         cards = [card for card in self._cards if card.slot_index >= 0]
         image_datas = [card.slot_data.get("img_data") for card in cards]
-        no_image_text = self.translate("tyrano_no_imgdata")
-        failed_text = self.translate("tyrano_image_decode_failed")
+        no_image_text = self.t("tyrano_no_imgdata")
+        failed_text = self.t("tyrano_image_decode_failed")
         cache = self.viewer.image_cache
 
         def work() -> list:
@@ -190,7 +153,7 @@ class TyranoDeleteDialog:
     # --- 删除 ---
 
     def _on_delete_click(self) -> None:
-        t = self.translate
+        t = self.t
         if not self._selected:
             showwarning_relative(self.dialog, t("warning"), t("tyrano_delete_none_selected"))
             return
@@ -204,12 +167,12 @@ class TyranoDeleteDialog:
             lines.append(f"  #{index + 1}: {description or t('tyrano_no_save')}")
         details = "\n".join(lines)
         if len(indices) > CONFIRM_PREVIEW_COUNT:
-            details += t("tyrano_delete_confirm_more").format(count=len(indices))
+            details += t("tyrano_delete_confirm_more", count=len(indices))
 
         mode = self._delete_mode.get()
         key = "tyrano_delete_confirm_clear" if mode == MODE_CLEAR else "tyrano_delete_confirm_remove"
         if not askyesno_relative(self.dialog, t("tyrano_delete_confirm_title"),
-                                 t(key).format(count=len(indices), details=details)):
+                                 t(key, count=len(indices), details=details)):
             return
 
         if mode == MODE_CLEAR:
@@ -220,7 +183,7 @@ class TyranoDeleteDialog:
             showwarning_relative(self.dialog, t("error"), t("tyrano_delete_failed"))
             return
 
-        showinfo_relative(self.dialog, t("info"), t("tyrano_delete_success").format(count=len(indices)))
+        showinfo_relative(self.dialog, t("info"), t("tyrano_delete_success", count=len(indices)))
         self._selected.clear()
-        self.viewer.refresh()
+        self.viewer.refresh_display()
         self._refresh_display()

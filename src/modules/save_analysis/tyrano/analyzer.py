@@ -88,24 +88,31 @@ def extract_save_info(slot: Optional[Dict[str, Any]]) -> SaveInfo:
     )
 
 
-def day_text(info: SaveInfo, translate: Callable[[str], str]) -> str:
+def day_text(info: SaveInfo, t: Callable[..., str]) -> str:
     """「3日目」/「后日谈2日目」，没有天数时返回空字符串"""
     if info.day is None:
         return ""
     key = "tyrano_epilogue_day_label" if info.is_epilogue else "tyrano_day_label"
-    return translate(key).format(day=info.day)
+    return t(key, day=info.day)
 
 
-def describe_slot(slot: Optional[Dict[str, Any]], translate: Callable[[str], str]) -> str:
+def describe_slot(slot: Optional[Dict[str, Any]], t: Callable[..., str]) -> str:
     """一行文字描述存档槽，如「3日目 · ●●○ · 2024/05/01 12:00:00 · 副标题」；无可用信息时返回空字符串"""
     if not slot:
         return ""
     info = extract_save_info(slot)
-    parts = [day_text(info, translate)]
+    parts = [day_text(info, t)]
     if info.day is not None and not info.is_epilogue:
         parts.append(info.circles())
     parts += [info.save_date, info.subtitle]
     return " · ".join(p for p in parts if p)
+
+
+def step_page(page: int, total: int, delta: int) -> int:
+    """翻页：从 page 向前/后翻 delta 页，首尾循环（第一页之前是最后一页）；没有页面时返回 0"""
+    if total <= 0:
+        return 0
+    return (page - 1 + delta) % total + 1
 
 
 # ---------------------------------------------------------------------------
@@ -133,16 +140,23 @@ class TyranoAnalyzer:
 
     def load_save_file(self) -> bool:
         """加载存档文件，成功返回 True；失败时清空数据并返回 False"""
+        return self.set_save_data(self.read_file())
+
+    def read_file(self) -> Optional[Dict[str, Any]]:
+        """只读取并解码存档文件，不修改内存中的数据（可以在后台线程调用）；失败时返回 None"""
         try:
             save_data = read_sav(self.file_path)
         except FileNotFoundError:
             logger.warning("Tyrano save file not found: %s", self.file_path)
-            save_data = None
+            return None
         except (OSError, ValueError) as e:
             logger.error("Failed to load %s: %s", self.file_path, e, exc_info=True)
-            save_data = None
+            return None
+        return save_data if isinstance(save_data, dict) else None
 
-        if not isinstance(save_data, dict):
+    def set_save_data(self, save_data: Optional[Dict[str, Any]]) -> bool:
+        """使用 read_file() 读到的数据；None 表示读取失败，清空数据并返回 False"""
+        if save_data is None:
             self.save_data = None
             self.save_slots = []
             self.current_page = self.total_pages = 0
@@ -178,14 +192,6 @@ class TyranoAnalyzer:
             self.current_page = page
             return True
         return False
-
-    def go_to_next_page(self) -> None:
-        """下一页（最后一页之后回到第一页）"""
-        self.current_page = self.current_page % self.total_pages + 1 if self.total_pages else 0
-
-    def go_to_prev_page(self) -> None:
-        """上一页（第一页之前回到最后一页）"""
-        self.current_page = (self.current_page - 2) % self.total_pages + 1 if self.total_pages else 0
 
     # --- 修改 ---
 

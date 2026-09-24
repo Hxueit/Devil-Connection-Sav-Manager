@@ -231,7 +231,7 @@ def _t(key, **kwargs):
         "tyrano_day_label": "Day {day}",
         "tyrano_epilogue_day_label": "Epilogue {day}",
         "runtime_modify_console_no_quick_save": "none",
-    }.get(key, key)
+    }.get(key, key).format(**kwargs)
 
 
 def test_describe_quick_save():
