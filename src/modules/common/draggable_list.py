@@ -1,24 +1,117 @@
-"""通用可拖拽列表组件
+"""Treeview 拖拽排序
 
-提供轻量级的可拖拽排序列表功能，不依赖特定业务逻辑
+TreeDragReorder  给任意 Treeview 加上「按住一行拖到另一行」的排序手势（截图列表使用）
+DraggableList    基于它的现成可排序列表（Tyrano 存档重排对话框使用）
 """
 
-import logging
-from typing import Optional, List, Callable, Any, Dict
+from typing import Any, Callable, List, Optional
+
 import tkinter as tk
 from tkinter import ttk
 
-logger = logging.getLogger(__name__)
+DRAG_THRESHOLD = 5  # 鼠标移动超过这么多像素才算开始拖拽
+HIGHLIGHT_MS = 3000
+
+
+class TreeDragReorder:
+    """把 Treeview 上的拖拽手势翻译成 on_drop(from_index, to_index)
+
+    index 只数「数据行」（is_data_row 返回 True 的行），页眉之类的辅助行不计。
+    拖动时被拖的行加上 "Dragging" 标签，目标位置显示一条黑色指示线。
+    事件用 add="+" 绑定：如果调用方先绑定的 <Button-1> 返回 "break"，这里就不会开始拖拽。
+    """
+
+    def __init__(self, tree: ttk.Treeview, is_data_row: Callable[[str], bool],
+                 on_drop: Callable[[int, int], None], can_drag: Callable[[], bool] = lambda: True) -> None:
+        self.tree = tree
+        self.is_data_row = is_data_row
+        self.on_drop = on_drop
+        self.can_drag = can_drag
+        self._start_item: Optional[str] = None
+        self._start_y = 0
+        self._dragging = False
+        # 指示线放在 Treeview 的父容器里，用 place 叠在树上面
+        self._line = tk.Frame(tree.master, bg="black", height=3)
+
+        tree.tag_configure("Dragging", background="#E3F2FD", foreground="#1976D2")
+        tree.bind('<Button-1>', self._on_press, add="+")
+        tree.bind('<B1-Motion>', self._on_motion, add="+")
+        tree.bind('<ButtonRelease-1>', self._on_release, add="+")
+
+    def _is_row(self, item: str) -> bool:
+        return bool(item) and self.tree.exists(item) and self.is_data_row(item)
+
+    def _on_press(self, event: tk.Event) -> None:
+        item = self.tree.identify_row(event.y)
+        self._start_item = item if self._is_row(item) else None
+        self._start_y = event.y
+        self._dragging = False
+
+    def _on_motion(self, event: tk.Event) -> None:
+        if self._start_item is None:
+            return
+        if not self.can_drag():
+            self._finish()
+            return
+        if not self._dragging:
+            if abs(event.y - self._start_y) <= DRAG_THRESHOLD:
+                return
+            self._dragging = True
+            self._set_dragging_tag(True)
+
+        target = self.tree.identify_row(event.y)
+        bbox = self.tree.bbox(target) if target != self._start_item and self._is_row(target) else None
+        if not bbox:
+            self._line.place_forget()
+            return
+        _, y, _, height = bbox
+        children = self.tree.get_children()
+        below = children.index(target) > children.index(self._start_item)
+        self._line.place(x=self.tree.winfo_x(), y=self.tree.winfo_y() + (y + height if below else y),
+                         width=self.tree.winfo_width(), height=3)
+        self._line.lift()
+
+    def _on_release(self, event: tk.Event) -> None:
+        start, was_dragging = self._start_item, self._dragging
+        self._finish()
+        if not was_dragging or start is None or not self.tree.exists(start) or not self.can_drag():
+            return
+        target = self.tree.identify_row(event.y)
+        if target != start and self._is_row(target):
+            self.on_drop(self.data_index(start), self.data_index(target))
+
+    def _finish(self) -> None:
+        self._set_dragging_tag(False)
+        self._line.place_forget()
+        self._start_item = None
+        self._dragging = False
+
+    def _set_dragging_tag(self, on: bool) -> None:
+        item = self._start_item
+        if not item or not self.tree.exists(item):
+            return
+        tags = [tag for tag in self.tree.item(item, "tags") if tag != "Dragging"]
+        if on:
+            tags.append("Dragging")
+        self.tree.item(item, tags=tags)
+
+    def data_index(self, item: str) -> int:
+        """item 是第几个数据行"""
+        index = 0
+        for child in self.tree.get_children():
+            if child == item:
+                return index
+            if self.is_data_row(child):
+                index += 1
+        raise ValueError(f"{item} is not in the tree")
 
 
 class DraggableList:
-    """通用可拖拽列表组件
-    
-    提供Treeview的拖拽排序功能，不依赖特定业务逻辑
+    """可拖拽排序的列表，每 items_per_page 项插入一行页码
+
+    顺序用「原始索引列表」表示，改变后调用 on_order_changed(新顺序)。
     """
-    
-    DRAG_THRESHOLD: int = 5
-    
+
     def __init__(
         self,
         parent: tk.Widget,
@@ -26,484 +119,76 @@ class DraggableList:
         data_items: List[Any],
         format_item: Callable[[Any, int], str],
         on_order_changed: Optional[Callable[[List[int]], None]] = None,
-        get_cjk_font: Optional[Callable[[int], Any]] = None,
+        get_cjk_font: Optional[Callable[..., Any]] = None,
         colors_class: Optional[type] = None,
-        translation_func: Optional[Callable[[str], str]] = None
+        translation_func: Optional[Callable[[str], str]] = None,
+        items_per_page: int = 6,
+        empty_text_key: str = "tyrano_no_save",
     ) -> None:
-        """初始化可拖拽列表
-        
-        Args:
-            parent: 父容器
-            root: 根窗口
-            data_items: 数据项列表
-            format_item: 格式化函数，接收(item, index)返回显示文本
-            on_order_changed: 顺序改变回调，接收新索引列表
-            get_cjk_font: 字体获取函数，可选
-            colors_class: 颜色常量类，可选
-        """
-        if parent is None:
-            raise ValueError("parent cannot be None")
-        if root is None:
-            raise ValueError("root cannot be None")
-        if data_items is None:
-            raise ValueError("data_items cannot be None")
-        if format_item is None:
-            raise ValueError("format_item cannot be None")
-        
-        self.parent = parent
         self.root = root
         self.data_items = data_items
         self.format_item = format_item
         self.on_order_changed = on_order_changed
-        self.get_cjk_font = get_cjk_font or (lambda size: ("Arial", size))
-        self.Colors = colors_class
         self.translate = translation_func or (lambda key: key)
-        
-        # 拖拽状态
-        self.drag_start_item: Optional[str] = None
-        self.drag_start_y: Optional[int] = None
-        self.is_dragging: bool = False
-        self.drag_target_item: Optional[str] = None
-        self.current_indicator_target: Optional[str] = None
-        self.current_indicator_position: Optional[int] = None
-        
-        # UI组件
-        self.tree: Optional[ttk.Treeview] = None
-        self.scrollbar: Optional[ttk.Scrollbar] = None
-        self.drag_indicator_line: Optional[tk.Frame] = None
-        
-        # 当前顺序（索引列表）
+        self.items_per_page = items_per_page
+        self.empty_text_key = empty_text_key
         self._current_order: List[int] = list(range(len(data_items)))
-        
-        # 高亮相关
-        self._highlighted_item: Optional[str] = None
         self._highlight_timer: Optional[str] = None
-        
-        self._create_ui()
-        self._populate_list()
-    
-    def _create_ui(self) -> None:
-        """创建UI组件"""
-        # 创建框架
-        frame = tk.Frame(self.parent)
+
+        get_cjk_font = get_cjk_font or (lambda size, weight="normal": ("Arial", size, weight))
+        frame = tk.Frame(parent)
         frame.pack(fill="both", expand=True)
-        
-        # 创建滚动条
-        self.scrollbar = ttk.Scrollbar(frame, orient="vertical")
-        self.scrollbar.pack(side="right", fill="y")
-        
-        # 创建Treeview
-        tree_style = ttk.Style(self.root)
-        tree_style.configure("Draggable.Treeview", rowheight=26, padding=(0, 6))
-        
-        self.tree = ttk.Treeview(
-            frame,
-            columns=("content",),
-            show="headings",
-            style="Draggable.Treeview",
-            yscrollcommand=self.scrollbar.set
-        )
-        
-        # 配置列
-        self.tree.heading("#0", text="", anchor="w")
-        self.tree.column("#0", width=0, stretch=False, minwidth=0)
-        
+        scrollbar = ttk.Scrollbar(frame, orient="vertical")
+        scrollbar.pack(side="right", fill="y")
+
+        ttk.Style(root).configure("Draggable.Treeview", rowheight=26, padding=(0, 6))
+        self.tree = ttk.Treeview(frame, columns=("content",), show="headings",
+                                 style="Draggable.Treeview", yscrollcommand=scrollbar.set)
         self.tree.heading("content", text="", anchor="w")
         self.tree.column("content", width=800, stretch=True)
-        
-        # 配置标签样式
-        if self.Colors:
-            self.tree.tag_configure("Dragging", background="#E3F2FD", foreground="#1976D2")
-            # 高亮标签：淡蓝色背景
-            self.tree.tag_configure("Highlighted", background="#E1F5FE", foreground="#01579B")
-            page_header_font = self.get_cjk_font(10, "bold") if callable(self.get_cjk_font) else ("Arial", 10, "bold")
-            self.tree.tag_configure("PageHeader", 
-                foreground=self.Colors.TEXT_SECONDARY if hasattr(self.Colors, 'TEXT_SECONDARY') else "gray",
-                font=page_header_font)
-        else:
-            self.tree.tag_configure("Dragging", background="#E3F2FD", foreground="#1976D2")
-            # 高亮标签：淡蓝色背景
-            self.tree.tag_configure("Highlighted", background="#E1F5FE", foreground="#01579B")
-            self.tree.tag_configure("PageHeader", foreground="gray", font=("Arial", 10, "bold"))
-        
+        self.tree.tag_configure("Highlighted", background="#E1F5FE", foreground="#01579B")
+        self.tree.tag_configure("PageHeader", foreground=getattr(colors_class, "TEXT_SECONDARY", "gray"),
+                                font=get_cjk_font(10, "bold"))
         self.tree.pack(side="left", fill="both", expand=True)
-        self.scrollbar.config(command=self.tree.yview)
-        
-        # 创建拖拽指示线
-        self.drag_indicator_line = tk.Frame(frame, bg="black", height=3)
-        self.drag_indicator_line.place_forget()
-        
-        # 绑定事件
-        self.tree.bind('<Button-1>', self._on_button1_click)
-        self.tree.bind('<B1-Motion>', self._on_drag_motion)
-        self.tree.bind('<ButtonRelease-1>', self._on_drag_end)
-    
-    def _populate_list(self) -> None:
-        """填充列表数据"""
-        if not self.tree:
-            return
-        
-        # 清空现有项
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-        
-        # 每页的项数（tyrano存档每页6个）
-        items_per_page = 6
-        page_number = 1
-        item_count = 0
-        
-        # 按当前顺序添加项
-        for idx in self._current_order:
-            # 每页开始时添加页面标记
-            if item_count % items_per_page == 0:
-                self._insert_page_header(page_number)
-            
-            if idx < len(self.data_items):
-                item = self.data_items[idx]
-                text = self.format_item(item, idx)
-                # 确保文本不为空（处理无存档的情况）
-                if not text or text.strip() == "":
-                    text = self.translate("tyrano_no_save") if hasattr(self, 'translate') else "无存档"
-                item_id = self.tree.insert("", "end", text="", values=(text,), tags=(str(idx),))
-                item_count += 1
-                
-                # 每页结束时增加页码
-                if item_count % items_per_page == 0:
-                    page_number += 1
-    
-    def _insert_page_header(self, page_number: int) -> None:
-        """插入页面标记行
-        
-        Args:
-            page_number: 页码
-        """
-        if not self.tree:
-            return
-        
-        page_text = f"{self.translate('page')} {page_number}"
-        if self.tree.winfo_exists():
-            self.tree.insert("", "end", text="", values=(page_text,), tags=("PageHeader",))
-    
-    def _is_valid_item(self, item_id: str) -> bool:
-        """检查项目是否为有效的数据项（非页眉）
-        
-        Args:
-            item_id: Treeview项目ID
-            
-        Returns:
-            如果是有效数据项返回True，否则返回False
-        """
-        if not item_id or not self.tree or not self.tree.winfo_exists():
-            return False
-        
-        item_tags = self.tree.item(item_id, "tags")
-        if not item_tags:
-            return True
-        
-        return "PageHeader" not in item_tags
-    
-    def _on_button1_click(self, event: tk.Event) -> Optional[str]:
-        """处理Button-1点击事件"""
-        if not self.tree:
-            return None
-        
-        item = self.tree.identify_row(event.y)
-        if item and self._is_valid_item(item):
-            self.drag_start_item = item
-            self.drag_start_y = event.y
-            self._reset_drag_state()
-        
-        return None
-    
-    def _on_drag_motion(self, event: tk.Event) -> None:
-        """处理拖拽移动事件"""
-        if not self.tree or self.drag_start_item is None:
-            return
-        
-        drag_start_y = self.drag_start_y
-        if drag_start_y is None:
-            return
-        
-        if abs(event.y - drag_start_y) <= self.DRAG_THRESHOLD:
-            return
-        
-        self.is_dragging = True
-        self._apply_dragging_tag()
-        
-        target_item = self.tree.identify_row(event.y)
-        self.drag_target_item = target_item
-        
-        if target_item and target_item != self.drag_start_item:
-            if not self._is_valid_item(target_item):
-                self._clear_drag_indicator()
-                return
-            is_dragging_down = self._calculate_drag_direction(target_item, event.y)
-            self._show_drag_indicator_line(target_item, is_dragging_down)
-        else:
-            self._clear_drag_indicator()
-    
-    def _on_drag_end(self, event: tk.Event) -> None:
-        """处理拖拽结束事件"""
-        if not self.tree:
-            return
-        
-        self._remove_dragging_tag()
-        self._clear_drag_indicator()
-        
-        if not self._should_process_drag():
-            self._reset_drag_state()
-            return
-        
-        end_item = self.drag_target_item or self.tree.identify_row(event.y)
-        if not end_item or end_item == self.drag_start_item:
-            self._reset_drag_state()
-            return
-        
-        if not self._is_valid_item(end_item):
-            self._reset_drag_state()
-            return
-        
-        self._perform_drag_move(end_item)
-        self._reset_drag_state()
-    
-    def _should_process_drag(self) -> bool:
-        """检查是否应该处理拖拽"""
-        if not self.tree or self.drag_start_item is None:
-            return False
-        
-        if not self.is_dragging:
-            return False
-        
-        return self.tree.winfo_exists() and self.tree.exists(self.drag_start_item)
-    
-    def _perform_drag_move(self, end_item: str) -> None:
-        """执行拖拽移动操作"""
-        if not self.tree:
-            return
-        
-        children = list(self.tree.get_children())
-        if self.drag_start_item not in children or end_item not in children:
-            logger.warning("Drag items not found in tree children")
-            return
-        
-        # 计算数据项在树中的实际索引（排除页面标记行）
-        start_data_index = self._get_data_index_from_tree(children, self.drag_start_item)
-        end_data_index = self._get_data_index_from_tree(children, end_item)
-        
-        if start_data_index is None or end_data_index is None:
-            logger.warning("Failed to get data indices")
-            return
-        
-        # 从当前顺序中取出要移动的索引
-        moved_data_idx = self._current_order.pop(start_data_index)
-        
-        # 计算插入位置（如果向下移动，需要调整索引）
-        if end_data_index > start_data_index:
-            insert_pos = end_data_index
-        else:
-            insert_pos = end_data_index
-        
-        # 插入到新位置
-        self._current_order.insert(insert_pos, moved_data_idx)
-        
-        # 重新填充列表以反映新顺序
+        scrollbar.config(command=self.tree.yview)
+
+        self._drag = TreeDragReorder(self.tree, self._is_data_row, self._move)
         self._populate_list()
-        
-        # 高亮被移动的项目
-        self._highlight_moved_item(insert_pos)
-        
-        # 调用回调
+
+    def _is_data_row(self, item: str) -> bool:
+        return "PageHeader" not in self.tree.item(item, "tags")
+
+    def _populate_list(self) -> None:
+        self.tree.delete(*self.tree.get_children())
+        for count, idx in enumerate(self._current_order):
+            if count % self.items_per_page == 0:
+                page_text = f"{self.translate('page')} {count // self.items_per_page + 1}"
+                self.tree.insert("", "end", values=(page_text,), tags=("PageHeader",))
+            text = self.format_item(self.data_items[idx], idx)
+            if not text or not text.strip():
+                text = self.translate(self.empty_text_key)
+            self.tree.insert("", "end", values=(text,))
+
+    def _move(self, from_index: int, to_index: int) -> None:
+        self._current_order.insert(to_index, self._current_order.pop(from_index))
+        self._populate_list()
+        self._highlight(to_index)
         if self.on_order_changed:
             self.on_order_changed(self._current_order.copy())
-    
-    def _get_data_index_from_tree(self, children: List[str], item_id: str) -> Optional[int]:
-        """从树子项列表中获取数据项的索引（排除页面标记行）
-        
-        Args:
-            children: 树的所有子项列表
-            item_id: 要查找的项目ID
-            
-        Returns:
-            数据项索引，如果未找到或不是数据项则返回None
-        """
-        data_count = 0
-        for child_id in children:
-            if child_id == item_id:
-                # 检查是否是页面标记行
-                if not self.tree.winfo_exists():
-                    return None
-                tags = self.tree.item(child_id, "tags")
-                if tags and "PageHeader" in tags:
-                    return None
-                return data_count
-            
-            # 只计算非页面标记行的项
-            if self.tree.winfo_exists():
-                tags = self.tree.item(child_id, "tags")
-                if not tags or "PageHeader" not in tags:
-                    data_count += 1
-        
-        return None
-    
-    def _highlight_moved_item(self, data_index: int) -> None:
-        """高亮被移动的项目
-        
-        Args:
-            data_index: 被移动项目在新顺序中的索引
-        """
-        if not self.tree or not self.tree.winfo_exists():
-            return
-        
-        # 清除之前的高亮
-        if self._highlighted_item:
-            if self.tree.exists(self._highlighted_item):
-                tags = list(self.tree.item(self._highlighted_item, "tags"))
-                if "Highlighted" in tags:
-                    tags.remove("Highlighted")
-                    self.tree.item(self._highlighted_item, tags=tags)
-        
-        # 取消之前的定时器
+
+    def _highlight(self, data_index: int) -> None:
+        """高亮刚移动的行，3 秒后恢复"""
         if self._highlight_timer:
-            try:
-                self.root.after_cancel(self._highlight_timer)
-            except (ValueError, tk.TclError):
-                pass
+            self.root.after_cancel(self._highlight_timer)
+        rows = [item for item in self.tree.get_children() if self._is_data_row(item)]
+        item = rows[data_index]
+        self.tree.item(item, tags=(*self.tree.item(item, "tags"), "Highlighted"))
+        self.tree.see(item)
+
+        def clear() -> None:
             self._highlight_timer = None
-        
-        # 找到对应的树项
-        children = list(self.tree.get_children())
-        data_count = 0
-        target_item = None
-        
-        for child_id in children:
-            tags = self.tree.item(child_id, "tags")
-            if not tags or "PageHeader" not in tags:
-                if data_count == data_index:
-                    target_item = child_id
-                    break
-                data_count += 1
-        
-        if target_item:
-            # 添加高亮标签
-            tags = list(self.tree.item(target_item, "tags"))
-            if "Highlighted" not in tags:
-                tags.append("Highlighted")
-                self.tree.item(target_item, tags=tags)
-            
-            self._highlighted_item = target_item
-            
-            # 滚动到可见位置
-            self.tree.see(target_item)
-            
-            # 3秒后自动清除高亮
-            def clear_highlight():
-                if self._highlighted_item and self.tree.winfo_exists() and self.tree.exists(self._highlighted_item):
-                    tags = list(self.tree.item(self._highlighted_item, "tags"))
-                    if "Highlighted" in tags:
-                        tags.remove("Highlighted")
-                        self.tree.item(self._highlighted_item, tags=tags)
-                self._highlighted_item = None
-                self._highlight_timer = None
-            
-            self._highlight_timer = self.root.after(3000, clear_highlight)
-    
-    def _calculate_drag_direction(self, target_item: str, event_y: int) -> bool:
-        """计算拖拽方向"""
-        if not self.tree or not self.drag_start_item or not self.tree.winfo_exists():
-            return True
-        
-        children = list(self.tree.get_children())
-        if self.drag_start_item in children and target_item in children:
-            start_index = children.index(self.drag_start_item)
-            target_index = children.index(target_item)
-            return target_index > start_index
-        
-        if self.drag_start_item and self.tree.exists(self.drag_start_item):
-            start_bbox = self.tree.bbox(self.drag_start_item)
-            if start_bbox:
-                return event_y > start_bbox[1] + start_bbox[3] / 2
-        
-        return True
-    
-    def _show_drag_indicator_line(self, target_item: str, is_dragging_down: bool) -> None:
-        """显示拖动指示线"""
-        if not self.tree or not self.drag_indicator_line or not self.tree.winfo_exists():
-            return
-        
-        if not self.tree.exists(target_item):
-            return
-        
-        bbox = self.tree.bbox(target_item)
-        if not bbox:
-            return
-        
-        _, y, width, height = bbox
-        tree_x = self.tree.winfo_x()
-        tree_y = self.tree.winfo_y()
-        
-        line_y = tree_y + (y + height if is_dragging_down else y)
-        
-        if (self.current_indicator_target == target_item and
-            self.current_indicator_position == line_y):
-            tree_width = self.tree.winfo_width()
-            self.drag_indicator_line.place(x=tree_x, y=line_y, width=tree_width, height=3)
-            self.drag_indicator_line.lift()
-            return
-        
-        self.current_indicator_target = target_item
-        self.current_indicator_position = line_y
-        tree_width = self.tree.winfo_width()
-        self.drag_indicator_line.place(x=tree_x, y=line_y, width=tree_width, height=3)
-        self.drag_indicator_line.lift()
-    
-    def _clear_drag_indicator(self) -> None:
-        """清除拖拽指示线"""
-        if self.drag_indicator_line and self.drag_indicator_line.winfo_exists():
-            self.drag_indicator_line.place_forget()
-        
-        self.current_indicator_target = None
-        self.current_indicator_position = None
-    
-    def _apply_dragging_tag(self) -> None:
-        """应用拖拽标签"""
-        if not self.tree or not self.drag_start_item or not self.tree.winfo_exists():
-            return
-        
-        if not self.tree.exists(self.drag_start_item):
-            return
-        
-        current_tags = list(self.tree.item(self.drag_start_item, "tags"))
-        if "Dragging" not in current_tags:
-            current_tags.append("Dragging")
-            self.tree.item(self.drag_start_item, tags=tuple(current_tags))
-    
-    def _remove_dragging_tag(self) -> None:
-        """移除拖拽标签"""
-        if not self.tree or not self.drag_start_item or not self.tree.winfo_exists():
-            return
-        
-        if not self.tree.exists(self.drag_start_item):
-            return
-        
-        start_tags = list(self.tree.item(self.drag_start_item, "tags"))
-        if "Dragging" in start_tags:
-            start_tags.remove("Dragging")
-            self.tree.item(self.drag_start_item, tags=tuple(start_tags))
-    
-    def _reset_drag_state(self) -> None:
-        """重置拖拽状态"""
-        self.drag_target_item = None
-        self.is_dragging = False
-    
-    def get_current_order(self) -> List[int]:
-        """获取当前顺序（索引列表）"""
-        return self._current_order.copy()
-    
-    def set_order(self, new_order: List[int]) -> None:
-        """设置新的顺序"""
-        if len(new_order) != len(self.data_items):
-            logger.warning(f"Order length mismatch: {len(new_order)} != {len(self.data_items)}")
-            return
-        
-        self._current_order = new_order.copy()
-        self._populate_list()
+            if self.tree.winfo_exists() and self.tree.exists(item):
+                tags = [tag for tag in self.tree.item(item, "tags") if tag != "Highlighted"]
+                self.tree.item(item, tags=tags)
+
+        self._highlight_timer = self.root.after(HIGHLIGHT_MS, clear)
