@@ -10,6 +10,7 @@ from src.modules.save_analysis.tyrano.analyzer import (
     describe_slot,
     extract_save_info,
     is_empty_save,
+    step_page,
 )
 from src.constants import TYRANO_SAVE_FILENAME
 from src.modules.save_analysis.tyrano.image_utils import (
@@ -23,8 +24,9 @@ from src.utils.sav_io import read_sav, write_sav
 EMPTY = {"title": "NO SAVE", "save_date": "", "img_data": "", "stat": {}}
 
 
-def t(key):
-    return {"tyrano_day_label": "{day}日目", "tyrano_epilogue_day_label": "后日谈{day}日目"}.get(key, key)
+def t(key, **kwargs):
+    text = {"tyrano_day_label": "{day}日目", "tyrano_epilogue_day_label": "后日谈{day}日目"}.get(key, key)
+    return text.format(**kwargs)
 
 
 def slot(day=1, finished=(), epilogue=0, date="2024/05/01 12:00:00", subtitle=None, img=""):
@@ -91,13 +93,29 @@ def test_load_and_paging(storage):
     an = TyranoAnalyzer(str(storage))
     assert an.load_save_file()
     assert (an.total_pages, an.current_page) == (2, 1)
-    an.go_to_prev_page()
+    assert an.set_page(step_page(an.current_page, an.total_pages, -1))
     assert an.current_page == 2
     page = an.get_current_page_slots()
     assert len(page) == 6 and page[2:] == [None] * 4
-    an.go_to_next_page()
+    assert an.set_page(step_page(an.current_page, an.total_pages, 1))
     assert an.current_page == 1
     assert not an.set_page(3)
+
+
+def test_step_page_wraps():
+    assert step_page(1, 3, -1) == 3
+    assert step_page(3, 3, 1) == 1
+    assert step_page(2, 3, 1) == 3
+    assert step_page(0, 0, 1) == 0
+
+
+def test_read_file_does_not_change_state(storage):
+    an = TyranoAnalyzer(str(storage))
+    data = an.read_file()
+    assert isinstance(data, dict) and an.save_data is None and an.total_pages == 0
+    assert an.set_save_data(data) and an.save_data is data and an.current_page == 1
+    assert not an.set_save_data(None)
+    assert an.save_slots == [] and an.total_pages == 0
 
 
 def test_load_missing_or_broken(tmp_path):
