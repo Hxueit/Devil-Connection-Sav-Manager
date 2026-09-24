@@ -346,7 +346,7 @@ class SavTool:
         if self.screenshot_manager_ui is not None:
             self._run_safely("Reload screenshots", self.screenshot_manager_ui.load_screenshots)
         if self.save_analyzer is not None:
-            self._run_safely("Refresh SF analyzer tab", self.save_analyzer.refresh)
+            self._run_safely("Refresh SF analyzer tab", lambda: self.save_analyzer.refresh(force=True))
         self._prewarmed_tyrano = None
         if self.tyrano_tab is not None:
             self._teardown_lazy_tab(TYRANO_TAB)
@@ -410,7 +410,7 @@ class SavTool:
         if self.others_tab is not None:
             self._run_safely("Update others tab texts", lambda: self.others_tab.update_language(lang))
         if self.save_analyzer is not None:
-            self._run_safely("Refresh SF analyzer tab", self.save_analyzer.refresh)
+            self._run_safely("Update SF analyzer tab texts", self.save_analyzer.update_language)
         if self.tyrano_tab is not None:
             self._run_safely("Update Tyrano tab texts", self.tyrano_tab.update_ui_texts)
 
