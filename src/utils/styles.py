@@ -14,6 +14,8 @@ logger = logging.getLogger(__name__)
 
 # 字体整体放大倍率（影响 get_cjk_font / get_mono_font 与 Tk 系统默认字体）
 _FONT_SCALE = 1.25
+# Tk 缩放（每个「点」对应的像素数）的下限，见 _set_tk_scaling
+_MIN_TK_SCALING = 1.25
 
 _SYSTEM = platform.system()
 _CJK_FONT_NAME = {"Windows": "Microsoft YaHei", "Darwin": "PingFang SC"}.get(_SYSTEM, "Arial")
@@ -103,6 +105,8 @@ def _init_ctk_theme() -> None:
             ctk.deactivate_automatic_dpi_awareness()
         ctk.set_appearance_mode("system")
         ctk.set_default_color_theme("blue")
+        # 关掉自动 DPI 感知后 CTk 控件按 1 倍绘制，会比放大过的 Tk 字体和 ttk 控件小一圈，
+        # 所以固定放大 1.5 倍，让 CTk 和 ttk 控件看起来大小一致
         ctk.set_widget_scaling(1.5)
         ctk.set_window_scaling(1.5)
     except (AttributeError, TypeError, ImportError, RuntimeError) as e:
@@ -111,22 +115,35 @@ def _init_ctk_theme() -> None:
 
 
 def _configure_root_window(root: tk.Tk) -> None:
-    """设置根窗口背景色；Windows 上按窗口 DPI 调整 tk scaling（缺省按 96dpi 计算）"""
     try:
         root.configure(bg=Colors.LIGHT_GRAY)
     except (tk.TclError, AttributeError) as e:
         logger.debug(f"Failed to configure root background: {e}")
+    _set_tk_scaling(root)
 
-    if _SYSTEM != "Windows":
-        return
+
+def _set_tk_scaling(root: tk.Tk) -> None:
+    """设置 Tk 缩放（程序里只在这里设置）
+
+    Windows 上按窗口 DPI 计算（96dpi 为 1.0）。结果小于 _MIN_TK_SCALING 时用下限，
+    否则在普通 DPI 的屏幕上 Tk 控件和菜单的文字显得太小。
+    """
     try:
-        window_id = root.winfo_id()
-        if window_id:
-            dpi = ctypes.windll.user32.GetDpiForWindow(window_id)
+        scaling = float(root.tk.call("tk", "scaling"))
+    except (tk.TclError, ValueError) as e:
+        logger.debug(f"Failed to read tk scaling: {e}")
+        return
+    if _SYSTEM == "Windows":
+        try:
+            dpi = ctypes.windll.user32.GetDpiForWindow(root.winfo_id())
             if dpi and dpi > 0:
-                root.tk.call("tk", "scaling", dpi / 96.0)
-    except (OSError, AttributeError, ctypes.ArgumentError) as e:
-        logger.debug(f"Failed to get/set DPI scaling: {e}")
+                scaling = dpi / 96.0
+        except (OSError, AttributeError, ctypes.ArgumentError) as e:
+            logger.debug(f"Failed to get window DPI: {e}")
+    try:
+        root.tk.call("tk", "scaling", max(scaling, _MIN_TK_SCALING))
+    except tk.TclError as e:
+        logger.debug(f"Failed to set tk scaling: {e}")
 
 
 def _scale_system_fonts() -> None:

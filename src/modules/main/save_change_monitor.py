@@ -14,6 +14,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 from src.constants import SF_SAVE_FILENAME
 from src.utils.sav_io import read_sav
 from src.utils.toast import Toast
+from src.utils.ui_utils import widget_alive
 
 logger = logging.getLogger(__name__)
 
@@ -209,10 +210,7 @@ def _parse_arrow_change(change: str) -> Optional[Tuple[str, str, str]]:
 
 
 def _toast_alive(toast: Optional[Toast]) -> bool:
-    try:
-        return toast is not None and bool(toast.window.winfo_exists())
-    except (AttributeError, tk.TclError):
-        return False
+    return toast is not None and widget_alive(toast.window)
 
 
 class ChangeNotifier:

@@ -8,7 +8,7 @@ import logging
 import os
 import webbrowser
 from tkinter import filedialog, ttk
-from typing import Optional
+from typing import Callable, Optional
 
 import customtkinter as ctk
 
@@ -43,12 +43,6 @@ TAB_TITLE_KEYS = [
     "others_tab",
 ]
 LAZY_TABS = (BACKUP_TAB, TYRANO_TAB, RUNTIME_TAB, OTHERS_TAB)
-LAZY_TAB_ATTRS = {
-    BACKUP_TAB: "backup_restore_tab",
-    TYRANO_TAB: "tyrano_tab",
-    RUNTIME_TAB: "runtime_modify_tab",
-    OTHERS_TAB: "others_tab",
-}
 
 TYRANO_PREWARM_DELAY_MS = 2400  # 选择目录后稍等再在后台预读 Tyrano 存档，不和界面创建抢时间
 THEME_CHECK_INTERVAL_MS = 5000
@@ -149,6 +143,14 @@ class SavTool:
                 return text
         return text
 
+    @staticmethod
+    def _run_safely(what: str, action: Callable[[], object]) -> None:
+        """执行某个标签页的操作；出错只记日志，不影响其他标签页和后续步骤"""
+        try:
+            action()
+        except Exception:
+            logger.exception(f"{what} failed")
+
     def _create_hint_label(self, frame: ctk.CTkFrame) -> ctk.CTkLabel:
         """「请先选择目录」提示"""
         label = ctk.CTkLabel(
@@ -209,21 +211,28 @@ class SavTool:
 
         self.hint_labels[SCREENSHOT_TAB].pack_forget()
         if self.screenshot_manager_ui is None:
-            self.screenshot_manager_ui = ScreenshotManagerUI(
-                self.tab_frames[SCREENSHOT_TAB], self.root, storage_dir, self.t
-            )
+            self._run_safely("Create screenshot tab", self._create_screenshot_tab)
         else:
             self.screenshot_manager_ui.set_storage_dir(storage_dir)
-            self.screenshot_manager_ui.load_screenshots()
+            self._run_safely("Reload screenshots", self.screenshot_manager_ui.load_screenshots)
 
         self._clear_frame(SF_TAB)
         self.hint_labels[SF_TAB].pack_forget()
-        self.save_analyzer = SaveAnalyzer(self.tab_frames[SF_TAB], storage_dir, self.t)
+        self.save_analyzer = None
+        self._run_safely("Create SF analyzer tab", self._create_sf_tab)
 
         self._pending_tabs = set(LAZY_TABS)
         self._restart_save_monitor()
         self._create_tab_if_pending(self._current_tab())
         self.root.after(TYRANO_PREWARM_DELAY_MS, self._prewarm_tyrano)
+
+    def _create_screenshot_tab(self) -> None:
+        self.screenshot_manager_ui = ScreenshotManagerUI(
+            self.tab_frames[SCREENSHOT_TAB], self.root, self.storage_dir, self.t
+        )
+
+    def _create_sf_tab(self) -> None:
+        self.save_analyzer = SaveAnalyzer(self.tab_frames[SF_TAB], self.storage_dir, self.t)
 
     def _clear_frame(self, index: int) -> None:
         """销毁标签页里的内容，保留提示标签和 CTkFrame 自己用来画背景的 canvas"""
@@ -238,17 +247,21 @@ class SavTool:
 
         否则再次选择目录后，旧页面会显示旧目录的数据，运行时修改页的状态轮询和热键也不会停止。
         """
-        attr = LAZY_TAB_ATTRS[index]
-        tab = getattr(self, attr)
-        if tab is not None:
-            try:
-                if index == RUNTIME_TAB:
-                    tab.cleanup(stop_game=False)  # 换目录不应该关掉正在运行的游戏
-                elif index == TYRANO_TAB:
-                    tab.cleanup()
-            except Exception as e:
-                logger.debug(f"Failed to clean up {attr}: {e}")
-            setattr(self, attr, None)
+        if index == BACKUP_TAB:
+            self.backup_restore_tab = None
+        elif index == TYRANO_TAB:
+            if self.tyrano_tab is not None:
+                self._run_safely("Clean up Tyrano tab", self.tyrano_tab.cleanup)
+            self.tyrano_tab = None
+        elif index == RUNTIME_TAB:
+            if self.runtime_modify_tab is not None:
+                # 换目录不应该关掉正在运行的游戏
+                self._run_safely(
+                    "Clean up runtime modify tab", lambda: self.runtime_modify_tab.cleanup(stop_game=False)
+                )
+            self.runtime_modify_tab = None
+        elif index == OTHERS_TAB:
+            self.others_tab = None
         self._clear_frame(index)
         self.hint_labels[index].pack(pady=50)
         self._pending_tabs.add(index)
@@ -260,32 +273,31 @@ class SavTool:
         logger.debug(f"切换到标签页索引: {index}")
         created = self._create_tab_if_pending(index)
         if index == SF_TAB and self.save_analyzer is not None:
-            try:
-                self.save_analyzer.refresh()
-            except Exception:
-                logger.exception("刷新存档分析页失败")
+            self._run_safely("Refresh SF analyzer tab", self.save_analyzer.refresh)
         elif index == BACKUP_TAB and self.backup_restore_tab is not None and not created:
-            self.backup_restore_tab.refresh_backup_list()
+            self._run_safely("Refresh backup list", self.backup_restore_tab.refresh_backup_list)
         self._update_version_info_visibility()
 
     def _create_tab_if_pending(self, index: int) -> bool:
+        """第一次切换到懒加载标签页时创建它；返回这次是否新建了"""
         if not self.storage_dir or index not in self._pending_tabs:
             return False
         self._pending_tabs.discard(index)
         self.hint_labels[index].pack_forget()
-        frame = self.tab_frames[index]
-        if index == BACKUP_TAB:
-            self.backup_restore_tab = BackupRestoreTab(
-                frame, self.root, self.storage_dir, self.t,
-                on_restore_start=self._on_restore_start, on_restore_done=self._on_restore_done,
-            )
-        elif index == TYRANO_TAB:
-            self._create_tyrano_tab()
-        elif index == RUNTIME_TAB:
-            self.runtime_modify_tab = RuntimeModifyTab(frame, self.storage_dir, self.t, self.root)
-        elif index == OTHERS_TAB:
-            self.others_tab = OthersTab(frame, self)
+        create = {
+            BACKUP_TAB: self._create_backup_tab,
+            TYRANO_TAB: self._create_tyrano_tab,
+            RUNTIME_TAB: self._create_runtime_tab,
+            OTHERS_TAB: self._create_others_tab,
+        }[index]
+        self._run_safely(f"Create {TAB_TITLE_KEYS[index]}", create)
         return True
+
+    def _create_backup_tab(self) -> None:
+        self.backup_restore_tab = BackupRestoreTab(
+            self.tab_frames[BACKUP_TAB], self.root, self.storage_dir, self.t,
+            on_restore_start=self._on_restore_start, on_restore_done=self._on_restore_done,
+        )
 
     def _create_tyrano_tab(self) -> None:
         analyzer = self._prewarmed_tyrano
@@ -293,13 +305,13 @@ class SavTool:
         if analyzer is None:
             analyzer = TyranoAnalyzer(self.storage_dir)
             analyzer.load_save_file()
-        try:
-            self.tyrano_tab = TyranoSaveViewer(
-                self.tab_frames[TYRANO_TAB], analyzer, self.t, self.root
-            )
-        except Exception:
-            logger.exception("Failed to create TyranoSaveViewer")
-            self.tyrano_tab = None
+        self.tyrano_tab = TyranoSaveViewer(self.tab_frames[TYRANO_TAB], analyzer, self.t, self.root)
+
+    def _create_runtime_tab(self) -> None:
+        self.runtime_modify_tab = RuntimeModifyTab(self.tab_frames[RUNTIME_TAB], self.storage_dir, self.t, self.root)
+
+    def _create_others_tab(self) -> None:
+        self.others_tab = OthersTab(self.tab_frames[OTHERS_TAB], self)
 
     def _prewarm_tyrano(self) -> None:
         """在后台预读 Tyrano 存档，用户切到该页时就不用再等文件读取"""
@@ -332,9 +344,9 @@ class SavTool:
             return
         # 存档文件已被替换：刷新已打开的页面，Tyrano 页丢弃旧数据重新创建
         if self.screenshot_manager_ui is not None:
-            self.screenshot_manager_ui.load_screenshots()
+            self._run_safely("Reload screenshots", self.screenshot_manager_ui.load_screenshots)
         if self.save_analyzer is not None:
-            self.save_analyzer.refresh()
+            self._run_safely("Refresh SF analyzer tab", self.save_analyzer.refresh)
         self._prewarmed_tyrano = None
         if self.tyrano_tab is not None:
             self._teardown_lazy_tab(TYRANO_TAB)
@@ -385,28 +397,22 @@ class SavTool:
         for index, title_key in enumerate(TAB_TITLE_KEYS):
             self.notebook.tab(index, text=self.t(title_key))
         for label in self.hint_labels:
-            if label.winfo_exists():
-                label.configure(text=self.t("select_dir_hint"))
+            label.configure(text=self.t("select_dir_hint"))
 
+        # 每个标签页单独更新：某一页出错不影响其他页
         if self.screenshot_manager_ui is not None:
-            self.screenshot_manager_ui.update_ui_texts()
-            self.screenshot_manager_ui.load_screenshots()
+            self._run_safely("Update screenshot tab texts", self.screenshot_manager_ui.update_ui_texts)
+            self._run_safely("Reload screenshots", self.screenshot_manager_ui.load_screenshots)
         if self.backup_restore_tab is not None:
-            self.backup_restore_tab.update_ui_texts()
+            self._run_safely("Update backup tab texts", self.backup_restore_tab.update_ui_texts)
         if self.runtime_modify_tab is not None:
-            self.runtime_modify_tab.update_language()
+            self._run_safely("Update runtime modify tab texts", self.runtime_modify_tab.update_language)
         if self.others_tab is not None:
-            self.others_tab.update_language(lang)
+            self._run_safely("Update others tab texts", lambda: self.others_tab.update_language(lang))
         if self.save_analyzer is not None:
-            try:
-                self.save_analyzer.refresh()
-            except Exception:
-                logger.exception("Save analyzer language update error")
+            self._run_safely("Refresh SF analyzer tab", self.save_analyzer.refresh)
         if self.tyrano_tab is not None:
-            try:
-                self.tyrano_tab.update_ui_texts()
-            except Exception:
-                logger.exception("Tyrano tab language update error")
+            self._run_safely("Update Tyrano tab texts", self.tyrano_tab.update_ui_texts)
 
     # ---------- 其他 ----------
 
@@ -421,19 +427,7 @@ class SavTool:
         if self.save_monitor:
             self.save_monitor.stop()
         if self.tyrano_tab is not None:
-            try:
-                self.tyrano_tab.cleanup()
-            except Exception as e:
-                logger.debug(f"清理tyrano标签页时出错: {e}")
+            self._run_safely("Clean up Tyrano tab", self.tyrano_tab.cleanup)
         if self.runtime_modify_tab is not None:
-            try:
-                self.runtime_modify_tab.cleanup()
-            except Exception as e:
-                logger.debug(f"清理运行时修改标签页时出错: {e}")
+            self._run_safely("Clean up runtime modify tab", self.runtime_modify_tab.cleanup)
         self.root.destroy()
-
-
-if __name__ == "__main__":
-    app_root = ctk.CTk()
-    SavTool(app_root)
-    app_root.mainloop()

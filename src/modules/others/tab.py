@@ -12,12 +12,11 @@ from tkinter import filedialog
 
 import customtkinter as ctk
 
-from src.constants import TYRANO_SAVE_FILENAME
-from src.constants import VERSION
+from src.constants import TYRANO_SAVE_FILENAME, VERSION
 from src.modules.main.update_checker import fetch_latest_release, format_release_date, is_newer
 from src.utils.background import run_in_background
 from src.utils.sav_io import read_sav, write_sav, write_text_atomic
-from src.utils.styles import Colors, get_cjk_font
+from src.utils.styles import Colors, get_cjk_font, white_button
 from src.utils.ui_utils import askyesno_relative, showerror_relative, showinfo_relative
 
 logger = logging.getLogger(__name__)
@@ -32,7 +31,6 @@ class OthersTab:
         self.parent = parent
         self.app = app
         self.t = app.t
-        self.container = None
         self._build_ui()
 
     @property
@@ -94,21 +92,13 @@ class OthersTab:
         ).pack(anchor="w", pady=(3, 0))
         self._update_ignore_entry_state()
 
-        for text_key, command in (
-            ("export_tyrano_data", self._export_tyrano_data),
-            ("import_tyrano_data", self._import_tyrano_data),
-            ("check_for_updates", self._check_for_updates),
-        ):
-            button = ctk.CTkButton(
-                button_frame, text=self.t(text_key), command=command, corner_radius=8, fg_color=Colors.WHITE,
-                hover_color=Colors.LIGHT_GRAY, border_width=1, border_color=Colors.GRAY,
-                text_color=Colors.TEXT_PRIMARY, font=get_cjk_font(10),
-            )
-            button.pack(fill="x", pady=10)
-            if text_key == "check_for_updates":
-                self.update_button = button
+        white_button(button_frame, self.t("export_tyrano_data"), self._export_tyrano_data).pack(fill="x", pady=10)
+        white_button(button_frame, self.t("import_tyrano_data"), self._import_tyrano_data).pack(fill="x", pady=10)
+        self.update_button = white_button(button_frame, self.t("check_for_updates"), self._check_for_updates)
+        self.update_button.pack(fill="x", pady=10)
 
     def update_language(self, language: str = None) -> None:
+        """整个页面按新语言重建（language 参数没有用到，t 已经切换了语言）"""
         self.container.destroy()
         self._build_ui()
 
