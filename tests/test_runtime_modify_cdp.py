@@ -8,7 +8,12 @@ import pytest
 from websockets.sync.server import serve
 
 from src.modules.runtime_modify import service
-from src.modules.runtime_modify.cache_clean_dialog import CleanupJob, run_cleanup
+from src.modules.runtime_modify.cache_clean_dialog import (
+    CannotCleanNowError,
+    CleanupItemResult,
+    CleanupJob,
+    run_cleanup,
+)
 from src.modules.runtime_modify.cache_clean_scripts import JS_CHECK_PHOTO_OPEN, JS_CHECK_STATE, generate_cleanup_script
 from src.modules.runtime_modify.console import describe_quick_save, format_result
 
@@ -127,48 +132,59 @@ def test_fetch_target_picks_game_page(cdp):
 
 
 def test_evaluate_value_exception_and_timeout(cdp):
-    assert service.evaluate(cdp.ws_url, "typeof TYRANO") == ("object", None)
-    assert service.evaluate(cdp.ws_url, "1 + undefinedThing") == (None, None)
-    assert service.evaluate(cdp.ws_url, "throw new Error('boom')") == (None, "Error: boom")
-    value, error = service.evaluate(cdp.ws_url, "hang", timeout=0.3)
-    assert value is None and "Timed out" in error
-    value, error = service.evaluate(f"ws://127.0.0.1:{_free_port()}/x", "1")
-    assert value is None and error
+    assert service.evaluate(cdp.ws_url, "typeof TYRANO") == "object"
+    assert service.evaluate(cdp.ws_url, "1 + undefinedThing") is None
+    with pytest.raises(service.CdpError, match="Error: boom"):
+        service.evaluate(cdp.ws_url, "throw new Error('boom')")
+    with pytest.raises(service.CdpError, match="Timed out"):
+        service.evaluate(cdp.ws_url, "hang", timeout=0.3)
+    with pytest.raises(service.CdpError):
+        service.evaluate(f"ws://127.0.0.1:{_free_port()}/x", "1")
 
 
 def test_read_and_inject_sf(cdp, game):
-    s = service.RuntimeModifyService()
-    data, error = s.read_tyrano_variable_sf(cdp.ws_url)
-    assert error is None and data == game.sf
+    assert service.read_json_variable(cdp.ws_url, service.SF_JS_PATH) == game.sf
 
-    ok, error = s.inject_and_save_sf(cdp.ws_url, {"nested": {"y": 5}, "text": "it's \"quoted\"\n"})
-    assert (ok, error) == (True, None)
+    service.inject_and_save_sf(cdp.ws_url, {"nested": {"y": 5}, "text": "it's \"quoted\"\n"})
     assert game.sf["nested"] == {"x": 1, "y": 5}
     assert game.sf["text"] == "it's \"quoted\"\n"
     assert game.saved == 1
 
-    ok, _ = s.inject_kag_stat(cdp.ws_url, {"f": {"day": 4}})
-    assert ok and game.stat == {"f": {"day": 4}} and game.saved == 1
-    assert s.inject_kag_stat(cdp.ws_url, {}) == (False, "Cannot inject empty data")
+    service.assign_json_variable(cdp.ws_url, service.KAG_STAT_JS_PATH, {"f": {"day": 4}})
+    assert game.stat == {"f": {"day": 4}} and game.saved == 1
+    with pytest.raises(service.CdpError, match="empty"):
+        service.assign_json_variable(cdp.ws_url, service.KAG_STAT_JS_PATH, {})
 
 
-def test_check_sf_changes(cdp, game):
-    s = service.RuntimeModifyService()
+def test_read_json_variable_rejects_non_objects(cdp, game):
+    game.overrides["JSON.stringify(TYRANO.kag.stat)"] = "[1, 2]"
+    with pytest.raises(service.CdpError, match="not a dictionary"):
+        service.read_json_variable(cdp.ws_url, service.KAG_STAT_JS_PATH)
+    game.overrides["JSON.stringify(TYRANO.kag.stat)"] = None
+    with pytest.raises(service.CdpError, match="empty"):
+        service.read_json_variable(cdp.ws_url, service.KAG_STAT_JS_PATH)
+
+
+def test_describe_changes(cdp, game):
     original = dict(game.sf)
-    assert s.check_sf_changes(cdp.ws_url, original)[0] is False
+    assert service.describe_changes(original, service.read_json_variable(cdp.ws_url, service.SF_JS_PATH)) == []
     game.sf["a"] = 2
     game.sf["list"] = [1]
-    changed, info = s.check_sf_changes(cdp.ws_url, original)
-    assert changed
-    assert info["changes_text"] == "  a: 1 -> 2\n  list: Array changed (length: 2 -> 1)"
+    changes = service.describe_changes(original, service.read_json_variable(cdp.ws_url, service.SF_JS_PATH))
+    assert changes == ["  a: 1 -> 2", "  list: Array changed (length: 2 -> 1)"]
 
 
-def test_poll_status_and_mark_read(cdp):
+def test_poll_status_and_mark_read(cdp, game):
     s = service.RuntimeModifyService()
     assert s.poll_status(cdp.port) == (True, cdp.ws_url)
     assert s.poll_status(_free_port()) == (False, None)
     assert s.poll_status(None) == (False, None)
-    assert s.mark_current_label_read(cdp.ws_url) == (True, None)
+    service.mark_current_label_read(cdp.ws_url)
+
+    game.overrides[service._JS_MARK_CURRENT_LABEL_READ] = {"success": False, "message": "not_in_any_label"}
+    with pytest.raises(service.MarkReadRefusedError) as info:
+        service.mark_current_label_read(cdp.ws_url)
+    assert info.value.code == "not_in_any_label"
 
 
 def test_launch_and_test(cdp, game, monkeypatch, tmp_path):
@@ -187,12 +203,30 @@ def test_launch_and_test(cdp, game, monkeypatch, tmp_path):
     exe.write_text("")
 
     s = service.RuntimeModifyService()
-    ok, error, info = s.launch_and_test(exe, cdp.port)
-    assert ok and error is None
+    info = s.launch_and_test(exe, cdp.port)
     assert launched == [[str(exe), f"--remote-debugging-port={cdp.port}"]]
     assert info["ws_url"] == cdp.ws_url and info["launch_mode"] == "direct"
     assert info["tyrano_type"] == "object"
     assert any("DCSM Injected" in e for e in game.expressions)
+
+
+def test_launch_and_test_reports_still_starting(monkeypatch, tmp_path):
+    class FakePopen:
+        def __init__(self, cmd, **kwargs):
+            pass
+
+        def poll(self):
+            return None
+
+    monkeypatch.setattr(service.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(service, "GAME_STARTUP_DELAY", 0)
+    monkeypatch.setattr(service, "DIRECT_CDP_MAX_WAIT", 0.2)
+    exe = tmp_path / "DevilConnection.exe"
+    exe.write_text("")
+
+    with pytest.raises(service.LaunchError) as info:
+        service.RuntimeModifyService().launch_and_test(exe, _free_port())
+    assert info.value.still_starting and info.value.info == {"launch_mode": "direct"}
 
 
 def test_deep_merge_does_not_modify_inputs():
@@ -207,14 +241,21 @@ def test_run_cleanup_skips_photo_items_when_photo_open(cdp, game):
     game.overrides[JS_CHECK_STATE] = {"canClean": True}
     game.overrides[JS_CHECK_PHOTO_OPEN] = {"isOpen": True}
     game.overrides["ok-script"] = {"success": True, "count": 3}
-    jobs = [CleanupJob("photo", "photo-script", requires_photo_closed=True), CleanupJob("ok", "ok-script")]
+    jobs = [CleanupJob("photo", "photo-script", requires_photo_closed=True), CleanupJob("ok", "ok-script"),
+            CleanupJob("bad", "throw bad"), CleanupJob("odd", "odd-script")]
     result = run_cleanup(cdp.ws_url, jobs)
-    assert result["skipped"] == ["photo"]
-    assert result["items"] == [("ok", 3, None)]
+    assert result.skipped == ["photo"]
+    assert result.items == [
+        CleanupItemResult("ok", 3),
+        CleanupItemResult("bad", None, "Error: boom", script_failed=True),
+        CleanupItemResult("odd", None, script_failed=True),
+    ]
     assert "photo-script" not in game.expressions
 
     game.overrides[JS_CHECK_STATE] = {"canClean": False, "reason": "is_trans"}
-    assert run_cleanup(cdp.ws_url, jobs) == {"cannot_clean": "is_trans"}
+    with pytest.raises(CannotCleanNowError) as info:
+        run_cleanup(cdp.ws_url, jobs)
+    assert info.value.reason == "is_trans"
 
 
 def test_generate_cleanup_script_escapes_values():

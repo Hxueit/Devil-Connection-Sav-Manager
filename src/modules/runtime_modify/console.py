@@ -6,13 +6,13 @@ from typing import Any, Callable, Dict, List, Optional
 import customtkinter as ctk
 import tkinter as tk
 
-from src.modules.runtime_modify.dialogs import RuntimeDialog, create_standard_button
+from src.modules.runtime_modify.dialogs import RuntimeDialog, set_textbox_text
 from src.modules.runtime_modify.service import evaluate
 from src.modules.save_analysis.tyrano.analyzer import describe_slot
 from src.constants import TYRANO_QUICK_SAVE_FILENAME
 from src.utils.background import run_in_background
 from src.utils.sav_io import read_sav
-from src.utils.styles import Colors, get_cjk_font
+from src.utils.styles import Colors, get_cjk_font, white_button
 
 
 MAX_HISTORY = 100
@@ -86,10 +86,10 @@ class DevToolsConsoleWindow(RuntimeDialog):
         self._shortcut_popup: Optional[ctk.CTkToplevel] = None
 
         self._build_ui()
-        self.protocol("WM_DELETE_WINDOW", self._on_window_close)
+        self.window.protocol("WM_DELETE_WINDOW", self._on_window_close)
 
     def _build_ui(self) -> None:
-        container = ctk.CTkFrame(self, fg_color=Colors.WHITE)
+        container = ctk.CTkFrame(self.window, fg_color=Colors.WHITE)
         container.pack(fill="both", expand=True, padx=10, pady=10)
 
         self.output_textbox = ctk.CTkTextbox(
@@ -139,14 +139,14 @@ class DevToolsConsoleWindow(RuntimeDialog):
         self._tk_input.bind("<Shift-Return>", lambda e: None)   # 保持默认的换行
         self._tk_input.bind("<Up>", self._on_up_key)
         self._tk_input.bind("<Down>", self._on_down_key)
-        self.bind("<Control-l>", lambda e: self._clear_output())
+        self.window.bind("<Control-l>", lambda e: set_textbox_text(self.output_textbox, ""))
 
         buttons = ctk.CTkFrame(self.input_container, fg_color=Colors.WHITE)
         buttons.pack(side="right")
-        self.send_button = create_standard_button(
+        self.send_button = white_button(
             buttons, self.t("runtime_modify_console_send_button"), self._on_send_clicked, width=80)
         self.send_button.pack(side="left", padx=(0, 5))
-        self.shortcut_button = create_standard_button(
+        self.shortcut_button = white_button(
             buttons, self.t("runtime_modify_console_shortcut_button"), self._toggle_shortcut_popup, width=80)
         self.shortcut_button.pack(side="left")
 
@@ -161,7 +161,7 @@ class DevToolsConsoleWindow(RuntimeDialog):
 
     def _focus_input(self) -> None:
         try:
-            self.focus_force()
+            self.window.focus_force()
             self._tk_input.focus_force()
             self._tk_input.mark_set(tk.INSERT, "end-1c")
             self._tk_input.see(tk.INSERT)
@@ -241,14 +241,13 @@ class DevToolsConsoleWindow(RuntimeDialog):
 
         self._is_executing = True
         self.send_button.configure(state="disabled")
-        run_in_background(self, lambda: evaluate(ws_url, command), self._on_command_done)
+        run_in_background(self.window, lambda: evaluate(ws_url, command), self._on_command_done)
 
-    def _on_command_done(self, outcome: Any, exc: Optional[BaseException]) -> None:
+    def _on_command_done(self, result: Any, error: Optional[BaseException]) -> None:
         self._is_executing = False
         self.send_button.configure(state="normal")
-        result, error = outcome if exc is None else (None, str(exc))
         if error is not None:
-            self._append_output(self.t("runtime_modify_console_error_prefix") + error, "error")
+            self._append_output(self.t("runtime_modify_console_error_prefix") + str(error), "error")
         else:
             self._append_output(
                 self.t("runtime_modify_console_result_prefix") + format_result(result),
@@ -263,15 +262,10 @@ class DevToolsConsoleWindow(RuntimeDialog):
         self.output_textbox.configure(state="disabled")
         self.output_textbox.see("end")
 
-    def _clear_output(self) -> None:
-        self.output_textbox.configure(state="normal")
-        self.output_textbox.delete("1.0", "end")
-        self.output_textbox.configure(state="disabled")
-
     def _on_window_close(self) -> None:
         self._destroy_shortcut_popup()
         self.on_close()
-        self.destroy()
+        self.window.destroy()
 
     def set_enabled(self, enabled: bool) -> None:
         """游戏未连接时禁用输入并显示提示"""
@@ -309,9 +303,9 @@ class DevToolsConsoleWindow(RuntimeDialog):
                 pass
 
     def _create_shortcut_popup(self) -> None:
-        popup = ctk.CTkToplevel(self)
+        popup = ctk.CTkToplevel(self.window)
         popup.overrideredirect(True)
-        popup.transient(self)
+        popup.transient(self.window)
         popup.attributes("-topmost", True)
         popup.configure(fg_color=Colors.WHITE)
 
@@ -352,22 +346,22 @@ class DevToolsConsoleWindow(RuntimeDialog):
             ).pack(fill="x", padx=12, pady=pady)
 
         # 放在按钮下方，超出屏幕时向左/向上挪
-        self.update_idletasks()
+        self.window.update_idletasks()
         width = max(260, panel.winfo_reqwidth())
         height = panel.winfo_reqheight()
         button_x = self.shortcut_button.winfo_rootx()
         button_y = self.shortcut_button.winfo_rooty()
         margin = 8
         x, y = button_x, button_y + self.shortcut_button.winfo_height() + 6
-        if x + width > self.winfo_screenwidth() - margin:
-            x = max(margin, self.winfo_screenwidth() - width - margin)
-        if y + height > self.winfo_screenheight() - margin:
+        if x + width > self.window.winfo_screenwidth() - margin:
+            x = max(margin, self.window.winfo_screenwidth() - width - margin)
+        if y + height > self.window.winfo_screenheight() - margin:
             y = max(margin, button_y - height - 6)
         popup.geometry(f"{width}x{height}+{x}+{y}")
         popup.focus_force()
 
         popup.bind("<Escape>", lambda _e: self._destroy_shortcut_popup())
-        popup.bind("<FocusOut>", lambda _e: self.after(10, self._destroy_shortcut_popup))
+        popup.bind("<FocusOut>", lambda _e: self.window.after(10, self._destroy_shortcut_popup))
         self._shortcut_popup = popup
 
     def _on_shortcut_selected(self, event: tk.Event, command: str) -> str:
@@ -375,12 +369,14 @@ class DevToolsConsoleWindow(RuntimeDialog):
         execute = bool(event.state & 0x0001)
         self._destroy_shortcut_popup()
         # 等弹层销毁、焦点回到主窗口后再填入
-        self.after(1, lambda: self._apply_shortcut(command, execute))
+        self.window.after(1, lambda: self._apply_shortcut(command, execute))
         return "break"
 
     def _apply_shortcut(self, command: str, execute: bool) -> None:
         self._set_input(command)
-        self.after_idle(self._focus_input)
-        self.after(30, self._focus_input)
+        # 无边框弹层刚销毁时，窗口管理器可能稍后才把焦点还给本窗口，
+        # 立即聚焦会被覆盖，所以在空闲时和 30ms 后各再聚焦一次
+        self.window.after_idle(self._focus_input)
+        self.window.after(30, self._focus_input)
         if execute:
-            self.after(0, self._on_send_clicked)
+            self.window.after(0, self._on_send_clicked)

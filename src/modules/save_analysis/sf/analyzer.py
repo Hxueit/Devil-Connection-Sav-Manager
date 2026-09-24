@@ -11,6 +11,7 @@ refresh() 会重新读取存档。分区结构不变时只更新 StringVar 里�
 import logging
 import tkinter as tk
 from dataclasses import dataclass
+from pathlib import Path
 from tkinter import Scrollbar, ttk
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -18,6 +19,7 @@ import customtkinter as ctk
 
 from src.constants import STICKER_ID_RANGES, TOTAL_ENDINGS, TOTAL_NG_SCENE
 from src.constants import SF_SAVE_FILENAME
+from src.utils.sav_io import write_sav
 from src.utils.styles import Colors, get_cjk_font
 
 from .fields import (
@@ -31,7 +33,7 @@ from .fields import (
     section_order,
 )
 from .requirements_viewer import show_requirements
-from .save_file_viewer import DEFAULT_SF_COLLAPSED_FIELDS, SaveFileViewer, ViewerConfig
+from .save_file_viewer import DEFAULT_SF_COLLAPSED_FIELDS, SaveFileViewer
 from .statistics_panel import StatisticsPanel
 
 logger = logging.getLogger(__name__)
@@ -356,20 +358,16 @@ class SaveAnalyzer:
     def show_save_file_viewer(self) -> None:
         if not self.save_data:
             return
-        config = ViewerConfig(
-            collapsed_fields=DEFAULT_SF_COLLAPSED_FIELDS,
-            show_collapse_checkbox=True,
-            show_hint_label=True,
-            show_enable_edit_checkbox=True,
-            enable_edit_by_default=False,
-            on_save_callback=lambda edited: self.refresh(),
-        )
         SaveFileViewer.open_or_focus(
             viewer_id=f"sf:{self.storage_dir}",
-            window=self.window,
-            storage_dir=self.storage_dir,
-            save_data=self.save_data,
-            t_func=self.t,
-            on_close_callback=self.refresh,
-            viewer_config=config,
+            parent=self.window,
+            t=self.t,
+            data=self.save_data,
+            title=self.t("save_file_viewer_title"),
+            load=lambda: load_save_file(self.storage_dir),
+            save=lambda edited: write_sav(Path(self.storage_dir) / SF_SAVE_FILENAME, edited),
+            collapsed_fields=DEFAULT_SF_COLLAPSED_FIELDS,
+            show_collapse_toggle=True,
+            edit_checkbox=True,
+            on_saved=lambda edited: self.refresh(),
         )

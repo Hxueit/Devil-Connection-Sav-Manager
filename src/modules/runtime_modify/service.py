@@ -6,6 +6,7 @@
        从而读写 TyranoScript 的变量（TYRANO.kag.variable.sf、TYRANO.kag.stat 等）
 
 本模块的函数都是同步阻塞的（网络请求、等待进程），界面代码要放到后台线程里调用。
+与游戏通信失败时抛出 CdpError，由界面代码翻译后显示。
 """
 import copy
 import inspect
@@ -48,6 +49,10 @@ _WS_CONNECT_OPTIONS: Dict[str, Any] = (
 
 _INJECTED_TITLE_SUFFIX = " - DCSM Injected"
 
+# 游戏里保存变量的 JS 对象
+SF_JS_PATH = "TYRANO.kag.variable.sf"       # 系统变量（对应 DevilConnection_sf.sav）
+KAG_STAT_JS_PATH = "TYRANO.kag.stat"        # 当前游戏状态（不会自动保存）
+
 # 把当前 label 标记为已读，这样游戏会允许快进（模仿 TyranoScript 自动记录已读的逻辑）
 _JS_MARK_CURRENT_LABEL_READ = """(function() {
     if (typeof TYRANO === 'undefined' || !TYRANO.kag) {
@@ -75,6 +80,35 @@ _JS_MARK_CURRENT_LABEL_READ = """(function() {
         return { success: false, message: 'error: ' + e.message };
     }
 })()"""
+
+
+class CdpError(Exception):
+    """与游戏通信失败，或在游戏里执行的 JS 出错"""
+
+
+class GameNotConnectedError(CdpError):
+    """连不上游戏页面（游戏没运行，或调试端口还没就绪）"""
+
+
+class MarkReadRefusedError(CdpError):
+    """游戏拒绝标记已读；code 是 _JS_MARK_CURRENT_LABEL_READ 返回的 message"""
+
+    def __init__(self, code: str) -> None:
+        super().__init__(code)
+        self.code = code
+
+
+class LaunchError(Exception):
+    """启动游戏或等待它就绪失败
+
+    info 是已经取得的启动详情（同 launch_and_test 的返回值）；
+    still_starting 为 True 表示超时了但游戏进程还在，只是还没加载完（Steam 启动较慢）。
+    """
+
+    def __init__(self, message: str, info: Dict[str, Any], still_starting: bool = False) -> None:
+        super().__init__(message)
+        self.info = info
+        self.still_starting = still_starting
 
 
 # ---------------------------------------------------------------- 端口 / 路径
@@ -146,10 +180,11 @@ def fetch_ws_url(port: int, timeout: float = 5.0) -> Optional[str]:
     return target["webSocketDebuggerUrl"] if target else None
 
 
-def evaluate(ws_url: str, expression: str, timeout: float = EVAL_TIMEOUT) -> Tuple[Any, Optional[str]]:
-    """在游戏页面执行 JS 表达式，返回 (结果值, 错误信息)
+def evaluate(ws_url: str, expression: str, timeout: float = EVAL_TIMEOUT) -> Any:
+    """在游戏页面执行 JS 表达式并返回结果（按值返回：对象会变成 dict/list，undefined 变成 None）
 
-    结果按值返回（对象会变成 dict/list），JS 抛出的异常也作为错误信息返回。
+    Raises:
+        CdpError: 连接失败、超时，或 JS 抛出了异常（消息即 JS 的错误描述）
     """
     request = {
         "id": 1,
@@ -167,55 +202,83 @@ def evaluate(ws_url: str, expression: str, timeout: float = EVAL_TIMEOUT) -> Tup
                 if message.get("id") == 1:
                     break
     except TimeoutError:
-        return None, "Timed out waiting for the game to respond"
+        raise CdpError("Timed out waiting for the game to respond") from None
     except (OSError, WebSocketException, ValueError) as e:
         logger.debug(f"CDP evaluate failed: {e}")
-        return None, f"WebSocket connection failed: {e}"
+        raise CdpError(f"WebSocket connection failed: {e}") from e
 
     if "error" in message:
-        return None, message["error"].get("message", str(message["error"]))
+        raise CdpError(message["error"].get("message", str(message["error"])))
     result = message.get("result", {})
     if "exceptionDetails" in result:
         details = result["exceptionDetails"]
-        return None, details.get("exception", {}).get("description") or details.get("text") or "JavaScript error"
-    return result.get("result", {}).get("value"), None
+        raise CdpError(details.get("exception", {}).get("description") or details.get("text") or "JavaScript error")
+    return result.get("result", {}).get("value")
 
 
-def read_json_variable(ws_url: str, js_path: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-    """读取游戏里的一个对象变量（如 TYRANO.kag.variable.sf），返回 (dict, 错误信息)"""
+def read_json_variable(ws_url: str, js_path: str) -> Dict[str, Any]:
+    """读取游戏里的一个对象变量（如 SF_JS_PATH）
+
+    Raises:
+        CdpError: 通信失败，或读到的不是对象
+    """
     # 先在游戏里 JSON.stringify，避免 CDP 按值返回时丢掉复杂结构
-    text, error = evaluate(ws_url, f"JSON.stringify({js_path})")
-    if error is not None:
-        return None, error
+    text = evaluate(ws_url, f"JSON.stringify({js_path})")
     if not isinstance(text, str):
-        return None, "Read data is empty"
+        raise CdpError("Read data is empty")
     try:
         data = json.loads(text)
     except ValueError as e:
-        return None, f"JSON parsing failed: {e}"
+        raise CdpError(f"JSON parsing failed: {e}") from e
     if not isinstance(data, dict):
-        return None, f"Parsed data is not a dictionary type: {type(data).__name__}"
-    return data, None
+        raise CdpError(f"Parsed data is not a dictionary type: {type(data).__name__}")
+    return data
 
 
-def assign_json_variable(
-    ws_url: str, js_path: str, data: Dict[str, Any], save_system_variable: bool = False
-) -> Tuple[bool, Optional[str]]:
-    """用 Object.assign 把 data 写入游戏里的对象变量，返回 (是否成功, 错误信息)"""
+def assign_json_variable(ws_url: str, js_path: str, data: Dict[str, Any], save_system_variable: bool = False) -> None:
+    """用 Object.assign 把 data 写入游戏里的对象变量（如 KAG_STAT_JS_PATH）
+
+    Raises:
+        CdpError: 通信失败或写入时 JS 出错
+    """
     if not data:
-        return False, "Cannot inject empty data"
+        raise CdpError("Cannot inject empty data")
     # JSON 本身就是合法的 JS 字面量，直接嵌入即可，不需要再转义
     save = "TYRANO.kag.saveSystemVariable();" if save_system_variable else ""
     expression = (
         f"(function() {{ try {{ Object.assign({js_path}, {json.dumps(data)}); {save} return true; }}"
         " catch (e) { return e.toString(); } })()"
     )
-    result, error = evaluate(ws_url, expression)
-    if error is not None:
-        return False, error
-    if result is True:
-        return True, None
-    return False, result if isinstance(result, str) else f"Unknown return result: {result}"
+    result = evaluate(ws_url, expression)
+    if result is not True:
+        raise CdpError(result if isinstance(result, str) else f"Unknown return result: {result}")
+
+
+def inject_and_save_sf(ws_url: str, edited_data: Dict[str, Any]) -> None:
+    """把编辑后的 sf 深度合并到游戏当前的 sf 上，再调用 saveSystemVariable 写入存档
+
+    Raises:
+        CdpError: 通信失败或写入时 JS 出错
+    """
+    if not edited_data:
+        raise CdpError("Cannot inject empty data")
+    current = read_json_variable(ws_url, SF_JS_PATH)
+    assign_json_variable(ws_url, SF_JS_PATH, deep_merge(current, edited_data), save_system_variable=True)
+
+
+def mark_current_label_read(ws_url: str) -> None:
+    """强制快进：把当前 label 标记为已读
+
+    Raises:
+        MarkReadRefusedError: 游戏拒绝（如不在任何 label 中）
+        CdpError: 通信失败
+    """
+    result = evaluate(ws_url, _JS_MARK_CURRENT_LABEL_READ)
+    if not isinstance(result, dict):
+        raise CdpError(f"Unexpected result type: {type(result).__name__}")
+    if not result.get("success"):
+        raise MarkReadRefusedError(result.get("message", ""))
+    logger.info(f"Label marked as read: {result.get('label', '')}")
 
 
 def deep_merge(target: Dict[str, Any], source: Dict[str, Any]) -> Dict[str, Any]:
@@ -230,7 +293,7 @@ def deep_merge(target: Dict[str, Any], source: Dict[str, Any]) -> Dict[str, Any]
 
 
 def describe_changes(original: Dict[str, Any], current: Dict[str, Any]) -> List[str]:
-    """逐个顶层键列出两份数据的差异"""
+    """逐个顶层键列出两份数据的差异；相同时返回空列表"""
     lines = []
     for key in sorted(set(original) | set(current)):
         old, new = original.get(key), current.get(key)
@@ -296,11 +359,7 @@ def _is_exe_running(exe_name: str) -> bool:
 
 
 class RuntimeModifyService:
-    """管理由本工具启动的游戏进程，并提供游戏内变量的读写
-
-    sf 查看器（save_analysis/sf）通过 ViewerConfig.service 拿到这个对象，
-    调用下面几个 async 方法。
-    """
+    """管理由本工具启动的游戏进程（启动、等待就绪、检查状态、结束）"""
 
     def __init__(self, game_exe_path: Optional[Path] = None) -> None:
         self.game_exe_path = game_exe_path
@@ -335,17 +394,19 @@ class RuntimeModifyService:
             return
         raise OSError(" | ".join(errors))
 
-    def launch_and_test(self, exe_path: Path, port: int) -> Tuple[bool, Optional[str], Dict[str, Any]]:
-        """启动游戏并等待 TYRANO 就绪，返回 (是否成功, 错误信息, 详情)
+    def launch_and_test(self, exe_path: Path, port: int) -> Dict[str, Any]:
+        """启动游戏并等待 TYRANO 就绪，返回启动详情
 
-        详情可能包含 launch_mode、target_title、target_url、tyrano_type、ws_url、inspector_url；
-        超时但游戏进程还在时 pending_cdp 为 True（游戏还没完全启动）。
+        详情可能包含 launch_mode、target_title、target_url、tyrano_type、ws_url、inspector_url。
+
+        Raises:
+            LaunchError: 启动失败，或等待超时
         """
         info: Dict[str, Any] = {}
         try:
             self.launch_game(exe_path, port)
         except OSError as e:
-            return False, f"Failed to start game: {e}", info
+            raise LaunchError(f"Failed to start game: {e}", info) from e
         info["launch_mode"] = self.launch_mode
 
         time.sleep(GAME_STARTUP_DELAY)
@@ -358,29 +419,34 @@ class RuntimeModifyService:
                 ws_url = target["webSocketDebuggerUrl"]
                 info["target_title"] = target.get("title", "")
                 info["target_url"] = target.get("url", "")
-                tyrano_type, error = evaluate(ws_url, "typeof TYRANO")
-                if error is None:
+                try:
+                    tyrano_type = evaluate(ws_url, "typeof TYRANO")
+                except CdpError as e:
+                    last_error = str(e)
+                else:
                     info["tyrano_type"] = tyrano_type
-                if tyrano_type == "object":
-                    self._mark_window_title(ws_url)
-                    info["ws_url"] = ws_url
-                    ws_path = ws_url[len("ws://"):] if ws_url.startswith("ws://") else ws_url
-                    info["inspector_url"] = f"http://127.0.0.1:{port}/devtools/inspector.html?ws={ws_path}"
-                    return True, None, info
-                # 页面还在加载时 TYRANO 可能还未定义，继续等
-                last_error = error or f"typeof TYRANO = {tyrano_type} (expected 'object')"
+                    if tyrano_type == "object":
+                        self._mark_window_title(ws_url)
+                        info["ws_url"] = ws_url
+                        ws_path = ws_url[len("ws://"):] if ws_url.startswith("ws://") else ws_url
+                        info["inspector_url"] = f"http://127.0.0.1:{port}/devtools/inspector.html?ws={ws_path}"
+                        return info
+                    # 页面还在加载时 TYRANO 可能还未定义，继续等
+                    last_error = f"typeof TYRANO = {tyrano_type} (expected 'object')"
             time.sleep(CDP_RETRY_DELAY)
 
         logger.warning(f"CDP/TYRANO not ready within {max_wait:.0f}s (mode={self.launch_mode}, error={last_error})")
         if self.is_process_running():
-            info["pending_cdp"] = True
-            return False, "Game may not be fully started yet, retrying...", info
-        return False, last_error or "Cannot connect to CDP debug port", info
+            raise LaunchError("Game may not be fully started yet, retrying...", info, still_starting=True)
+        raise LaunchError(last_error or "Cannot connect to CDP debug port", info)
 
     def _mark_window_title(self, ws_url: str) -> None:
-        """在游戏窗口标题后加上标记，方便用户确认已被注入"""
+        """在游戏窗口标题后加上标记，方便用户确认已被注入（失败不影响使用）"""
         suffix = json.dumps(_INJECTED_TITLE_SUFFIX)
-        evaluate(ws_url, f"if (!document.title.includes({suffix})) {{ document.title += {suffix}; }} true")
+        try:
+            evaluate(ws_url, f"if (!document.title.includes({suffix})) {{ document.title += {suffix}; }} true")
+        except CdpError as e:
+            logger.debug(f"Failed to mark window title: {e}")
 
     def is_process_running(self) -> bool:
         """本工具启动的进程还活着，或（Windows）系统里有游戏进程"""
@@ -411,49 +477,7 @@ class RuntimeModifyService:
 
         ws_url = fetch_ws_url(port, timeout=0.8) if port else None
         if ws_url:
-            evaluate(ws_url, "window.close(); true", timeout=2)
-
-    def mark_current_label_read(self, ws_url: str) -> Tuple[bool, Optional[str]]:
-        """强制快进：把当前 label 标记为已读"""
-        result, error = evaluate(ws_url, _JS_MARK_CURRENT_LABEL_READ)
-        if error is not None:
-            return False, error
-        if not isinstance(result, dict):
-            return False, f"Unexpected result type: {type(result).__name__}"
-        if result.get("success"):
-            logger.info(f"Label marked as read: {result.get('label', '')}")
-            return True, None
-        return False, result.get("message", "")
-
-    # 以下方法供 sf 查看器使用，都是阻塞调用，调用方需要在后台线程里运行它们
-
-    def read_tyrano_variable_sf(self, ws_url: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-        return read_json_variable(ws_url, "TYRANO.kag.variable.sf")
-
-    def read_tyrano_kag_stat(self, ws_url: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
-        return read_json_variable(ws_url, "TYRANO.kag.stat")
-
-    def inject_kag_stat(self, ws_url: str, edited_data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
-        """写入 kag.stat（只改内存，不保存）"""
-        return assign_json_variable(ws_url, "TYRANO.kag.stat", edited_data)
-
-    def inject_and_save_sf(self, ws_url: str, edited_data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
-        """把编辑后的 sf 深度合并到游戏当前的 sf 上，再调用 saveSystemVariable 保存"""
-        if not edited_data:
-            return False, "Cannot inject empty data"
-        current, error = read_json_variable(ws_url, "TYRANO.kag.variable.sf")
-        if error is not None:
-            return False, f"Failed to read current data: {error}"
-        merged = deep_merge(current, edited_data)
-        return assign_json_variable(ws_url, "TYRANO.kag.variable.sf", merged, save_system_variable=True)
-
-    def check_sf_changes(self, ws_url: str, original_data: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
-        """游戏内存里的 sf 与 original_data 不同时返回 (True, {"changes_text": 差异说明})"""
-        current, error = read_json_variable(ws_url, "TYRANO.kag.variable.sf")
-        if error is not None:
-            logger.warning(f"Failed to read current sf data for change detection: {error}")
-            return False, {"changes_text": "", "error": error}
-        if current == original_data:
-            return False, {"changes_text": ""}
-        changes = describe_changes(original_data, current)
-        return True, {"changes_text": "\n".join(changes) or "Unknown changes detected", "changes": changes}
+            try:
+                evaluate(ws_url, "window.close(); true", timeout=2)
+            except CdpError as e:
+                logger.debug(f"Failed to close game window: {e}")

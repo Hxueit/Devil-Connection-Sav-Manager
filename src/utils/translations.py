@@ -348,6 +348,7 @@ TRANSLATIONS = {
         "runtime_modify_console_no_connection": "CDP 连接不可用",
         "save_file_failed": "保存文件失败: {error}",
         "search_not_found": "未找到",
+        "viewer_save_failed_reason": "保存失败",
 
         # 缓存清理
         "cache_clean_button": "清理缓存",
@@ -1018,6 +1019,7 @@ TRANSLATIONS = {
         "runtime_modify_console_no_connection": "No CDP connection available",
         "save_file_failed": "Failed to save file: {error}",
         "search_not_found": "Not found",
+        "viewer_save_failed_reason": "Save failed",
 
         # 缓存清理
         "cache_clean_button": "Clean Cache",
@@ -1688,6 +1690,7 @@ TRANSLATIONS = {
         "runtime_modify_console_no_connection": "CDP接続が利用できません",
         "save_file_failed": "ファイルの保存に失敗しました: {error}",
         "search_not_found": "見つかりませんでした",
+        "viewer_save_failed_reason": "保存に失敗しました",
 
         # 缓存清理
         "cache_clean_button": "キャッシュクリア",
