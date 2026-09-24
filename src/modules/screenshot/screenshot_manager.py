@@ -18,7 +18,7 @@ import string
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 from PIL import Image
 
@@ -91,17 +91,28 @@ def is_valid_date(date_string: str) -> bool:
         return False
 
 
+class ScreenshotError(Exception):
+    """新增/替换截图失败
+
+    key 是界面显示提示用的翻译键（如 "id_exists"），detail 是底层错误信息，
+    对应翻译文字里的 {error}。
+    """
+
+    def __init__(self, key: str, detail: str = "") -> None:
+        super().__init__(f"{key}: {detail}" if detail else key)
+        self.key = key
+        self.detail = detail
+
+
 class ScreenshotManager:
     """截图索引和图片文件的管理（不涉及界面）"""
 
-    def __init__(self, storage_dir: Optional[str] = None,
-                 t_func: Optional[Callable[..., str]] = None) -> None:
+    def __init__(self, storage_dir: Optional[str] = None) -> None:
         self.storage_dir: Optional[Path] = Path(storage_dir) if storage_dir else None
         self.ids_data: List[Dict[str, str]] = []
         self.all_ids_data: List[str] = []
         # {截图ID: [主文件名, 缩略图文件名]}，缺失的文件为 None
         self.sav_pairs: Dict[str, List[Optional[str]]] = {}
-        self.t = t_func or (lambda key, **kwargs: key.format(**kwargs) if kwargs else key)
 
     def set_storage_dir(self, storage_dir: Optional[str]) -> None:
         self.storage_dir = Path(storage_dir) if storage_dir else None
@@ -220,21 +231,21 @@ class ScreenshotManager:
         self.sav_pairs[screenshot_id] = [main_path.name, thumb_path.name]
         return [main_path, thumb_path]
 
-    def add_screenshot(self, screenshot_id: str, date_string: str, image_path: str) -> Tuple[bool, str]:
-        """新增截图，返回 (是否成功, 提示消息)"""
+    def add_screenshot(self, screenshot_id: str, date_string: str, image_path: str) -> None:
+        """新增截图（失败时抛出 ScreenshotError，此时索引和文件都保持原样）"""
         if screenshot_id in self.sav_pairs:
-            return False, self.t("id_exists")
+            raise ScreenshotError("id_exists")
         if not self.storage_dir:
-            return False, self.t("storage_dir_not_set")
+            raise ScreenshotError("storage_dir_not_set")
         image_path_obj = Path(image_path)
         if not image_path_obj.exists():
-            return False, self.t("file_not_exist")
+            raise ScreenshotError("file_not_exist")
 
         try:
             written = self._write_image_files(screenshot_id, image_path_obj, self._existing_thumb_size())
         except (OSError, ValueError) as e:  # PIL 的 UnidentifiedImageError 是 OSError 的子类
             logger.error(f"Failed to add screenshot: {e}", exc_info=True)
-            return False, self.t("file_operation_failed", error=str(e))
+            raise ScreenshotError("file_operation_failed", str(e)) from e
 
         self.ids_data.append({"id": screenshot_id, "date": date_string})
         self.all_ids_data.append(screenshot_id)
@@ -247,27 +258,24 @@ class ScreenshotManager:
             self.sav_pairs.pop(screenshot_id, None)
             for path in written:
                 path.unlink(missing_ok=True)
-            return False, self.t("save_failed", error=str(e))
-        return True, self.t("success")
+            raise ScreenshotError("save_failed", str(e)) from e
 
-    def replace_screenshot(self, screenshot_id: str, new_image_path: str) -> Tuple[bool, str]:
-        """用新图片替换已有截图（沿用原缩略图的尺寸），返回 (是否成功, 提示消息)"""
-        main_path = self.file_path(screenshot_id)
-        thumb_path = self.file_path(screenshot_id, thumb=True)
+    def replace_screenshot(self, screenshot_id: str, new_image_path: str) -> None:
+        """用新图片替换已有截图（沿用原缩略图的尺寸），失败时抛出 ScreenshotError"""
         if screenshot_id not in self.sav_pairs:
-            return False, self.t("screenshot_not_exist")
-        if not main_path or not thumb_path:
-            return False, self.t("file_missing")
+            raise ScreenshotError("screenshot_not_exist")
+        thumb_path = self.file_path(screenshot_id, thumb=True)
+        if not self.file_path(screenshot_id) or not thumb_path:
+            raise ScreenshotError("file_missing")
         new_path = Path(new_image_path)
         if not new_path.exists():
-            return False, self.t("file_not_exist")
+            raise ScreenshotError("file_not_exist")
 
         try:
             self._write_image_files(screenshot_id, new_path, thumb_image_size(thumb_path) or DEFAULT_THUMB_SIZE)
         except (OSError, ValueError) as e:
             logger.error(f"Failed to replace screenshot: {e}", exc_info=True)
-            return False, self.t("file_operation_failed", error=str(e))
-        return True, self.t("success")
+            raise ScreenshotError("file_operation_failed", str(e)) from e
 
     def delete_screenshots(self, screenshot_ids: List[str]) -> List[str]:
         """从索引中移除截图并删除文件
@@ -311,6 +319,20 @@ def read_image_file(sav_path: Path) -> Optional[bytes]:
         return data_uri_to_bytes(read_sav(sav_path))
     except (OSError, ValueError) as e:
         logger.debug(f"Failed to read image from {sav_path}: {e}")
+        return None
+
+
+def load_resized_image(sav_path: Path, size: Tuple[int, int],
+                      resample: Image.Resampling = Image.Resampling.BILINEAR) -> Optional[Image.Image]:
+    """读取截图文件并缩放到 size，读不出来时返回 None（给后台线程用，不碰界面）"""
+    data = read_image_file(sav_path)
+    if data is None:
+        return None
+    try:
+        with Image.open(BytesIO(data)) as img:
+            return img.resize(size, resample)
+    except (OSError, ValueError) as e:
+        logger.debug(f"Failed to decode image from {sav_path}: {e}")
         return None
 
 

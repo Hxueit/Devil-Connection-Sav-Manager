@@ -30,6 +30,7 @@ EXPORT_FORMATS = {
     "webp": (".webp", "WebP", [("WebP files", "*.webp"), ("All files", "*.*")]),
 }
 
+
 def convert_image(img: Image.Image, format_choice: str) -> bytes:
     """把图片转成指定导出格式（png/jpeg/webp）的字节"""
     save_format = EXPORT_FORMATS[format_choice][1]
@@ -43,19 +44,16 @@ def convert_image(img: Image.Image, format_choice: str) -> bytes:
     return buffer.getvalue()
 
 
-class _DialogBase:
+class ImageExportHelper:
+    """选择导出格式并保存图片"""
+
     def __init__(self, root: tk.Misc, t: Callable[..., str]) -> None:
         self.root = root
         self.t = t
 
-
-class ImageExportHelper(_DialogBase):
-    """选择导出格式并保存图片"""
-
-    def show_format_dialog(self, image_data: Union[bytes, Image.Image], default_filename: str,
-                           on_export_callback: Optional[Callable[[str], None]] = None) -> None:
+    def show_format_dialog(self, image_data: Union[bytes, Image.Image], default_filename: str) -> None:
         """选择格式 -> 选择保存路径 -> 导出"""
-        self.ask_format(lambda fmt: self._export(image_data, default_filename, fmt, on_export_callback))
+        self.ask_format(lambda fmt: self._export(image_data, default_filename, fmt))
 
     def ask_format(self, on_confirm: Callable[[str], None]) -> None:
         """弹出格式选择对话框，确认后以所选格式（如 "png"）调用 on_confirm"""
@@ -80,8 +78,7 @@ class ImageExportHelper(_DialogBase):
         dialog.bind('<Return>', lambda e: confirm())
         dialog.bind('<Escape>', lambda e: dialog.destroy())
 
-    def _export(self, image_data: Union[bytes, Image.Image], default_filename: str, format_choice: str,
-                on_export_callback: Optional[Callable[[str], None]]) -> None:
+    def _export(self, image_data: Union[bytes, Image.Image], default_filename: str, format_choice: str) -> None:
         extension, _, filetypes = EXPORT_FORMATS[format_choice]
         save_path = filedialog.asksaveasfilename(
             title=self.t("save_image"),
@@ -97,42 +94,38 @@ class ImageExportHelper(_DialogBase):
             logger.error(f"Failed to export image: {e}", exc_info=True)
             showerror_relative(self.root, self.t("error"), f"{self.t('export_failed')}: {e}")
             return
-        showinfo_relative(self.root, self.t("success"), self.t("export_success").format(path=save_path))
-        if on_export_callback:
-            on_export_callback(save_path)
+        showinfo_relative(self.root, self.t("success"), self.t("export_success", path=save_path))
 
 
-class ImageReplaceHelper(_DialogBase):
+class ImageReplaceHelper:
     """选择新图片并确认替换"""
 
     def __init__(self, root: tk.Misc, t: Callable[..., str]) -> None:
-        super().__init__(root, t)
+        self.root = root
+        self.t = t
         self._photo_refs: List[ImageTk.PhotoImage] = []
 
     def show_replace_flow(self, original_image: ImageSource, on_confirm_callback: Callable[[Path], None],
                           is_valid_image_check: Optional[Callable[[Path], bool]] = None) -> None:
         """选择新图片 -> 新旧对比确认 -> on_confirm_callback(新图片路径)"""
-        new_image_path = self.select_new_image()
-        if not new_image_path:
+        path = filedialog.askopenfilename(title=self.t("select_new_image"), filetypes=IMAGE_FILE_TYPES)
+        if not path:
             return
+        new_image_path = Path(path)
         is_valid_image = is_valid_image_check(new_image_path) if is_valid_image_check else True
-        if self.show_replace_confirmation(original_image, new_image_path, is_valid_image):
+        if self._confirm_replace(original_image, new_image_path, is_valid_image):
             on_confirm_callback(new_image_path)
 
-    def select_new_image(self) -> Optional[Path]:
-        path = filedialog.askopenfilename(title=self.t("select_new_image"), filetypes=IMAGE_FILE_TYPES)
-        return Path(path) if path else None
-
-    def show_replace_confirmation(self, original_image: ImageSource, new_image_path: Path,
-                                  is_valid_image: bool = True) -> bool:
+    def _confirm_replace(self, original_image: ImageSource, new_image_path: Path,
+                         is_valid_image: bool = True) -> bool:
         """显示新旧图片对比，等待用户确认；确认返回 True"""
         self._photo_refs.clear()
         popup = create_dialog(self.root, self.t("replace_warning"), "900x500")
 
         if not is_valid_image:
             dialog_label(popup, self.t("file_extension_warning", filename=new_image_path.name),
-                        fg=Colors.TEXT_WARNING_PINK, wraplength=600, justify="left",
-                        ).pack(pady=5, padx=10, anchor="w")
+                         fg=Colors.TEXT_WARNING_PINK, wraplength=600, justify="left",
+                         ).pack(pady=5, padx=10, anchor="w")
         dialog_label(popup, self.t("replace_confirm_text"), size=12).pack(pady=10)
 
         image_frame = tk.Frame(popup, bg=Colors.WHITE)

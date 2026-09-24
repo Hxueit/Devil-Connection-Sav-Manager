@@ -5,7 +5,7 @@
 """
 
 import logging
-from io import BytesIO
+from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set
 
 import tkinter as tk
@@ -15,7 +15,8 @@ from PIL import Image, ImageTk
 from src.modules.common.draggable_list import TreeDragReorder
 from src.modules.screenshot import screenshot_dialogs as dialogs
 from src.modules.screenshot.gallery_preview import GalleryPreview
-from src.modules.screenshot.screenshot_manager import ScreenshotManager, read_image_file
+from src.modules.screenshot.screenshot_manager import ScreenshotManager, load_resized_image
+from src.utils.background import run_in_background
 from src.utils.hint_animation import HintAnimation
 from src.utils.styles import Colors, get_cjk_font
 from src.utils.ui_utils import askyesno_relative, showerror_relative, showinfo_relative, showwarning_relative
@@ -44,13 +45,13 @@ class ScreenshotManagerUI:
     """截图管理标签页"""
 
     def __init__(self, parent_frame: tk.Frame, root: tk.Tk, storage_dir: Optional[str],
-                 t_func: Callable[..., str]) -> None:
+                 t: Callable[..., str]) -> None:
         self.parent_frame = parent_frame
         self.root = root
         self.storage_dir = storage_dir
-        self.t = t_func
-        self.manager = ScreenshotManager(t_func=t_func)
-        self.gallery = GalleryPreview(root, self.manager, t_func)
+        self.t = t
+        self.manager = ScreenshotManager()
+        self.gallery = GalleryPreview(root, self.manager, t)
         self.edit_enabled = False
 
         self.checked: Set[str] = set()            # 勾选的截图ID
@@ -59,6 +60,7 @@ class ScreenshotManagerUI:
         self._row_text: Dict[str, str] = {}       # 截图ID -> 不带标记的行文字
         self._mark_timers: Dict[str, str] = {}    # 截图ID -> 清除标记的 after id
         self._preview_photo: Optional[ImageTk.PhotoImage] = None
+        self._preview_request = 0  # 每次切换预览加一，用来丢弃过时的后台加载结果
 
         self._build_ui()
         self.tree.bind('<<TreeviewSelect>>', self._on_tree_select)
@@ -353,6 +355,7 @@ class ScreenshotManagerUI:
         self.export_button.pack(pady=5)
 
     def _set_preview(self, photo: Optional[ImageTk.PhotoImage], error_text: str = "") -> None:
+        self._preview_request += 1  # 还在加载的旧预览不再显示
         self._preview_photo = photo
         self.preview_label.config(image=photo or '', text=error_text, bg=Colors.WHITE if photo else "lightgray")
 
@@ -364,17 +367,23 @@ class ScreenshotManagerUI:
         if not path.exists():
             self._set_preview(None, self.t("file_not_exist_text"))
             return
-        data = read_image_file(path)
-        try:
-            if data is None:
-                raise ValueError("image not readable")
-            with Image.open(BytesIO(data)) as img:
-                photo = ImageTk.PhotoImage(img.resize(PREVIEW_SIZE, Image.Resampling.LANCZOS))
-        except (OSError, ValueError) as e:
-            logger.debug(f"Failed to preview {screenshot_id}: {e}")
-            self._set_preview(None, self.t("preview_failed"))
-            return
-        self._set_preview(photo)
+        self._load_preview(path)
+
+    def _load_preview(self, path: Path) -> None:
+        """在后台解码并缩放主图（大 PNG 解码较慢，放在主线程会卡住列表）"""
+        self._preview_request += 1
+        request = self._preview_request
+
+        def done(image: Optional[Image.Image], error: Optional[BaseException]) -> None:
+            if request != self._preview_request:
+                return  # 加载期间已经选了别的截图
+            if image is None:
+                self._set_preview(None, self.t("preview_failed"))
+            else:
+                self._set_preview(ImageTk.PhotoImage(image))
+
+        run_in_background(self.preview_label,
+                          lambda: load_resized_image(path, PREVIEW_SIZE, Image.Resampling.LANCZOS), done)
 
     # ---------- 按钮操作 ----------
 
@@ -417,9 +426,9 @@ class ScreenshotManagerUI:
             showwarning_relative(self.root, self.t("warning"), self.t("delete_select_error"))
             return
         if len(selected_ids) == 1:
-            message = self.t("delete_confirm_single").format(id=selected_ids[0])
+            message = self.t("delete_confirm_single", id=selected_ids[0])
         else:
-            message = self.t("delete_confirm_multiple").format(count=len(selected_ids), ids=", ".join(selected_ids))
+            message = self.t("delete_confirm_multiple", count=len(selected_ids), ids=", ".join(selected_ids))
         if not askyesno_relative(self.root, self.t("delete_confirm"), message):
             return
 
@@ -434,7 +443,7 @@ class ScreenshotManagerUI:
             showwarning_relative(self.root, self.t("warning"),
                                  self.t("file_operation_failed", error=", ".join(failed_files)))
         else:
-            showinfo_relative(self.root, self.t("success"), self.t("delete_success").format(count=len(selected_ids)))
+            showinfo_relative(self.root, self.t("success"), self.t("delete_success", count=len(selected_ids)))
 
     def export_image(self) -> None:
         screenshot_id = self._selected_id()

@@ -58,8 +58,7 @@ def test_load_and_image_data(storage):
 
 def test_add_converts_to_png_and_writes_index_last(storage, tmp_path):
     src = _write_image(tmp_path / "in.jpg", "JPEG")
-    ok, _ = storage.add_screenshot("ccc", "2024/05/05 00:00:00", str(src))
-    assert ok
+    storage.add_screenshot("ccc", "2024/05/05 00:00:00", str(src))
     main_uri = read_sav(tmp_path / "DevilConnection_photo_ccc.sav")
     assert main_uri.startswith("data:image/png;base64,")
     assert Image.open(BytesIO(data_uri_to_bytes(main_uri))).format == "PNG"
@@ -71,8 +70,9 @@ def test_add_converts_to_png_and_writes_index_last(storage, tmp_path):
 def test_add_non_image_leaves_index_untouched(storage, tmp_path):
     bad = tmp_path / "bad.png"
     bad.write_text("not an image")
-    ok, _ = storage.add_screenshot("ddd", "2024/05/05 00:00:00", str(bad))
-    assert not ok
+    with pytest.raises(sm.ScreenshotError) as excinfo:
+        storage.add_screenshot("ddd", "2024/05/05 00:00:00", str(bad))
+    assert excinfo.value.key == "file_operation_failed"
     assert read_sav(tmp_path / sm.ALL_IDS_FILENAME) == ["aaa", "bbb"]
     assert not (tmp_path / "DevilConnection_photo_ddd.sav").exists()
     assert "ddd" not in storage.sav_pairs
@@ -85,8 +85,9 @@ def test_add_index_failure_removes_written_files(storage, tmp_path, monkeypatch)
         raise OSError("disk full")
 
     monkeypatch.setattr(storage, "_save_index", fail)
-    ok, _ = storage.add_screenshot("eee", "2024/05/05 00:00:00", str(src))
-    assert not ok
+    with pytest.raises(sm.ScreenshotError) as excinfo:
+        storage.add_screenshot("eee", "2024/05/05 00:00:00", str(src))
+    assert (excinfo.value.key, excinfo.value.detail) == ("save_failed", "disk full")
     assert not (tmp_path / "DevilConnection_photo_eee.sav").exists()
     assert [item["id"] for item in storage.ids_data] == ["aaa", "bbb"]
 
@@ -122,8 +123,7 @@ def test_delete_index_failure_keeps_files(storage, tmp_path, monkeypatch):
 
 def test_replace_keeps_thumb_size(storage, tmp_path):
     src = _write_image(tmp_path / "new.webp", "WEBP", size=(80, 60))
-    ok, _ = storage.replace_screenshot("bbb", str(src))
-    assert ok
+    storage.replace_screenshot("bbb", str(src))
     assert Image.open(BytesIO(storage.get_image_data("bbb"))).size == (80, 60)
     assert sm.thumb_image_size(tmp_path / "DevilConnection_photo_bbb_thumb.sav") == (32, 24)
 
@@ -132,6 +132,33 @@ def test_replace_keeps_thumb_size(storage, tmp_path):
 def test_malformed_index_is_rejected(tmp_path, ids_content):
     write_sav(tmp_path / sm.IDS_FILENAME, ids_content)
     write_sav(tmp_path / sm.ALL_IDS_FILENAME, [])
-    manager = sm.ScreenshotManager(t_func=lambda k, **kw: k)
+    manager = sm.ScreenshotManager()
     manager.set_storage_dir(str(tmp_path))
     assert manager.load_screenshots() is False
+
+
+def test_add_and_replace_errors(storage, tmp_path):
+    src = _write_image(tmp_path / "in.png", "PNG")
+    with pytest.raises(sm.ScreenshotError) as excinfo:
+        storage.add_screenshot("aaa", "2024/05/05 00:00:00", str(src))
+    assert excinfo.value.key == "id_exists"
+    with pytest.raises(sm.ScreenshotError) as excinfo:
+        storage.add_screenshot("fff", "2024/05/05 00:00:00", str(tmp_path / "missing.png"))
+    assert excinfo.value.key == "file_not_exist"
+    with pytest.raises(sm.ScreenshotError) as excinfo:
+        storage.replace_screenshot("zzz", str(src))
+    assert excinfo.value.key == "screenshot_not_exist"
+    (tmp_path / "DevilConnection_photo_bbb_thumb.sav").unlink()
+    storage.load_screenshots()
+    with pytest.raises(sm.ScreenshotError) as excinfo:
+        storage.replace_screenshot("bbb", str(src))
+    assert excinfo.value.key == "file_missing"
+
+
+def test_load_resized_image(storage, tmp_path):
+    image = sm.load_resized_image(storage.file_path("aaa"), (8, 6))
+    assert image.size == (8, 6)
+    bad = tmp_path / "DevilConnection_photo_bad.sav"
+    write_sav(bad, "data:image/png;base64,AAAA")
+    assert sm.load_resized_image(bad, (8, 6)) is None
+    assert sm.load_resized_image(tmp_path / "nope.sav", (8, 6)) is None

@@ -10,6 +10,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from src.utils.styles import Colors, get_cjk_font
+from src.utils.ui_utils import widget_alive
 
 DRAG_THRESHOLD = 5  # 鼠标移动超过这么多像素才算开始拖拽
 HIGHLIGHT_MS = 3000
@@ -182,7 +183,7 @@ class DraggableList:
 
         def clear() -> None:
             self._highlight_timer = None
-            if self.tree.winfo_exists() and self.tree.exists(item):
+            if widget_alive(self.tree) and self.tree.exists(item):
                 tags = [tag for tag in self.tree.item(item, "tags") if tag != "Highlighted"]
                 self.tree.item(item, tags=tags)
 

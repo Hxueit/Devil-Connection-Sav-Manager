@@ -15,13 +15,13 @@ from src.modules.common.image_operations import (
     convert_image,
 )
 from src.modules.screenshot.screenshot_manager import (
-    ScreenshotManager, current_datetime, generate_id, is_valid_date, read_image_file,
+    ScreenshotError, ScreenshotManager, current_datetime, generate_id, is_valid_date, read_image_file,
 )
 from src.utils.images import IMAGE_FILE_TYPES, is_image_file
 from src.utils.background import run_in_background
 from src.utils.styles import Colors
 from src.utils.ui_utils import (
-    askyesno_relative, create_dialog, dialog_label, showerror_relative, showinfo_relative,
+    askyesno_relative, create_dialog, dialog_label, showerror_relative, showinfo_relative, widget_alive,
 )
 
 logger = logging.getLogger(__name__)
@@ -36,6 +36,10 @@ def is_4_3(path: Path) -> bool:
     except OSError:
         return False
     return abs(height - width * 3 / 4) <= ASPECT_RATIO_TOLERANCE
+
+
+def show_screenshot_error(root: tk.Misc, t: Callable[..., str], error: ScreenshotError) -> None:
+    showerror_relative(root, t("error"), t(error.key, error=error.detail))
 
 
 def show_add_dialog(root: tk.Misc, manager: ScreenshotManager, t: Callable[..., str],
@@ -56,10 +60,10 @@ def show_add_dialog(root: tk.Misc, manager: ScreenshotManager, t: Callable[..., 
 
     if not is_image:
         dialog_label(dialog, t("file_extension_warning", filename=image_path.name), fg=Colors.TEXT_WARNING_PINK,
-               wraplength=380, justify="left").pack(pady=5, padx=10, anchor="w")
+                     wraplength=380, justify="left").pack(pady=5, padx=10, anchor="w")
     elif not ratio_ok:
         dialog_label(dialog, t("aspect_ratio_warning"), fg=Colors.TEXT_WARNING_AQUA,
-               wraplength=380, justify="left").pack(pady=5, padx=10, anchor="w")
+                     wraplength=380, justify="left").pack(pady=5, padx=10, anchor="w")
 
     entries = []
     for label_key in ("id_label", "date_label"):
@@ -81,17 +85,18 @@ def show_add_dialog(root: tk.Misc, manager: ScreenshotManager, t: Callable[..., 
             showerror_relative(root, t("error"), t("invalid_date_format"))
             return
         if not is_image and not askyesno_relative(
-                root, t("warning"), t("file_extension_warning").format(filename=image_path.name)):
+                root, t("warning"), t("file_extension_warning", filename=image_path.name)):
             dialog.destroy()
             return
 
-        success, message = manager.add_screenshot(screenshot_id, date_string, str(image_path))
         dialog.destroy()
-        if success:
-            showinfo_relative(root, t("success"), t("add_success").format(id=screenshot_id))
-            on_added(screenshot_id)
-        else:
-            showerror_relative(root, t("error"), message)
+        try:
+            manager.add_screenshot(screenshot_id, date_string, str(image_path))
+        except ScreenshotError as e:
+            show_screenshot_error(root, t, e)
+            return
+        showinfo_relative(root, t("success"), t("add_success", id=screenshot_id))
+        on_added(screenshot_id)
 
     button_frame = ttk.Frame(dialog, style="White.TFrame")
     button_frame.pack(pady=10)
@@ -117,15 +122,15 @@ def show_replace_dialog(root: tk.Misc, manager: ScreenshotManager, t: Callable[.
         return
 
     def on_confirm(new_image_path: Path) -> None:
-        success, message = manager.replace_screenshot(screenshot_id, str(new_image_path))
-        if success:
-            showinfo_relative(root, t("success"), t("replace_success").format(id=screenshot_id))
-            on_replaced(screenshot_id)
-        else:
-            showerror_relative(root, t("error"), message)
+        try:
+            manager.replace_screenshot(screenshot_id, str(new_image_path))
+        except ScreenshotError as e:
+            show_screenshot_error(root, t, e)
+            return
+        showinfo_relative(root, t("success"), t("replace_success", id=screenshot_id))
+        on_replaced(screenshot_id)
 
-    helper = ImageReplaceHelper(root, t)
-    helper.show_replace_flow(original, on_confirm, is_image_file)
+    ImageReplaceHelper(root, t).show_replace_flow(original, on_confirm, is_image_file)
 
 
 def export_screenshot(root: tk.Misc, manager: ScreenshotManager, t: Callable[..., str], screenshot_id: str) -> None:
@@ -138,8 +143,8 @@ def export_screenshot(root: tk.Misc, manager: ScreenshotManager, t: Callable[...
 
 def batch_export(root: tk.Misc, manager: ScreenshotManager, t: Callable[..., str], screenshot_ids: List[str]) -> None:
     """选择格式后把多张截图导出到一个 ZIP 文件（后台线程执行，显示进度）"""
-    helper = ImageExportHelper(root, t)
-    helper.ask_format(lambda format_choice: _batch_export_to_zip(root, manager, t, screenshot_ids, format_choice))
+    ImageExportHelper(root, t).ask_format(
+        lambda format_choice: _batch_export_to_zip(root, manager, t, screenshot_ids, format_choice))
 
 
 def _batch_export_to_zip(root: tk.Misc, manager: ScreenshotManager, t: Callable[..., str],
@@ -186,7 +191,7 @@ def _batch_export_to_zip(root: tk.Misc, manager: ScreenshotManager, t: Callable[
         return exported
 
     def update_progress() -> None:
-        if progress["finished"] or not window.winfo_exists():
+        if progress["finished"] or not widget_alive(window):
             return
         progress_bar['value'] = progress["done"]
         status_label.config(text=f"{progress['done']}/{total}")
