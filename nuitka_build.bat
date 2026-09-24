@@ -1,39 +1,34 @@
 @echo off
 chcp 65001 >nul
-echo Nuitka 编译 单文件
+REM Nuitka 单文件编译。本地双击运行即可；GitHub Actions（release.yml）也调用本脚本，保证两边参数一致。
+REM 用法: nuitka_build.bat [输出文件名]   默认为 dcsm.exe，产物在 dist\ 目录
+
+set "OUTPUT_NAME=%~1"
+if "%OUTPUT_NAME%"=="" set "OUTPUT_NAME=dcsm.exe"
 
 REM 检查 Nuitka 是否安装
 python -m nuitka --version >nul 2>&1
 if errorlevel 1 (
-    echo [错误] 未检测到 Nuitka，正在安装...
-    pip install nuitka
+    echo [信息] 未检测到 Nuitka，正在安装...
+    pip install "nuitka[onefile]"
     if errorlevel 1 (
-        echo [错误] Nuitka 安装失败，请手动安装: pip install nuitka
-        pause
+        echo [错误] Nuitka 安装失败，请手动安装: pip install "nuitka[onefile]"
+        if not defined CI pause
         exit /b 1
     )
 )
 
-REM 检查图标文件是否存在
-if not exist "icon.ico" (
-    echo [警告] 未找到 icon.ico 文件，将不使用图标
-    set ICON_OPTION=
-) else (
-    echo [信息] 找到图标文件: icon.ico
-    set ICON_OPTION=--windows-icon-from-ico=icon.ico
-)
-
 echo.
-echo [信息] 开始编译...
+echo [信息] 开始编译 dist\%OUTPUT_NAME% ...
 echo.
 
-REM 编译
 python -m nuitka ^
     --onefile ^
-    %ICON_OPTION% ^
+    --assume-yes-for-downloads ^
+    --windows-icon-from-ico=icon.ico ^
     --enable-plugin=tk-inter ^
     --output-dir=dist ^
-    --output-filename=dcsm.exe ^
+    --output-filename=%OUTPUT_NAME% ^
     --windows-console-mode=disable ^
     --lto=yes ^
     --nofollow-import-to=src.modules.save_analysis.sf.debug ^
@@ -52,14 +47,11 @@ python -m nuitka ^
 if errorlevel 1 (
     echo.
     echo [错误] 编译失败！
-    pause
+    if not defined CI pause
     exit /b 1
 )
 
 echo.
-echo ========================================
-echo [成功] 编译完成！
-echo ========================================
+echo [成功] 编译完成: dist\%OUTPUT_NAME%
 echo.
-pause
-
+if not defined CI pause
