@@ -484,7 +484,7 @@ TRANSLATIONS = {
         "update_check_failed": "检查更新失败：{error}",
         "latest_version_info": "最新版本",
         "release_date": "发布时间",
-        "version_info": "[VERSION] • 基于游戏补丁 [LATEST_GAME_PATCH_AT_BUILD] 构建",
+        "version_info": "{version} • 基于游戏补丁 {patch_date} 构建",
         "update_available_label": "有更新，点我更新",
 
         #Unlock Conditions
@@ -1154,7 +1154,7 @@ TRANSLATIONS = {
         "update_check_failed": "Failed to check for updates: {error}",
         "latest_version_info": "Latest Version",
         "release_date": "Release Date",
-        "version_info": "[VERSION] • Built on Game Patch [LATEST_GAME_PATCH_AT_BUILD]",
+        "version_info": "{version} • Built on Game Patch {patch_date}",
         "update_available_label": "Update Available",
 
         #Unlock Conditions
@@ -1824,7 +1824,7 @@ TRANSLATIONS = {
         "update_check_failed": "更新確認に失敗しました：{error}",
         "latest_version_info": "最新バージョン",
         "release_date": "リリース日",
-        "version_info": "[VERSION] • ゲームパッチ [LATEST_GAME_PATCH_AT_BUILD] 準拠",
+        "version_info": "{version} • ゲームパッチ {patch_date} 準拠",
         "update_available_label": "更新あり",
 
         #Unlock Conditions

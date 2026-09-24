@@ -66,7 +66,8 @@ class ScreenshotManagerUI:
         self.tree.bind('<Button-1>', self._on_tree_click)
         TreeDragReorder(self.tree, lambda item: item in self._id_by_item, self._on_drop,
                         can_drag=lambda: self.edit_enabled)
-        self._hint = HintAnimation(root, self.enable_edit_checkbox, CHECKBOX_STYLE_NORMAL, CHECKBOX_STYLE_HINT)
+        self._hint = HintAnimation(root, self.enable_edit_checkbox, self._edit_checkbox_wrapper,
+                                   CHECKBOX_STYLE_NORMAL, CHECKBOX_STYLE_HINT)
         self._set_edit_mode(False)
 
         if storage_dir:
@@ -115,8 +116,7 @@ class ScreenshotManagerUI:
             wrapper, text=self.t("enable_edit"), variable=self.edit_var, style=CHECKBOX_STYLE_NORMAL,
             command=lambda: self._set_edit_mode(self.edit_var.get()))
         self.enable_edit_checkbox.pack()
-        self.enable_edit_checkbox.wrapper = wrapper
-        self.enable_edit_checkbox._original_pack_info = {'padx': 5}
+        self._edit_checkbox_wrapper = wrapper
 
         # 列表区域：左边预览，右边列表
         list_frame = tk.Frame(self.parent_frame, bg=bg)

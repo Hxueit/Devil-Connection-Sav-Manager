@@ -8,14 +8,15 @@
 import logging
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Callable, List, Optional, Union
+from typing import Callable, List, Optional, Union
 
 import tkinter as tk
 from tkinter import filedialog, ttk
 from PIL import Image, ImageTk
 
 from src.utils.images import IMAGE_FILE_TYPES, ImageSource, open_image
-from src.utils.ui_utils import showerror_relative, showinfo_relative
+from src.utils.styles import Colors
+from src.utils.ui_utils import create_dialog, dialog_label, showerror_relative, showinfo_relative
 
 logger = logging.getLogger(__name__)
 
@@ -42,52 +43,10 @@ def convert_image(img: Image.Image, format_choice: str) -> bytes:
     return buffer.getvalue()
 
 
-def apply_modal_grab_safely(dialog: tk.Toplevel, retry_count: int = 12, delay_ms: int = 30) -> None:
-    """设置模态 grab；窗口还没显示出来时 grab_set 会报错，稍后重试"""
-    try:
-        dialog.deiconify()
-        dialog.update_idletasks()
-    except tk.TclError:
-        pass
-
-    def try_grab(remaining: int) -> None:
-        if remaining <= 0 or not dialog.winfo_exists():
-            return
-        try:
-            dialog.grab_set()
-        except tk.TclError:
-            dialog.after(delay_ms, lambda: try_grab(remaining - 1))
-
-    try_grab(retry_count)
-
-
 class _DialogBase:
-    def __init__(self, root_window: tk.Misc, translate_func: Callable[..., str],
-                 get_cjk_font_func: Callable[..., Any], colors_class: type,
-                 set_window_icon_func: Optional[Callable[[tk.Toplevel], None]] = None) -> None:
-        self.root = root_window
-        self.t = translate_func
-        self.get_cjk_font = get_cjk_font_func
-        self.Colors = colors_class
-        self.set_window_icon = set_window_icon_func or (lambda window: None)
-
-    def _create_dialog(self, title: str, geometry: str) -> tk.Toplevel:
-        dialog = tk.Toplevel(self.root)
-        dialog.title(title)
-        dialog.geometry(geometry)
-        dialog.configure(bg=self.Colors.WHITE)
-        # 某些平台（以及 CTk 窗口）会在显示后重置图标，所以多设几次
-        self.set_window_icon(dialog)
-        dialog.after(50, lambda: self.set_window_icon(dialog))
-        dialog.after(200, lambda: self.set_window_icon(dialog))
-        dialog.transient(self.root)
-        apply_modal_grab_safely(dialog)
-        return dialog
-
-    def _label(self, parent: tk.Misc, text: str, size: int = 10, **kwargs) -> tk.Label:
-        options = dict(font=self.get_cjk_font(size), fg=self.Colors.TEXT_PRIMARY, bg=self.Colors.WHITE)
-        options.update(kwargs)
-        return tk.Label(parent, text=text, **options)
+    def __init__(self, root: tk.Misc, t: Callable[..., str]) -> None:
+        self.root = root
+        self.t = t
 
 
 class ImageExportHelper(_DialogBase):
@@ -100,8 +59,8 @@ class ImageExportHelper(_DialogBase):
 
     def ask_format(self, on_confirm: Callable[[str], None]) -> None:
         """弹出格式选择对话框，确认后以所选格式（如 "png"）调用 on_confirm"""
-        dialog = self._create_dialog(self.t("select_export_format"), "300x200")
-        self._label(dialog, self.t("select_image_format")).pack(pady=10)
+        dialog = create_dialog(self.root, self.t("select_export_format"), "300x200")
+        dialog_label(dialog, self.t("select_image_format")).pack(pady=10)
 
         format_var = tk.StringVar(value="png")
         format_frame = ttk.Frame(dialog, style="White.TFrame")
@@ -114,7 +73,7 @@ class ImageExportHelper(_DialogBase):
             dialog.destroy()
             on_confirm(choice)
 
-        button_frame = tk.Frame(dialog, bg=self.Colors.WHITE)
+        button_frame = tk.Frame(dialog, bg=Colors.WHITE)
         button_frame.pack(pady=20)
         ttk.Button(button_frame, text=self.t("confirm"), command=confirm).pack(side="left", padx=10)
         ttk.Button(button_frame, text=self.t("cancel"), command=dialog.destroy).pack(side="right", padx=10)
@@ -146,8 +105,8 @@ class ImageExportHelper(_DialogBase):
 class ImageReplaceHelper(_DialogBase):
     """选择新图片并确认替换"""
 
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(self, root: tk.Misc, t: Callable[..., str]) -> None:
+        super().__init__(root, t)
         self._photo_refs: List[ImageTk.PhotoImage] = []
 
     def show_replace_flow(self, original_image: ImageSource, on_confirm_callback: Callable[[Path], None],
@@ -168,21 +127,21 @@ class ImageReplaceHelper(_DialogBase):
                                   is_valid_image: bool = True) -> bool:
         """显示新旧图片对比，等待用户确认；确认返回 True"""
         self._photo_refs.clear()
-        popup = self._create_dialog(self.t("replace_warning"), "900x500")
+        popup = create_dialog(self.root, self.t("replace_warning"), "900x500")
 
         if not is_valid_image:
-            self._label(popup, self.t("file_extension_warning", filename=new_image_path.name),
-                        fg=self.Colors.TEXT_WARNING_PINK, wraplength=600, justify="left",
+            dialog_label(popup, self.t("file_extension_warning", filename=new_image_path.name),
+                        fg=Colors.TEXT_WARNING_PINK, wraplength=600, justify="left",
                         ).pack(pady=5, padx=10, anchor="w")
-        self._label(popup, self.t("replace_confirm_text"), size=12).pack(pady=10)
+        dialog_label(popup, self.t("replace_confirm_text"), size=12).pack(pady=10)
 
-        image_frame = tk.Frame(popup, bg=self.Colors.WHITE)
+        image_frame = tk.Frame(popup, bg=Colors.WHITE)
         image_frame.pack(pady=10)
         self._add_preview(image_frame, original_image)
-        self._label(image_frame, "→", size=24).pack(side="left", padx=10)
+        dialog_label(image_frame, "→", size=24).pack(side="left", padx=10)
         self._add_preview(image_frame, new_image_path)
 
-        self._label(popup, self.t("replace_confirm_question")).pack(pady=10)
+        dialog_label(popup, self.t("replace_confirm_question")).pack(pady=10)
 
         confirmed = False
 
@@ -191,7 +150,7 @@ class ImageReplaceHelper(_DialogBase):
             confirmed = True
             popup.destroy()
 
-        button_frame = tk.Frame(popup, bg=self.Colors.WHITE)
+        button_frame = tk.Frame(popup, bg=Colors.WHITE)
         button_frame.pack(pady=10)
         ttk.Button(button_frame, text=self.t("replace_yes"), command=confirm).pack(side="left", padx=10)
         ttk.Button(button_frame, text=self.t("replace_no"), command=popup.destroy).pack(side="right", padx=10)
@@ -206,8 +165,8 @@ class ImageReplaceHelper(_DialogBase):
             preview = open_image(source).resize(REPLACE_PREVIEW_SIZE, Image.Resampling.BILINEAR)
         except (OSError, ValueError) as e:
             logger.debug(f"Failed to display image preview: {e}")
-            self._label(parent, self.t("preview_failed"), size=12, fg="red").pack(side="left", padx=10)
+            dialog_label(parent, self.t("preview_failed"), size=12, fg="red").pack(side="left", padx=10)
             return
         photo = ImageTk.PhotoImage(preview)
         self._photo_refs.append(photo)
-        tk.Label(parent, image=photo, bg=self.Colors.WHITE).pack(side="left", padx=10)
+        tk.Label(parent, image=photo, bg=Colors.WHITE).pack(side="left", padx=10)

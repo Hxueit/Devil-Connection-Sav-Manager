@@ -11,7 +11,7 @@ from tkinter import filedialog, ttk
 from PIL import Image
 
 from src.modules.common.image_operations import (
-    EXPORT_FORMATS, ImageExportHelper, ImageReplaceHelper, apply_modal_grab_safely,
+    EXPORT_FORMATS, ImageExportHelper, ImageReplaceHelper,
     convert_image,
 )
 from src.modules.screenshot.screenshot_manager import (
@@ -19,8 +19,10 @@ from src.modules.screenshot.screenshot_manager import (
 )
 from src.utils.images import IMAGE_FILE_TYPES, is_image_file
 from src.utils.background import run_in_background
-from src.utils.styles import Colors, get_cjk_font
-from src.utils.ui_utils import askyesno_relative, set_window_icon, showerror_relative, showinfo_relative
+from src.utils.styles import Colors
+from src.utils.ui_utils import (
+    askyesno_relative, create_dialog, dialog_label, showerror_relative, showinfo_relative,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -34,23 +36,6 @@ def is_4_3(path: Path) -> bool:
     except OSError:
         return False
     return abs(height - width * 3 / 4) <= ASPECT_RATIO_TOLERANCE
-
-
-def _create_dialog(root: tk.Misc, title: str, width: int, height: int) -> tk.Toplevel:
-    dialog = tk.Toplevel(root)
-    dialog.title(title)
-    dialog.geometry(f"{width}x{height}")
-    dialog.configure(bg=Colors.WHITE)
-    set_window_icon(dialog)
-    dialog.transient(root)
-    apply_modal_grab_safely(dialog)
-    return dialog
-
-
-def _label(parent: tk.Misc, text: str, size: int = 10, **kwargs) -> tk.Label:
-    options = dict(font=get_cjk_font(size), fg=Colors.TEXT_PRIMARY, bg=Colors.WHITE)
-    options.update(kwargs)
-    return tk.Label(parent, text=text, **options)
 
 
 def show_add_dialog(root: tk.Misc, manager: ScreenshotManager, t: Callable[..., str],
@@ -67,20 +52,20 @@ def show_add_dialog(root: tk.Misc, manager: ScreenshotManager, t: Callable[..., 
     is_image = is_image_file(image_path)
     ratio_ok = is_image and is_4_3(image_path)
     height = 300 + (80 if not is_image or not ratio_ok else 0)
-    dialog = _create_dialog(root, t("add_new_title"), 400, height)
+    dialog = create_dialog(root, t("add_new_title"), f"400x{height}")
 
     if not is_image:
-        _label(dialog, t("file_extension_warning", filename=image_path.name), fg=Colors.TEXT_WARNING_PINK,
+        dialog_label(dialog, t("file_extension_warning", filename=image_path.name), fg=Colors.TEXT_WARNING_PINK,
                wraplength=380, justify="left").pack(pady=5, padx=10, anchor="w")
     elif not ratio_ok:
-        _label(dialog, t("aspect_ratio_warning"), fg=Colors.TEXT_WARNING_AQUA,
+        dialog_label(dialog, t("aspect_ratio_warning"), fg=Colors.TEXT_WARNING_AQUA,
                wraplength=380, justify="left").pack(pady=5, padx=10, anchor="w")
 
     entries = []
     for label_key in ("id_label", "date_label"):
         frame = ttk.Frame(dialog, style="White.TFrame")
         frame.pack(pady=10, padx=20, fill='x')
-        _label(frame, t(label_key)).pack(anchor='w')
+        dialog_label(frame, t(label_key)).pack(anchor='w')
         entry = tk.Entry(frame, width=40)
         entry.pack(fill='x', pady=(5, 0))
         entries.append(entry)
@@ -139,7 +124,7 @@ def show_replace_dialog(root: tk.Misc, manager: ScreenshotManager, t: Callable[.
         else:
             showerror_relative(root, t("error"), message)
 
-    helper = ImageReplaceHelper(root, t, get_cjk_font, Colors, set_window_icon)
+    helper = ImageReplaceHelper(root, t)
     helper.show_replace_flow(original, on_confirm, is_image_file)
 
 
@@ -148,12 +133,12 @@ def export_screenshot(root: tk.Misc, manager: ScreenshotManager, t: Callable[...
     if not image_data:
         showerror_relative(root, t("error"), t("file_not_found"))
         return
-    ImageExportHelper(root, t, get_cjk_font, Colors, set_window_icon).show_format_dialog(image_data, screenshot_id)
+    ImageExportHelper(root, t).show_format_dialog(image_data, screenshot_id)
 
 
 def batch_export(root: tk.Misc, manager: ScreenshotManager, t: Callable[..., str], screenshot_ids: List[str]) -> None:
     """选择格式后把多张截图导出到一个 ZIP 文件（后台线程执行，显示进度）"""
-    helper = ImageExportHelper(root, t, get_cjk_font, Colors, set_window_icon)
+    helper = ImageExportHelper(root, t)
     helper.ask_format(lambda format_choice: _batch_export_to_zip(root, manager, t, screenshot_ids, format_choice))
 
 
@@ -173,13 +158,13 @@ def _batch_export_to_zip(root: tk.Misc, manager: ScreenshotManager, t: Callable[
     paths = [(screenshot_id, manager.file_path(screenshot_id)) for screenshot_id in screenshot_ids]
     extension = EXPORT_FORMATS[format_choice][0]
 
-    window = _create_dialog(root, t("batch_export_progress"), 450, 200)
+    window = create_dialog(root, t("batch_export_progress"), "450x200")
     window.protocol("WM_DELETE_WINDOW", lambda: None)  # 导出完成前不允许关闭
-    title_label = _label(window, t("exporting_images"))
+    title_label = dialog_label(window, t("exporting_images"))
     title_label.pack(pady=10)
     progress_bar = ttk.Progressbar(window, length=350, mode='determinate', maximum=total, value=0)
     progress_bar.pack(pady=10, padx=20, fill="x")
-    status_label = _label(window, f"0/{total}", size=9)
+    status_label = dialog_label(window, f"0/{total}", size=9)
     status_label.pack(pady=5)
 
     progress = {"done": 0, "finished": False}  # 后台线程只更新计数，界面由主线程定时读取
@@ -220,7 +205,7 @@ def _batch_export_to_zip(root: tk.Misc, manager: ScreenshotManager, t: Callable[
             message = t("batch_export_success", count=exported)
             if exported < total:
                 message += "\n" + t("batch_export_failed", count=total - exported)
-            _label(window, message, fg="green").pack(pady=20)
+            dialog_label(window, message, fg="green").pack(pady=20)
         ttk.Button(window, text=t("close"), command=window.destroy).pack(pady=10)
         window.protocol("WM_DELETE_WINDOW", window.destroy)
 

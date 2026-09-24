@@ -9,6 +9,8 @@ from typing import Any, Callable, List, Optional
 import tkinter as tk
 from tkinter import ttk
 
+from src.utils.styles import Colors, get_cjk_font
+
 DRAG_THRESHOLD = 5  # 鼠标移动超过这么多像素才算开始拖拽
 HIGHLIGHT_MS = 3000
 
@@ -109,6 +111,7 @@ class TreeDragReorder:
 class DraggableList:
     """可拖拽排序的列表，每 items_per_page 项插入一行页码
 
+    format_item(数据, 原始索引) 返回每一行显示的文字。
     顺序用「原始索引列表」表示，改变后调用 on_order_changed(新顺序)。
     """
 
@@ -118,24 +121,19 @@ class DraggableList:
         root: tk.Tk,
         data_items: List[Any],
         format_item: Callable[[Any, int], str],
-        on_order_changed: Optional[Callable[[List[int]], None]] = None,
-        get_cjk_font: Optional[Callable[..., Any]] = None,
-        colors_class: Optional[type] = None,
-        translation_func: Optional[Callable[[str], str]] = None,
+        on_order_changed: Callable[[List[int]], None],
+        t: Callable[..., str],
         items_per_page: int = 6,
-        empty_text_key: str = "tyrano_no_save",
     ) -> None:
         self.root = root
         self.data_items = data_items
         self.format_item = format_item
         self.on_order_changed = on_order_changed
-        self.translate = translation_func or (lambda key: key)
+        self.t = t
         self.items_per_page = items_per_page
-        self.empty_text_key = empty_text_key
         self._current_order: List[int] = list(range(len(data_items)))
         self._highlight_timer: Optional[str] = None
 
-        get_cjk_font = get_cjk_font or (lambda size, weight="normal": ("Arial", size, weight))
         frame = tk.Frame(parent)
         frame.pack(fill="both", expand=True)
         scrollbar = ttk.Scrollbar(frame, orient="vertical")
@@ -147,7 +145,7 @@ class DraggableList:
         self.tree.heading("content", text="", anchor="w")
         self.tree.column("content", width=800, stretch=True)
         self.tree.tag_configure("Highlighted", background="#E1F5FE", foreground="#01579B")
-        self.tree.tag_configure("PageHeader", foreground=getattr(colors_class, "TEXT_SECONDARY", "gray"),
+        self.tree.tag_configure("PageHeader", foreground=Colors.TEXT_SECONDARY,
                                 font=get_cjk_font(10, "bold"))
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.config(command=self.tree.yview)
@@ -162,19 +160,16 @@ class DraggableList:
         self.tree.delete(*self.tree.get_children())
         for count, idx in enumerate(self._current_order):
             if count % self.items_per_page == 0:
-                page_text = f"{self.translate('page')} {count // self.items_per_page + 1}"
+                page_text = f"{self.t('page')} {count // self.items_per_page + 1}"
                 self.tree.insert("", "end", values=(page_text,), tags=("PageHeader",))
             text = self.format_item(self.data_items[idx], idx)
-            if not text or not text.strip():
-                text = self.translate(self.empty_text_key)
             self.tree.insert("", "end", values=(text,))
 
     def _move(self, from_index: int, to_index: int) -> None:
         self._current_order.insert(to_index, self._current_order.pop(from_index))
         self._populate_list()
         self._highlight(to_index)
-        if self.on_order_changed:
-            self.on_order_changed(self._current_order.copy())
+        self.on_order_changed(self._current_order.copy())
 
     def _highlight(self, data_index: int) -> None:
         """高亮刚移动的行，3 秒后恢复"""

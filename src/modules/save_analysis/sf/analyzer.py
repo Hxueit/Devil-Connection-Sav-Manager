@@ -16,7 +16,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import customtkinter as ctk
 
-from src.constants import LATEST_GAME_PATCH_AT_BUILD, STICKER_ID_RANGES, TOTAL_ENDINGS, TOTAL_NG_SCENE
+from src.constants import STICKER_ID_RANGES, TOTAL_ENDINGS, TOTAL_NG_SCENE
 from src.constants import SF_SAVE_FILENAME
 from src.utils.styles import Colors, get_cjk_font
 
@@ -74,10 +74,6 @@ class SaveAnalyzer:
         self.show_var_names_var = tk.BooleanVar(value=False)
         self._build_layout()
         self.window.after_idle(self.refresh)
-
-    def _tr(self, key: str) -> str:
-        """翻译并替换 [GAMEPATCH_DATE] 占位符"""
-        return self.t(key).replace("[GAMEPATCH_DATE]", LATEST_GAME_PATCH_AT_BUILD)
 
     # ---------------------------------------------------------------- 布局
 
@@ -228,7 +224,7 @@ class SaveAnalyzer:
             for field in section.fields:
                 self._create_row(content, field, field_value(field, save_data, computed, self.t), color)
             if section.hint_key:
-                hint = ttk.Label(content, text=self._tr(section.hint_key), font=get_cjk_font(9),
+                hint = ttk.Label(content, text=self.t(section.hint_key), font=get_cjk_font(9),
                                  foreground="gray", wraplength=int(self._width * 0.85), justify="left")
                 hint.pack(anchor="w", padx=5, pady=(5, 0))
                 self._translatable.append((hint, section.hint_key))
@@ -237,14 +233,14 @@ class SaveAnalyzer:
 
     def _update_sections(self, save_data: Dict[str, Any], computed: Dict[str, Any]) -> None:
         for widget, key in self._translatable:
-            widget.config(text=self._tr(key))
+            widget.config(text=self.t(key))
         for section in SECTIONS.values():
             for field in section.fields:
                 row = self._rows[field.label_key]
                 row.label_var.set(f"{self.t(field.label_key)}:")
                 row.value_var.set(field_value(field, save_data, computed, self.t))
                 if row.tooltip_var is not None:
-                    row.tooltip_var.set(self._tr(field.tooltip_key))
+                    row.tooltip_var.set(self.t(field.tooltip_key))
 
     def _create_section(self, section: Section, color: Optional[str]) -> tk.Frame:
         """创建带边框的分区，返回放内容的 Frame"""
@@ -273,7 +269,7 @@ class SaveAnalyzer:
 
     def _create_row(self, parent: tk.Frame, field: Field, value: str, color: Optional[str]) -> None:
         """一行「[变量名] 标签: 值 ℹ」，点击 ℹ 展开/收起说明"""
-        tooltip_text = self._tr(field.tooltip_key) if field.tooltip_key else ""
+        tooltip_text = self.t(field.tooltip_key) if field.tooltip_key else ""
         has_tooltip = bool(field.tooltip_key) and not (field.tooltip_optional and not tooltip_text)
 
         container = tk.Frame(parent, bg=Colors.WHITE)

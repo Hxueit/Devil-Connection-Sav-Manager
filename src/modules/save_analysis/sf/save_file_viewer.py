@@ -235,12 +235,8 @@ class SaveFileViewer:
             checkbox = ttk.Checkbutton(wrapper, text=self.t("enable_edit"), variable=self.enable_edit_var,
                                        command=self._on_edit_toggled, style=CHECKBOX_STYLE_NORMAL)
             checkbox.pack()
-            # HintAnimation 通过这两个属性找到要抖动的外层 Frame 和它原来的边距
-            checkbox.wrapper = wrapper
-            toolbar_right.update_idletasks()
-            checkbox._original_pack_info = wrapper.pack_info()
-            self._hint_animation = HintAnimation(self.viewer_window, checkbox, CHECKBOX_STYLE_NORMAL,
-                                                 CHECKBOX_STYLE_HINT)
+            self._hint_animation = HintAnimation(self.viewer_window, checkbox, wrapper,
+                                                 CHECKBOX_STYLE_NORMAL, CHECKBOX_STYLE_HINT)
 
         self.save_button = ttk.Button(toolbar_right, text=self.t(self.viewer_config.save_button_text),
                                       command=self._on_save_clicked)

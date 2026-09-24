@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
 import customtkinter as ctk
 from PIL import Image
 
-from src.modules.common.image_operations import ImageExportHelper, ImageReplaceHelper, apply_modal_grab_safely
+from src.modules.common.image_operations import ImageExportHelper, ImageReplaceHelper
 from src.modules.save_analysis.sf.save_file_viewer import SaveFileViewer, ViewerConfig
 from src.modules.save_analysis.tyrano.analyzer import (
     day_text,
@@ -32,7 +32,9 @@ from src.modules.save_analysis.tyrano.image_utils import (
 )
 from src.utils.images import image_to_data_uri, is_image_file
 from src.utils.styles import Colors, get_cjk_font
-from src.utils.ui_utils import set_window_icon, showerror_relative, showinfo_relative, showwarning_relative
+from src.utils.ui_utils import (
+    grab_when_visible, set_window_icon, showerror_relative, showinfo_relative, showwarning_relative,
+)
 
 if TYPE_CHECKING:
     from src.modules.save_analysis.tyrano.save_viewer import TyranoSaveViewer
@@ -312,7 +314,7 @@ class TyranoSaveSlot(SlotCard):
         image_data = slot_data.get("img_data")
 
         dialog = create_dialog(self.root, t("tyrano_imgdata_dialog_title"), "450x400")
-        apply_modal_grab_safely(dialog)
+        grab_when_visible(dialog)
 
         main_frame = ctk.CTkFrame(dialog, fg_color=Colors.LIGHT_GRAY)
         main_frame.pack(fill="both", expand=True, padx=15, pady=15)
@@ -339,7 +341,7 @@ class TyranoSaveSlot(SlotCard):
             if not image_data:
                 showwarning_relative(dialog, t("warning"), t("tyrano_imgdata_no_image"))
                 return
-            helper = ImageReplaceHelper(self.root, t, get_cjk_font, Colors, set_window_icon)
+            helper = ImageReplaceHelper(self.root, t)
             helper.show_replace_flow(image_data, replace_image, is_image_file)
 
         def replace_image(new_image_path: Path) -> None:
@@ -364,7 +366,7 @@ class TyranoSaveSlot(SlotCard):
             if image is None:
                 showerror_relative(dialog, t("error"), t("tyrano_imgdata_no_image"))
                 return
-            helper = ImageExportHelper(self.root, t, get_cjk_font, Colors, set_window_icon)
+            helper = ImageExportHelper(self.root, t)
             helper.show_format_dialog(image, self._export_basename())
 
         button_frame = ctk.CTkFrame(main_frame, fg_color="transparent")

@@ -160,11 +160,7 @@ class VersionInfo:
         self.show()
 
     def _version_text(self) -> str:
-        return (
-            self.t("version_info")
-            .replace("[VERSION]", VERSION)
-            .replace("[LATEST_GAME_PATCH_AT_BUILD]", LATEST_GAME_PATCH_AT_BUILD)
-        )
+        return self.t("version_info", version=VERSION, patch_date=LATEST_GAME_PATCH_AT_BUILD)
 
     def update_text(self) -> None:
         self.version_label.config(text=self._version_text())

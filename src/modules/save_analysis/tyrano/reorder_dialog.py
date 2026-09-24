@@ -48,9 +48,7 @@ class TyranoReorderDialog:
             data_items=self._slots,
             format_item=lambda slot, index: describe_slot(slot, t) or t("tyrano_no_save"),
             on_order_changed=self._on_order_changed,
-            get_cjk_font=get_cjk_font,
-            colors_class=Colors,
-            translation_func=t,
+            t=t,
         )
 
         button_frame = ctk.CTkFrame(main_frame, fg_color=Colors.WHITE)
