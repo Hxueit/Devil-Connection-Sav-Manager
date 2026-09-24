@@ -163,8 +163,8 @@ def missing_required_files(zip_path: Path) -> List[str]:
 def restore_backup(zip_path: Path, storage_dir: Path) -> None:
     """用备份替换 _storage
 
-    先校验并完整解压到同级临时目录，全部成功后再与 _storage 交换，
-    任何一步失败都不会动到现有的 _storage。
+    先校验并完整解压到同级临时目录（这一步失败不会动到 _storage），
+    然后整体交换目录；目录被占用无法交换时，改为逐个文件替换。
     """
     storage_dir = Path(storage_dir)
     staging_dir = storage_dir.with_name(f".{storage_dir.name}.restoring")
@@ -184,21 +184,43 @@ def restore_backup(zip_path: Path, storage_dir: Path) -> None:
         shutil.rmtree(staging_dir, ignore_errors=True)
         raise
 
-    # Windows 下游戏正在运行、文件被占用时重命名会失败
-    shutil.rmtree(old_dir, ignore_errors=True)
     try:
-        if storage_dir.exists():
-            storage_dir.rename(old_dir)
+        _swap_directories(storage_dir, staging_dir, old_dir)
+    except OSError as e:
+        # Windows 下只要有程序（资源管理器、游戏、杀毒软件）打开着 _storage，整个文件夹就无法重命名。
+        # 这时退回到逐个文件替换：解压好的备份已经校验过，逐个 os.replace 通常仍然能成功。
+        logger.warning(f"无法整体替换 {storage_dir}（{e}），改为逐个文件替换")
         try:
-            staging_dir.rename(storage_dir)
-        except OSError:
-            if old_dir.exists():
-                old_dir.rename(storage_dir)
-            raise
+            _replace_files(storage_dir, staging_dir)
+        finally:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+
+
+def _swap_directories(storage_dir: Path, staging_dir: Path, old_dir: Path) -> None:
+    """storage_dir → old_dir，staging_dir → storage_dir；第二步失败时把原目录换回来"""
+    shutil.rmtree(old_dir, ignore_errors=True)
+    if storage_dir.exists():
+        storage_dir.rename(old_dir)
+    try:
+        staging_dir.rename(storage_dir)
     except OSError:
-        shutil.rmtree(staging_dir, ignore_errors=True)
+        if old_dir.exists():
+            old_dir.rename(storage_dir)
         raise
     shutil.rmtree(old_dir, ignore_errors=True)
+
+
+def _replace_files(storage_dir: Path, staging_dir: Path) -> None:
+    """把 staging_dir 里的文件逐个移到 storage_dir，并删除备份里没有的文件"""
+    backup_files = {p.relative_to(staging_dir) for p in staging_dir.rglob("*") if p.is_file()}
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    for rel in backup_files:
+        target = storage_dir / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(staging_dir / rel, target)
+    for path in list(storage_dir.rglob("*")):
+        if path.is_file() and path.relative_to(storage_dir) not in backup_files:
+            path.unlink()
 
 
 def delete_backup(zip_path: Path) -> None:

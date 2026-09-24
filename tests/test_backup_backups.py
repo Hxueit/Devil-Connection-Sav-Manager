@@ -92,3 +92,24 @@ def test_estimate_and_format(storage):
     assert backups.format_size(1536) == "1.50 KB"
     assert backups.format_size(5 * 1024 ** 2) == "5.00 MB"
     assert backups.format_size(3 * 1024 ** 4) == "3072.00 GB"
+
+
+def test_restore_falls_back_to_per_file_when_folder_is_locked(storage, monkeypatch):
+    """Windows 上 _storage 被占用时无法整体重命名，应退回到逐个文件替换"""
+    path = backups.create_backup(storage)
+    (storage / "DevilConnection_sf.sav").write_text("changed")
+    (storage / "extra.txt").write_text("new file")
+
+    real_rename = type(storage).rename
+
+    def locked_rename(self, target):
+        if self == storage:
+            raise PermissionError("folder in use")
+        return real_rename(self, target)
+
+    monkeypatch.setattr(type(storage), "rename", locked_rename)
+    backups.restore_backup(path, storage)
+    assert (storage / "DevilConnection_sf.sav").read_text() == "sf"
+    assert (storage / "sub" / "img.png").read_bytes() == b"x" * 1000
+    assert not (storage / "extra.txt").exists()
+    assert sorted(p.name for p in storage.parent.iterdir()) == ["_storage", "dcsm_backups"]

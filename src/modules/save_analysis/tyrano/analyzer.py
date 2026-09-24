@@ -188,69 +188,93 @@ class TyranoAnalyzer:
 
     # --- 修改 ---
 
-    def _write_slots(self, new_slots: List[Dict[str, Any]], repaginate: bool = False) -> bool:
-        """把新的存档槽列表写入文件，写入成功后才更新内存中的状态
+    def _modify_slots(self, change: Callable[[List[Dict[str, Any]]], Optional[List[Dict[str, Any]]]],
+                      repaginate: bool = False) -> bool:
+        """读取磁盘上最新的存档 → change(存档槽列表) 得到新列表 → 写回文件 → 更新内存
 
-        写入失败时内存状态保持不变，避免下一次保存把失败的修改一起写进去。
+        一定要重新读文件：玩家可能开着本工具同时在游戏里存档，
+        如果直接用内存里的旧数据写回，会把游戏新存的档覆盖掉。
+        change 返回 None 表示参数无效，不写文件。写入失败时内存状态保持不变。
         """
-        if not self.save_data:
-            logger.error("Cannot write: save data not loaded")
+        try:
+            latest = read_sav(self.file_path)
+        except (OSError, ValueError) as e:
+            logger.error("Failed to re-read %s before writing: %s", self.file_path, e)
             return False
-        new_save_data = {**self.save_data, "data": new_slots}
+        if not isinstance(latest, dict):
+            logger.error("Unexpected save format in %s", self.file_path)
+            return False
+        data = latest.get("data")
+        slots = [slot for slot in data if isinstance(slot, dict)] if isinstance(data, list) else []
+
+        new_slots = change(slots)
+        if new_slots is None:
+            return False
+        new_save_data = {**latest, "data": new_slots}
         try:
             write_sav(self.file_path, new_save_data)
         except (OSError, TypeError, ValueError) as e:
             logger.error("Failed to write save slots: %s", e, exc_info=True)
             return False
 
+        page = self.current_page
         self.save_data = new_save_data
         self.save_slots = new_slots
-        if repaginate:
-            self._repaginate()
+        self._repaginate()
+        if not repaginate and 1 <= page <= self.total_pages:
+            self.current_page = page
         return True
 
     def reorder_slots(self, new_order: List[int]) -> bool:
         """按 new_order 重排：new_order[i] 是新位置 i 上的存档原来的索引"""
-        if sorted(new_order) != list(range(len(self.save_slots))):
-            logger.error("Invalid order: %s", new_order)
-            return False
-        return self._write_slots([self.save_slots[i] for i in new_order])
+        def change(slots):
+            if sorted(new_order) != list(range(len(slots))):
+                logger.error("Invalid order: %s", new_order)
+                return None
+            return [slots[i] for i in new_order]
+        return self._modify_slots(change)
 
     def replace_slot(self, index: int, slot_data: Dict[str, Any]) -> bool:
         """替换指定位置的存档槽"""
-        if not 0 <= index < len(self.save_slots):
-            logger.error("Slot index out of range: %d", index)
-            return False
-        new_slots = list(self.save_slots)
-        new_slots[index] = slot_data
-        return self._write_slots(new_slots)
+        def change(slots):
+            if not 0 <= index < len(slots):
+                logger.error("Slot index out of range: %d", index)
+                return None
+            return slots[:index] + [slot_data] + slots[index + 1:]
+        return self._modify_slots(change)
 
     def clear_slots(self, indices: List[int]) -> bool:
         """把指定存档槽清空为 NO SAVE（位置保留）"""
-        valid = [i for i in indices if 0 <= i < len(self.save_slots)]
-        if not valid:
-            return False
-        new_slots = list(self.save_slots)
-        for i in valid:
-            new_slots[i] = {"title": "NO SAVE", "save_date": "", "img_data": "", "stat": {}}
-        return self._write_slots(new_slots)
+        def change(slots):
+            valid = [i for i in indices if 0 <= i < len(slots)]
+            if not valid:
+                return None
+            new_slots = list(slots)
+            for i in valid:
+                new_slots[i] = {"title": "NO SAVE", "save_date": "", "img_data": "", "stat": {}}
+            return new_slots
+        return self._modify_slots(change)
 
     def remove_slots(self, indices: List[int]) -> bool:
         """删除指定存档槽，后面的存档依次前移"""
-        removed = {i for i in indices if 0 <= i < len(self.save_slots)}
-        if not removed:
-            return False
-        new_slots = [slot for i, slot in enumerate(self.save_slots) if i not in removed]
-        return self._write_slots(new_slots, repaginate=True)
+        def change(slots):
+            removed = {i for i in indices if 0 <= i < len(slots)}
+            if not removed:
+                return None
+            return [slot for i, slot in enumerate(slots) if i not in removed]
+        return self._modify_slots(change, repaginate=True)
 
     def import_slot(self, slot_data: Dict[str, Any]) -> bool:
         """导入一个存档槽：放到最靠前的空存档位置，没有空位时追加到末尾"""
         if not isinstance(slot_data, dict):
             return False
-        new_slots = list(self.save_slots)
-        empty_index = next((i for i, slot in enumerate(new_slots) if is_empty_save(slot)), None)
-        if empty_index is None:
-            new_slots.append(slot_data)
-        else:
-            new_slots[empty_index] = slot_data
-        return self._write_slots(new_slots, repaginate=True)
+
+        def change(slots):
+            new_slots = list(slots)
+            empty_index = next((i for i, slot in enumerate(new_slots) if is_empty_save(slot)), None)
+            if empty_index is None:
+                new_slots.append(slot_data)
+            else:
+                new_slots[empty_index] = slot_data
+            return new_slots
+        return self._modify_slots(change, repaginate=True)

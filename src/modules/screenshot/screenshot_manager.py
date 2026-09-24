@@ -133,11 +133,18 @@ class ScreenshotManager:
         if not (ids_path.exists() and all_ids_path.exists()):
             return False
         try:
-            self.ids_data = read_sav(ids_path)
-            self.all_ids_data = read_sav(all_ids_path)
+            ids_data = read_sav(ids_path)
+            all_ids_data = read_sav(all_ids_path)
         except (OSError, ValueError) as e:
             logger.error(f"Failed to load screenshots: {e}", exc_info=True)
             return False
+        # ids.sav 应是 [{"id": ..., "date": ...}, ...]，all_ids.sav 应是 id 列表；格式不对就当作读取失败
+        if not (isinstance(ids_data, list) and isinstance(all_ids_data, list)
+                and all(isinstance(item, dict) and isinstance(item.get("id"), str) for item in ids_data)):
+            logger.error("Unexpected screenshot index format in %s", self.storage_dir)
+            return False
+        self.ids_data = ids_data
+        self.all_ids_data = all_ids_data
         self._scan_files()
         return True
 

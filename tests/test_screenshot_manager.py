@@ -126,3 +126,12 @@ def test_replace_keeps_thumb_size(storage, tmp_path):
     assert ok
     assert Image.open(BytesIO(storage.get_image_data("bbb"))).size == (80, 60)
     assert sm.thumb_image_size(tmp_path / "DevilConnection_photo_bbb_thumb.sav") == (32, 24)
+
+
+@pytest.mark.parametrize("ids_content", [{"a": 1}, [{"date": "x"}], ["1", "2"], "text"])
+def test_malformed_index_is_rejected(tmp_path, ids_content):
+    write_sav(tmp_path / sm.IDS_FILENAME, ids_content)
+    write_sav(tmp_path / sm.ALL_IDS_FILENAME, [])
+    manager = sm.ScreenshotManager(t_func=lambda k, **kw: k)
+    manager.set_storage_dir(str(tmp_path))
+    assert manager.load_screenshots() is False

@@ -194,3 +194,21 @@ def test_image_cache_concurrent_use():
     for th in threads:
         th.join()
     assert not errors
+
+
+def test_modifications_keep_saves_made_by_the_game_meanwhile(storage):
+    """游戏在本工具加载之后又存了档：修改其他槽位时不能把它覆盖掉"""
+    an = TyranoAnalyzer(str(storage))
+    assert an.load_save_file()
+    path = storage / TYRANO_SAV_FILENAME
+    on_disk = read_sav(path)
+    on_disk["data"][2] = slot(day=9, subtitle="saved in game")
+    write_sav(path, on_disk)
+
+    assert an.replace_slot(0, slot(day=5, subtitle="edited"))
+    assert an.reorder_slots([1, 0] + list(range(2, len(an.save_slots))))
+
+    subtitles = [s.get("subtitleText") for s in read_sav(path)["data"][:3]]
+    assert subtitles[2] == "saved in game"
+    assert subtitles[1] == "edited"
+    assert an.save_slots[2]["subtitleText"] == "saved in game"
