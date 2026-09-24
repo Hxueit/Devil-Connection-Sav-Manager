@@ -332,9 +332,8 @@ class CacheCleanDialog(ctk.CTkToplevel):
                 self.after(0, lambda: self._on_scan_complete(result))
             except Exception as e:
                 logger.error(f"Scan failed: {e}", exc_info=True)
-                self.after(0, lambda: self._update_status(
-                    self.t("cache_clean_scan_failed").format(error=str(e))
-                ))
+                self.after(0, self._update_status,
+                    self.t("cache_clean_scan_failed").format(error=str(e)))
             finally:
                 self.after(0, lambda: self._update_scan_status(False))
                 if loop:

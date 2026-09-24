@@ -668,7 +668,7 @@ class RuntimeModifyTab:
                     
             except Exception as unexpected_err:
                 logger.exception("Unexpected error applying fast forward")
-                self.root.after(0, lambda: self._on_fast_forward_applied(False, str(unexpected_err)))
+                self.root.after(0, self._on_fast_forward_applied, False, str(unexpected_err))
             finally:
                 if loop:
                     self._cleanup_event_loop(loop)

@@ -118,7 +118,7 @@ class RuntimeInjectorService:
                 self.window.after(0, lambda: self._on_read_complete(data, error, error_key, on_complete))
             except Exception as e:
                 logger.error(f"Error reading runtime data: {e}", exc_info=True)
-                self.window.after(0, lambda: on_complete(None, str(e)))
+                self.window.after(0, on_complete, None, str(e))
             finally:
                 loop.close()
         
@@ -132,61 +132,53 @@ class RuntimeInjectorService:
         on_success: Callable[[Dict[str, Any]], None],
         on_error: Callable[[str], None]
     ) -> None:
-        """检查变更并执行注入"""
-        def check_and_inject_in_thread():
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                has_changes, changes_info = loop.run_until_complete(
-                    self.viewer_config.service.check_sf_changes(
-                        self.viewer_config.ws_url,
-                        original_save_data
-                    )
-                )
-                changes_text = changes_info.get("changes_text", "") if has_changes else ""
-                
-                if has_changes:
-                    # 在主线程中显示警告
-                    user_continue = messagebox.askyesno(
-                        self.t("warning"),
-                        self.t("runtime_modify_sf_changes_detected").format(changes=changes_text),
-                        parent=self.window
-                    )
-                    if not user_continue:
-                        self.window.after(0, lambda: on_error(self.t("user_cancelled")))
-                        return
-                
-                success, error = loop.run_until_complete(
-                    self.viewer_config.service.inject_and_save_sf(
-                        self.viewer_config.ws_url,
-                        edited_data
-                    )
-                )
-                
-                if success:
-                    self.window.after(0, lambda: self._on_inject_success(edited_data, on_success))
-                else:
-                    error_msg = error or self.t("runtime_modify_sf_error_unknown")
-                    showerror_relative(
-                        self.window,
-                        self.t("error"),
-                        self.t("runtime_modify_sf_inject_failed").format(error=error_msg)
-                    )
-                    self.window.after(0, lambda: on_error(error_msg))
-            except Exception as e:
-                logger.error(f"Error in check_and_inject: {e}", exc_info=True)
-                error_msg = str(e)
-                showerror_relative(
-                    self.window,
-                    self.t("error"),
-                    self.t("runtime_modify_sf_inject_failed").format(error=error_msg)
-                )
-                self.window.after(0, lambda: on_error(error_msg))
-            finally:
-                loop.close()
+        """检查变更并执行注入
+
+        CDP 调用在后台线程执行，对话框一律在主线程弹出。
+        """
+        service = self.viewer_config.service
+        ws_url = self.viewer_config.ws_url
         
-        thread = threading.Thread(target=check_and_inject_in_thread, daemon=True)
-        thread.start()
+        def report_failure(error_msg: str) -> None:
+            showerror_relative(
+                self.window,
+                self.t("error"),
+                self.t("runtime_modify_sf_inject_failed").format(error=error_msg)
+            )
+            on_error(error_msg)
+        
+        def on_inject_done(success: bool, error: Optional[str]) -> None:
+            if success:
+                self._on_inject_success(edited_data, on_success)
+            else:
+                report_failure(error or self.t("runtime_modify_sf_error_unknown"))
+        
+        def on_check_done(has_changes: bool, changes_info: Any) -> None:
+            # 线程内出现异常时 _run_async_in_thread 会传入 (False, 错误字符串)
+            if isinstance(changes_info, str):
+                report_failure(changes_info)
+                return
+            
+            if has_changes:
+                changes_text = changes_info.get("changes_text", "")
+                user_continue = messagebox.askyesno(
+                    self.t("warning"),
+                    self.t("runtime_modify_sf_changes_detected").format(changes=changes_text),
+                    parent=self.window
+                )
+                if not user_continue:
+                    on_error(self.t("user_cancelled"))
+                    return
+            
+            self._run_async_in_thread(
+                service.inject_and_save_sf(ws_url, edited_data),
+                on_inject_done
+            )
+        
+        self._run_async_in_thread(
+            service.check_sf_changes(ws_url, original_save_data),
+            on_check_done
+        )
     
     def _inject_kag_stat(
         self,
@@ -280,7 +272,7 @@ class RuntimeInjectorService:
                 self.window.after(0, lambda: on_complete(data, read_error))
             except Exception as e:
                 logger.error(f"Error refreshing after inject: {e}", exc_info=True)
-                self.window.after(0, lambda: on_complete(None, str(e)))
+                self.window.after(0, on_complete, None, str(e))
             finally:
                 loop.close()
         
@@ -310,7 +302,7 @@ class RuntimeInjectorService:
                 self.window.after(0, lambda: on_complete(result, error))
             except Exception as e:
                 logger.exception("Unexpected error in async thread")
-                self.window.after(0, lambda: on_complete(False, str(e)))
+                self.window.after(0, on_complete, False, str(e))
             finally:
                 pending = asyncio.all_tasks(loop)
                 if pending:
