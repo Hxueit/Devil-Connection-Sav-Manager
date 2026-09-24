@@ -12,18 +12,24 @@ from typing import Callable, List, Literal, Set, Tuple
 import customtkinter as ctk
 
 from src.utils.styles import Colors, get_cjk_font
-from src.utils.ui_utils import set_window_icon
+from src.utils.ui_utils import bind_mousewheel, set_window_icon
 
 TEXT_SELECT_CURSOR = "ibeam" if platform.system() == "Windows" else "xterm"
 
-CARD_PADDING = 16
-CARD_RADIUS = 12
-CARD_MARGIN = 12
-CARD_WIDTH = 780
-SHADOW_OFFSET = 3
-LINE_HEIGHT = 18
-# 先按 1 倍尺寸排版，最后整体放大
-SCALE_FACTOR = 1.5
+# 卡片布局（像素）
+CARDS_TOP = 30
+CARD_LEFT = 37.5
+CARD_WIDTH = 1170
+CARD_PADDING = 24
+CARD_RADIUS = 18
+CARD_MARGIN = 18          # 卡片之间的间距
+CARD_HEADER_HEIGHT = 60   # 卡片顶部到分隔线的距离
+TEXT_TOP_GAP = 18         # 分隔线到条件文本的距离
+TEXT_WRAP_MARGIN = 30     # 条件文本换行时在右侧留出的空白
+SHADOW_OFFSET = 4.5
+BORDER_WIDTH = 1.5
+LINE_HEIGHT = 27          # 条件文本每行的高度
+HEADER_WRAPLENGTH = 780   # 窗口顶部统计文字的换行宽度
 
 COLORS = {
     "bg": "#f5f5f7",
@@ -115,7 +121,7 @@ def show_requirements(window: tk.Misc, t: Callable[[str], str], title_key: str,
         stats_text += f"⚠ {t(missing_key)}: {len(missing)}"
     tk.Label(header, text=stats_text, font=get_cjk_font(12, "bold"), bg=COLORS["header_bg"],
              fg=COLORS["hint_text"] if missing else COLORS["collected_title"],
-             wraplength=CARD_WIDTH).pack(anchor="w", padx=20, pady=(2, 12))
+             wraplength=HEADER_WRAPLENGTH).pack(anchor="w", padx=20, pady=(2, 12))
 
     tk.Frame(main_frame, height=1, bg="#e5e7eb").pack(fill="x")
 
@@ -129,27 +135,30 @@ def show_requirements(window: tk.Misc, t: Callable[[str], str], title_key: str,
 
     status_suffix = "sticker" if kind == "sticker" else "ending"
     measure_font = tkfont.Font(family=font_card_text[0], size=font_card_text[1])
-    y = 20
+    text_width = CARD_WIDTH - CARD_PADDING * 2
+    y = CARDS_TOP
     for item_id, condition in missing + done:
         state = "missing" if item_id not in collected else "collected"
         mark = "❌ " if state == "missing" else "✓ "
-        lines = wrap_text(condition, measure_font, CARD_WIDTH - CARD_PADDING * 2 - 20)
+        lines = wrap_text(condition, measure_font, text_width - TEXT_WRAP_MARGIN)
         text_height = len(lines) * LINE_HEIGHT
-        height = 40 + text_height + CARD_PADDING * 2
-        x1, y1, x2, y2 = 25, y, 25 + CARD_WIDTH, y + height
+        height = CARD_HEADER_HEIGHT + text_height + CARD_PADDING * 2
+        x1, y1, x2, y2 = CARD_LEFT, y, CARD_LEFT + CARD_WIDTH, y + height
         card_color = COLORS[f"{state}_card"]
         border_color = COLORS[f"{state}_border"]
 
+        # 阴影、边框、卡片本体三层圆角矩形
         create_rounded_rect(canvas, x1 + SHADOW_OFFSET, y1 + SHADOW_OFFSET, x2 + SHADOW_OFFSET,
                             y2 + SHADOW_OFFSET, CARD_RADIUS, fill=COLORS[f"{state}_shadow"], outline="")
-        create_rounded_rect(canvas, x1 - 1, y1 - 1, x2 + 1, y2 + 1, CARD_RADIUS, fill=border_color, outline="")
+        create_rounded_rect(canvas, x1 - BORDER_WIDTH, y1 - BORDER_WIDTH, x2 + BORDER_WIDTH, y2 + BORDER_WIDTH,
+                            CARD_RADIUS, fill=border_color, outline="")
         create_rounded_rect(canvas, x1, y1, x2, y2, CARD_RADIUS, fill=card_color, outline="")
         canvas.create_text(x1 + CARD_PADDING, y1 + CARD_PADDING, text=f"{id_prefix}{item_id}",
                            font=get_cjk_font(13, "bold"), fill=COLORS[f"{state}_title"], anchor="nw")
         canvas.create_text(x2 - CARD_PADDING, y1 + CARD_PADDING,
                            text=mark + t(f"status_{state}_{status_suffix}"),
                            font=get_cjk_font(10, "bold"), fill=COLORS[f"{state}_status"], anchor="ne")
-        line_y = y1 + 40
+        line_y = y1 + CARD_HEADER_HEIGHT
         canvas.create_line(x1 + CARD_PADDING, line_y, x2 - CARD_PADDING, line_y, fill=border_color, width=1)
 
         # 用只读 Text 显示条件，方便用户选中复制
@@ -163,21 +172,9 @@ def show_requirements(window: tk.Misc, t: Callable[[str], str], title_key: str,
         text_widget.insert("1.0", "\n".join(lines))
         text_widget.config(state=tk.DISABLED)
         text_widget.pack(fill="both", expand=True)
-        canvas.create_window(x1 + CARD_PADDING, line_y + 12, window=text_frame, anchor="nw",
-                             width=CARD_WIDTH - CARD_PADDING * 2, height=text_height)
+        canvas.create_window(x1 + CARD_PADDING, line_y + TEXT_TOP_GAP, window=text_frame, anchor="nw",
+                             width=text_width, height=text_height)
         y += height + CARD_MARGIN
 
-    canvas.scale("all", 0, 0, SCALE_FACTOR, SCALE_FACTOR)
     canvas.configure(scrollregion=canvas.bbox("all"))
-
-    def on_mousewheel(event: tk.Event) -> None:
-        if event.delta:
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        elif event.num == 4:
-            canvas.yview_scroll(-1, "units")
-        elif event.num == 5:
-            canvas.yview_scroll(1, "units")
-
-    for widget in (canvas, top):
-        for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
-            widget.bind(sequence, on_mousewheel)
+    bind_mousewheel(top, lambda direction: canvas.yview_scroll(direction, "units"))

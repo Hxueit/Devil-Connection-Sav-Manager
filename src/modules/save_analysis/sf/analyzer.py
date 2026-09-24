@@ -3,12 +3,14 @@
 左侧：按分区列出 DevilConnection_sf.sav 中的各项数据（fields.SECTIONS）
 右侧：统计面板（statistics_panel）和「查看存档文件」按钮
 
-refresh() 会重新读取存档。分区结构不变时只更新 StringVar 里的文字，
-不重建控件，避免闪烁和滚动位置跳动；进入/离开狂信徒路线时分区顺序和颜色
+每次切换到这个标签页都会调用 refresh()。存档文件没变时直接跳过（重建统计面板
+会重播 1.5 秒的进度环动画）；变了就重新读取。分区结构不变时只更新 StringVar 里的
+文字，不重建控件，避免闪烁和滚动位置跳动；进入/离开狂信徒路线时分区顺序和颜色
 都会变化，这时整体重建。
 """
 
 import logging
+import os
 import tkinter as tk
 from dataclasses import dataclass
 from tkinter import Scrollbar, ttk
@@ -16,9 +18,15 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import customtkinter as ctk
 
-from src.constants import STICKER_ID_RANGES, TOTAL_ENDINGS, TOTAL_NG_SCENE
-from src.constants import SF_SAVE_FILENAME
+from src.constants import (
+    NEO_SAVE_FILENAME,
+    SF_SAVE_FILENAME,
+    STICKER_ID_RANGES,
+    TOTAL_ENDINGS,
+    TOTAL_NG_SCENE,
+)
 from src.utils.styles import Colors, get_cjk_font
+from src.utils.ui_utils import bind_mousewheel, widget_alive
 
 from .fields import (
     FANATIC_SECTION_KEY,
@@ -52,6 +60,15 @@ class _Row:
     tooltip_var: Optional[tk.StringVar] = None
 
 
+def _file_signature(path: str) -> Optional[Tuple[int, int]]:
+    """(修改时间, 大小)，用来判断文件有没有变；文件不存在时返回 None"""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return st.st_mtime_ns, st.st_size
+
+
 class SaveAnalyzer:
     """sf 存档分析页"""
 
@@ -67,6 +84,8 @@ class SaveAnalyzer:
 
         # 当前左侧显示的分区是按哪种路线建的；None 表示还没有显示存档数据
         self._rendered_route: Optional[bool] = None
+        # 上次成功显示时 sf 存档和 NEO.sav 的 (修改时间, 大小)；没变就不用重新显示
+        self._rendered_files: Optional[Tuple[Any, Any]] = None
         self._rows: Dict[str, _Row] = {}
         self._translatable: List[Tuple[tk.Widget, str]] = []   # 语言切换时需要更新文字的标题/按钮/提示
         self._var_name_labels: List[Tuple[ttk.Label, ttk.Label]] = []  # (变量名标签, 它前面的标签)
@@ -84,8 +103,8 @@ class SaveAnalyzer:
             control_frame, text=self.t("show_var_names"), variable=self.show_var_names_var,
             command=self.toggle_var_names_display)
         self.show_var_names_checkbox.pack(side="left", padx=5)
-        self.refresh_button = ttk.Button(control_frame, text=self.t("refresh"), command=self.refresh,
-                                         name="refresh")
+        self.refresh_button = ttk.Button(control_frame, text=self.t("refresh"),
+                                         command=lambda: self.refresh(force=True), name="refresh")
         self.refresh_button.pack(side="right", padx=5)
 
         main_container = tk.Frame(self.window, bg=Colors.WHITE, highlightthickness=0, takefocus=0)
@@ -121,7 +140,7 @@ class SaveAnalyzer:
         scrollbar.pack(side="right", fill="y")
 
         self.window.bind("<Configure>", self._on_window_configure)
-        self._bind_mousewheel(left_frame)
+        bind_mousewheel(left_frame, self._scroll)
 
         self.statistics_panel = StatisticsPanel(right_frame, self.storage_dir, self.t)
         button_frame = tk.Frame(right_frame, bg=Colors.WHITE)
@@ -135,7 +154,7 @@ class SaveAnalyzer:
             self.window.after_idle(self._update_width)
 
     def _update_width(self) -> None:
-        if not self.scrollable_canvas.winfo_exists():
+        if not widget_alive(self.scrollable_canvas):
             return
         window_width = self.window.winfo_width()
         if window_width > 1:
@@ -148,30 +167,26 @@ class SaveAnalyzer:
         if bbox:
             self.scrollable_canvas.configure(scrollregion=bbox)
 
-    def _on_mousewheel(self, event: tk.Event) -> None:
-        if event.delta:
-            self.scrollable_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        elif event.num == 4:
-            self.scrollable_canvas.yview_scroll(-1, "units")
-        elif event.num == 5:
-            self.scrollable_canvas.yview_scroll(1, "units")
-
-    def _bind_mousewheel(self, widget: tk.Misc) -> None:
-        """滚轮事件只发给鼠标下的控件，所以要绑定到左侧的每个子控件上"""
-        for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
-            widget.bind(sequence, self._on_mousewheel)
-        for child in widget.winfo_children():
-            self._bind_mousewheel(child)
+    def _scroll(self, direction: int) -> None:
+        self.scrollable_canvas.yview_scroll(direction, "units")
 
     # ---------------------------------------------------------------- 刷新
 
-    def refresh(self) -> None:
-        """重新读取存档并更新页面（也用于语言切换）"""
-        if not self.scrollable_frame.winfo_exists():
-            return
+    def update_language(self) -> None:
+        """语言切换后更新所有文字"""
         self.show_var_names_checkbox.config(text=self.t("show_var_names"))
         self.refresh_button.config(text=self.t("refresh"))
         self.view_file_button.config(text=self.t("view_save_file"))
+        self.refresh(force=True)
+
+    def refresh(self, force: bool = False) -> None:
+        """重新读取存档并更新页面；存档文件没变时跳过，force=True 时总是重新显示"""
+        if not widget_alive(self.scrollable_frame):
+            return
+        files = (_file_signature(os.path.join(self.storage_dir, SF_SAVE_FILENAME)),
+                 _file_signature(os.path.join(self.storage_dir, NEO_SAVE_FILENAME)))
+        if not force and files == self._rendered_files:
+            return
         self._update_width()
 
         try:
@@ -186,18 +201,19 @@ class SaveAnalyzer:
             return
 
         self.save_data = save_data
-        computed = compute_shared_data(save_data)
-        fanatic = computed["is_fanatic_route"]
-        if self._rendered_route is None or self._rendered_route != fanatic:
-            self._build_sections(save_data, computed)
+        stats = compute_shared_data(save_data)
+        if self._rendered_route != stats["is_fanatic_route"]:
+            self._build_sections(save_data, stats)
         else:
-            self._update_sections(save_data, computed)
+            self._update_sections(save_data, stats)
+        self._rendered_files = files
         self.window.after_idle(self._update_scrollregion)
         self.window.after_idle(lambda: self.statistics_panel.update(save_data))
 
     def _show_load_error(self, message: str) -> None:
         """读取失败时：还没显示过数据就显示错误信息；已经显示过则保留旧数据"""
         self.save_data = None
+        self._rendered_files = None
         if self._rendered_route is not None:
             return
         self._clear_sections()
@@ -214,31 +230,31 @@ class SaveAnalyzer:
         self._var_name_labels.clear()
         self._rendered_route = None
 
-    def _build_sections(self, save_data: Dict[str, Any], computed: Dict[str, Any]) -> None:
+    def _build_sections(self, save_data: Dict[str, Any], stats: Dict[str, Any]) -> None:
         self._clear_sections()
-        fanatic = computed["is_fanatic_route"]
+        fanatic = stats["is_fanatic_route"]
         for key in section_order(fanatic):
             section = SECTIONS[key]
             color = FANATIC_TEXT_COLOR if fanatic and key == FANATIC_SECTION_KEY else None
             content = self._create_section(section, color)
             for field in section.fields:
-                self._create_row(content, field, field_value(field, save_data, computed, self.t), color)
+                self._create_row(content, field, field_value(field, save_data, stats, self.t), color)
             if section.hint_key:
                 hint = ttk.Label(content, text=self.t(section.hint_key), font=get_cjk_font(9),
                                  foreground="gray", wraplength=int(self._width * 0.85), justify="left")
                 hint.pack(anchor="w", padx=5, pady=(5, 0))
                 self._translatable.append((hint, section.hint_key))
         self._rendered_route = fanatic
-        self._bind_mousewheel(self.scrollable_frame)
+        bind_mousewheel(self.scrollable_frame, self._scroll)
 
-    def _update_sections(self, save_data: Dict[str, Any], computed: Dict[str, Any]) -> None:
+    def _update_sections(self, save_data: Dict[str, Any], stats: Dict[str, Any]) -> None:
         for widget, key in self._translatable:
             widget.config(text=self.t(key))
         for section in SECTIONS.values():
             for field in section.fields:
                 row = self._rows[field.label_key]
                 row.label_var.set(f"{self.t(field.label_key)}:")
-                row.value_var.set(field_value(field, save_data, computed, self.t))
+                row.value_var.set(field_value(field, save_data, stats, self.t))
                 if row.tooltip_var is not None:
                     row.tooltip_var.set(self.t(field.tooltip_key))
 
@@ -362,7 +378,7 @@ class SaveAnalyzer:
             show_hint_label=True,
             show_enable_edit_checkbox=True,
             enable_edit_by_default=False,
-            on_save_callback=lambda edited: self.refresh(),
+            on_save_callback=lambda edited: self.refresh(force=True),
         )
         SaveFileViewer.open_or_focus(
             viewer_id=f"sf:{self.storage_dir}",
