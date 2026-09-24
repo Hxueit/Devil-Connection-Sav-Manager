@@ -547,7 +547,9 @@ class CacheCleanDialog(ctk.CTkToplevel):
             }
         
         if not isinstance(state_result, dict) or not state_result.get("canClean"):
-            reason = state_result.get("reason", self.t("cache_clean_unknown_reason"))
+            reason = self.t("cache_clean_unknown_reason")
+            if isinstance(state_result, dict):
+                reason = state_result.get("reason", reason)
             return {
                 "success": False,
                 "error": self.t("cache_clean_error_cannot_clean").format(reason=reason)

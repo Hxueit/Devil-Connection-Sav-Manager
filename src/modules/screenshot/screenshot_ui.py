@@ -4,6 +4,7 @@
 """
 
 import logging
+from pathlib import Path
 from typing import Optional, Callable, Dict, Any
 import tkinter as tk
 from tkinter import messagebox, ttk
@@ -268,9 +269,11 @@ class ScreenshotManagerUI:
         self.storage_dir = storage_dir
         if self.storage_dir:
             self.screenshot_manager.set_storage_dir(self.storage_dir)
-            self.gallery_preview.storage_dir = storage_dir
-            self.dialogs.storage_dir = storage_dir
-            self.preview_handler.storage_dir = storage_dir
+            # 这几个组件内部用 Path 拼路径，不能直接赋 str
+            storage_path = Path(storage_dir)
+            self.gallery_preview.storage_dir = storage_path
+            self.dialogs.storage_dir = storage_path
+            self.preview_handler.storage_dir = storage_path
             self.hint_label.pack_forget()
         else:
             self.hint_label.pack(pady=10)

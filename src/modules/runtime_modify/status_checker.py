@@ -70,16 +70,16 @@ class StatusChecker:
                     self.check_hook_status_async()
             except Exception as e:
                 logger.debug(f"Status check error: {e}")
-            finally:
-                if self.state.is_closing:
-                    return
-                
-                interval = (
-                    RuntimeModifyConfig.STATUS_CHECK_INTERVAL_IDLE_MS
-                    if self.state.cached_game_running is False
-                    else RuntimeModifyConfig.STATUS_CHECK_INTERVAL_MS
-                )
-                self.state.status_check_job = self.root.after(interval, check)
+            
+            if self.state.is_closing:
+                return
+            
+            interval = (
+                RuntimeModifyConfig.STATUS_CHECK_INTERVAL_IDLE_MS
+                if self.state.cached_game_running is False
+                else RuntimeModifyConfig.STATUS_CHECK_INTERVAL_MS
+            )
+            self.state.status_check_job = self.root.after(interval, check)
         
         check()
     

@@ -438,7 +438,7 @@ class GalleryPreview:
             if screenshot_id not in self.screenshot_manager.sav_pairs:
                 return screenshot_id, None
             
-            thumb_file, main_file = self.screenshot_manager.sav_pairs[screenshot_id]
+            main_file, thumb_file = self.screenshot_manager.sav_pairs[screenshot_id]
             
             sav_file_path = None
             if thumb_file:

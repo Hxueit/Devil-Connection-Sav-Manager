@@ -60,11 +60,11 @@ class StatusIndicator:
             original_text = self._extract_original_text(current_values[1])
             
             if is_new:
-                indicator_prefix = self.NEW_INDICATOR_PREFIX
+                indicator_prefix = NEW_INDICATOR_PREFIX
                 style_tag = "NewIndicator"
                 indicator_type = "new"
             else:
-                indicator_prefix = self.REPLACE_INDICATOR_PREFIX
+                indicator_prefix = REPLACE_INDICATOR_PREFIX
                 style_tag = "ReplaceIndicator"
                 indicator_type = "replace"
             

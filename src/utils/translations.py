@@ -57,7 +57,6 @@ TRANSLATIONS = {
         "yes_button": "是(Y)",
         "no_button": "否(N)",
         "replace_success": "替换 {id} 完成！",
-        "select_new_image": "选择新图片文件",
         
         # 新增相关
         "add_new_title": "新增截图设置",
@@ -763,7 +762,6 @@ TRANSLATIONS = {
         "yes_button": "Yes",
         "no_button": "No",
         "replace_success": "Replacement of {id} completed!",
-        "select_new_image": "Select New Image File",
         
         # 新增相关
         "add_new_title": "Add Screenshot Settings",
@@ -1115,6 +1113,12 @@ TRANSLATIONS = {
         "cache_clean_error_photo_open": "Photo interface open, skipped: {item}",
         "cache_clean_error": "Error",
         "cache_clean_error_unknown": "Unknown error",
+        "cache_clean_error_unknown_error": "Unknown error",
+        "cache_clean_error_unexpected_result": "Unexpected result format",
+        "cache_clean_unknown_reason": "Unknown reason",
+        "cache_clean_unknown_item": "Unknown item",
+        "cache_clean_scan_failed": "Scan failed: {error}",
+        "cache_clean_items_found_count": "Found {count} variables",
         "cache_clean_warnings": "Warnings:",
 
         # 其他标签
@@ -1814,6 +1818,12 @@ TRANSLATIONS = {
         "cache_clean_error_photo_open": "写真インターフェースが開いています。スキップ: {item}",
         "cache_clean_error": "エラー",
         "cache_clean_error_unknown": "不明なエラー",
+        "cache_clean_error_unknown_error": "不明なエラー",
+        "cache_clean_error_unexpected_result": "予期しない結果形式です",
+        "cache_clean_unknown_reason": "不明な理由",
+        "cache_clean_unknown_item": "不明な項目",
+        "cache_clean_scan_failed": "スキャンに失敗しました: {error}",
+        "cache_clean_items_found_count": "{count} 個の変数が見つかりました",
         "cache_clean_warnings": "警告:",
 
         # 其他标签

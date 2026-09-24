@@ -208,9 +208,6 @@ def load_neo_content(storage_dir: str) -> Optional[Tuple[Optional[str], str]]:
     except UnicodeDecodeError as e:
         logger.warning(f"Failed to decode NEO file as UTF-8: {neo_path}, error: {e}")
         return None
-    except urllib.parse.UnquotePlusError as e:
-        logger.warning(f"Failed to decode NEO file content: {neo_path}, error: {e}")
-        return None
     except OSError as e:
         logger.warning(f"OS error reading NEO file: {neo_path}, error: {e}")
         return None
