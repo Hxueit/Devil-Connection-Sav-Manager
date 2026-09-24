@@ -5,6 +5,7 @@
 
 import json
 import logging
+import queue
 import urllib.parse
 import base64
 import tempfile
@@ -574,16 +575,16 @@ class ScreenshotDialogs:
             )
             return
         
-        format_dialog = self._create_format_selection_dialog()
-        format_var = tk.StringVar(value="png")
-        self._create_format_radio_buttons(format_dialog, format_var)
-        
-        def confirm_batch_export() -> None:
-            format_choice = format_var.get()
-            format_dialog.destroy()
-            self._perform_batch_export(selected_ids, format_choice)
-        
-        self._create_dialog_buttons(format_dialog, confirm_batch_export)
+        export_helper = ImageExportHelper(
+            self.root,
+            self.t,
+            self.get_cjk_font,
+            self.Colors,
+            self.set_window_icon
+        )
+        export_helper.ask_format(
+            lambda format_choice: self._perform_batch_export(selected_ids, format_choice)
+        )
     
     def _perform_batch_export(
         self,
@@ -643,6 +644,9 @@ class ScreenshotDialogs:
             close_button.pack(pady=10)
             progress_window.protocol("WM_DELETE_WINDOW", progress_window.destroy)
         
+        # 工作线程只往队列里放消息，所有 Tk 操作都在主线程的轮询里完成
+        events: "queue.Queue[tuple]" = queue.Queue()
+        
         def export_in_thread() -> None:
             """在后台线程中执行导出"""
             try:
@@ -652,41 +656,47 @@ class ScreenshotDialogs:
                 with zipfile.ZipFile(save_path, 'w', zipfile.ZIP_DEFLATED) as zip_file:
                     for idx, screenshot_id in enumerate(selected_ids):
                         image_data = self.screenshot_manager.get_image_data(screenshot_id)
-                        if image_data:
-                            if self._add_image_to_zip(
-                                zip_file,
-                                screenshot_id,
-                                image_data,
-                                format_choice
-                            ):
-                                exported_count += 1
-                            else:
-                                failed_count += 1
+                        if image_data and self._add_image_to_zip(
+                            zip_file,
+                            screenshot_id,
+                            image_data,
+                            format_choice
+                        ):
+                            exported_count += 1
                         else:
                             failed_count += 1
                         
-                        current = idx + 1
-                        progress_window.after(
-                            0,
-                            update_progress,
-                            current,
-                            len(selected_ids),
-                            exported_count,
-                            failed_count
-                        )
+                        events.put(("progress", idx + 1, len(selected_ids), exported_count, failed_count))
                 
                 if exported_count > 0:
-                    progress_window.after(0, show_success, exported_count, failed_count)
+                    events.put(("success", exported_count, failed_count))
                 else:
-                    error_msg = self._get_batch_export_error_message()
-                    progress_window.after(0, show_error, error_msg)
+                    events.put(("error", self._get_batch_export_error_message()))
             except Exception as e:
                 logger.error(f"Batch export failed: {e}", exc_info=True)
-                error_msg = f"{self.t('export_failed')}: {str(e)}"
-                progress_window.after(0, show_error, error_msg)
+                events.put(("error", f"{self.t('export_failed')}: {str(e)}"))
+        
+        def poll_events() -> None:
+            if not progress_window.winfo_exists():
+                return
+            try:
+                while True:
+                    kind, *args = events.get_nowait()
+                    if kind == "progress":
+                        update_progress(*args)
+                    elif kind == "success":
+                        show_success(*args)
+                        return
+                    else:
+                        show_error(*args)
+                        return
+            except queue.Empty:
+                pass
+            progress_window.after(50, poll_events)
         
         thread = threading.Thread(target=export_in_thread, daemon=True)
         thread.start()
+        poll_events()
     
     def _create_progress_window(self, total_count: int) -> Toplevel:
         """创建进度窗口
@@ -706,45 +716,46 @@ class ScreenshotDialogs:
         
         progress_label = tk.Label(
             progress_window,
+            name="progress_label",
             text=self.t("exporting_images"),
             font=self.get_cjk_font(10),
             fg=self.Colors.TEXT_PRIMARY,
             bg=self.Colors.WHITE
         )
         progress_label.pack(pady=10)
-        progress_label.name = "progress_label"
         
-        progress_bar = ttk.Progressbar(progress_window, length=350, mode='determinate')
+        progress_bar = ttk.Progressbar(
+            progress_window, name="progress_bar", length=350, mode='determinate'
+        )
         progress_bar.pack(pady=10, padx=20, fill="x")
         progress_bar['maximum'] = total_count
         progress_bar['value'] = 0
-        progress_bar.name = "progress_bar"
         
         status_label = tk.Label(
             progress_window,
+            name="status_label",
             text=f"0/{total_count}",
             font=self.get_cjk_font(9),
             fg=self.Colors.TEXT_PRIMARY,
             bg=self.Colors.WHITE
         )
         status_label.pack(pady=5)
-        status_label.name = "status_label"
         
         success_label = tk.Label(
             progress_window,
+            name="success_label",
             text="",
             font=self.get_cjk_font(10),
             bg=self.Colors.WHITE,
             fg="green"
         )
-        success_label.name = "success_label"
         
         close_button = ttk.Button(
             progress_window,
+            name="close_button",
             text=self.t("close"),
             command=progress_window.destroy
         )
-        close_button.name = "close_button"
         
         return progress_window
     

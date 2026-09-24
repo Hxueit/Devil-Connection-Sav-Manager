@@ -141,16 +141,24 @@ class ImageExportHelper:
             default_filename: 默认文件名（不含扩展名）
             on_export_callback: 导出成功后的回调函数（可选）
         """
+        self.ask_format(
+            lambda format_choice: self._perform_export(
+                image_data, default_filename, format_choice, on_export_callback
+            )
+        )
+    
+    def ask_format(self, on_confirm: Callable[[str], None]) -> None:
+        """弹出格式选择对话框，确认后以所选格式（如 "png"）调用 on_confirm"""
         format_dialog = self._create_format_selection_dialog()
         format_var = tk.StringVar(value="png")
         self._create_format_radio_buttons(format_dialog, format_var)
         
-        def confirm_export() -> None:
+        def confirm() -> None:
             format_choice = format_var.get()
             format_dialog.destroy()
-            self._perform_export(image_data, default_filename, format_choice, on_export_callback)
+            on_confirm(format_choice)
         
-        self._create_dialog_buttons(format_dialog, confirm_export)
+        self._create_dialog_buttons(format_dialog, confirm)
     
     def _create_format_selection_dialog(self) -> Toplevel:
         """创建格式选择对话框"""
