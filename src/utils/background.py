@@ -18,6 +18,7 @@ run_in_background 让后台线程只负责计算，结果由主线程定时检�
 """
 
 import logging
+import queue
 import threading
 import tkinter as tk
 from typing import Any, Callable, Optional
@@ -25,6 +26,22 @@ from typing import Any, Callable, Optional
 logger = logging.getLogger(__name__)
 
 POLL_INTERVAL_MS = 30
+WORKER_COUNT = 6
+
+# 后台线程在导入本模块时（还没有任何窗口时）就全部启动，之后一直复用。
+# 不在点击按钮时临时 Thread.start()：新线程启动时可能触发垃圾回收，
+# 回收 tkinter.font.Font 等对象需要主线程配合，而此时主线程正卡在 start() 里等新线程，会互相等待而卡死。
+_jobs: "queue.Queue[Callable[[], None]]" = queue.Queue()
+
+
+def _worker_loop() -> None:
+    while True:
+        job = _jobs.get()
+        job()
+
+
+for _ in range(WORKER_COUNT):
+    threading.Thread(target=_worker_loop, daemon=True, name="background-worker").start()
 
 
 def run_in_background(
@@ -42,7 +59,7 @@ def run_in_background(
     outcome: dict = {}
     finished = threading.Event()
 
-    def worker() -> None:
+    def job() -> None:
         try:
             outcome["result"] = work()
         except Exception as e:
@@ -62,5 +79,5 @@ def run_in_background(
         if on_done is not None:
             on_done(outcome.get("result"), outcome.get("error"))
 
-    threading.Thread(target=worker, daemon=True).start()
+    _jobs.put(job)
     widget.after(POLL_INTERVAL_MS, poll)
