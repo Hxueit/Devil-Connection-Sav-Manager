@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Dict, Optional
 
 import customtkinter as ctk
 
-from src.modules.save_analysis.sf.save_file_viewer import SaveFileViewer, ViewerConfig
+from src.modules.save_analysis.sf.save_file_viewer import SaveFileViewer
 from src.modules.save_analysis.tyrano.save_slot import TYRANO_COLLAPSED_FIELDS, button_style, create_dialog
 from src.utils.sav_io import read_sav, write_sav
 from src.utils.styles import Colors, get_cjk_font
@@ -87,27 +87,17 @@ class TyranoAutoSavesDialog:
             write_sav(file_path, edited_data)
             return True
 
-        config = ViewerConfig(
-            enable_edit_by_default=True,
-            show_enable_edit_checkbox=False,
-            show_collapse_checkbox=True,
-            show_hint_label=True,
-            title_key="save_file_viewer_title",
-            collapsed_fields=list(TYRANO_COLLAPSED_FIELDS),
-            custom_load_func=load,
-            custom_save_func=save,
-            on_save_callback=lambda edited: showinfo_relative(self.dialog, t("success"),
-                                                              t("tyrano_auto_save_save_success")),
-        )
         editor = SaveFileViewer.open_or_focus(
             viewer_id=str(file_path.resolve()),   # 用绝对路径区分不同文件的编辑器窗口
-            window=self.dialog,
-            storage_dir=str(self.storage_dir),
-            save_data=save_data,
-            t_func=t,
-            on_close_callback=None,
-            mode="file",
-            viewer_config=config,
+            parent=self.dialog,
+            t=t,
+            data=save_data,
+            title=f"{t('tyrano_auto_saves_dialog_title')} - {t(name_key)}",
+            load=load,
+            save=save,
+            collapsed_fields=TYRANO_COLLAPSED_FIELDS,
+            show_collapse_toggle=True,
+            on_saved=lambda edited: showinfo_relative(self.dialog, t("success"), t("tyrano_auto_save_save_success")),
         )
         window = getattr(editor, "viewer_window", None)
         if window is not None and window.winfo_exists():

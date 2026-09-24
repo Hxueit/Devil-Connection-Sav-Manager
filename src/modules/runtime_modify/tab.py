@@ -5,7 +5,7 @@
 """
 import logging
 import threading
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import customtkinter as ctk
 import tkinter as tk
@@ -18,20 +18,30 @@ except ImportError:
 
 from src.modules.runtime_modify.cache_clean_dialog import CacheCleanDialog
 from src.modules.runtime_modify.console import DevToolsConsoleWindow
-from src.modules.runtime_modify.dialogs import RuntimeMiscDialog, create_standard_button
+from src.modules.runtime_modify.dialogs import RuntimeDialog, RuntimeMiscDialog, set_textbox_text
 from src.modules.runtime_modify.service import (
     DEFAULT_PORT,
+    KAG_STAT_JS_PATH,
     MAX_PORT,
     MIN_PORT,
+    SF_JS_PATH,
+    GameNotConnectedError,
+    LaunchError,
+    MarkReadRefusedError,
     RuntimeModifyService,
+    assign_json_variable,
     check_port_available,
+    describe_changes,
     fetch_ws_url,
     get_game_exe_path,
+    inject_and_save_sf,
+    mark_current_label_read,
     read_json_variable,
 )
+from src.modules.save_analysis.sf.save_file_viewer import DEFAULT_SF_COLLAPSED_FIELDS, SaveFileViewer, ViewerTexts
 from src.utils.background import run_in_background
-from src.utils.styles import Colors, get_cjk_font
-from src.utils.ui_utils import restore_and_activate_window, showerror_relative, showinfo_relative
+from src.utils.styles import Colors, get_cjk_font, white_button
+from src.utils.ui_utils import showerror_relative, showinfo_relative
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +54,27 @@ DEFAULT_KAG_STAT_COLLAPSED_FIELDS = [
     "map_label", "charas", "map_keyframe", "stack", "popopo", "map_macro", "fuki", "three",
 ]
 
+# 变量编辑器的「保存」是注入游戏内存，提示文字与保存文件不同
+SF_EDITOR_TEXTS = ViewerTexts(
+    save_button="runtime_modify_sf_save_inject_button",
+    confirm_save="runtime_modify_sf_confirm_inject",
+    save_success="runtime_modify_sf_inject_success",
+    save_failed="runtime_modify_sf_inject_failed",
+    load_failed="runtime_modify_sf_read_failed",
+)
+KAG_STAT_EDITOR_TEXTS = ViewerTexts(
+    save_button="runtime_modify_sf_save_inject_button",
+    confirm_save="runtime_modify_kag_stat_confirm_inject",
+    save_success="runtime_modify_sf_inject_success",
+    save_failed="runtime_modify_kag_stat_inject_failed",
+    load_failed="runtime_modify_kag_stat_read_failed",
+)
 
-def _window_alive(window: Optional[tk.Misc]) -> bool:
-    try:
-        return window is not None and bool(window.winfo_exists())
-    except tk.TclError:
-        return False
+# 强制快进被游戏拒绝的原因（MarkReadRefusedError.code）-> 翻译键；其余原因显示通用错误
+MARK_READ_REFUSED_MESSAGES = {
+    "game_not_using_read_record": "runtime_modify_mark_read_no_record",
+    "not_in_any_label": "runtime_modify_mark_read_no_label",
+}
 
 
 class RuntimeModifyTab:
@@ -151,7 +176,7 @@ class RuntimeModifyTab:
         self.port_entry.pack(side="left", padx=(5, 10))
         self.port_entry.insert(0, str(DEFAULT_PORT))
         self.port_entry.bind("<KeyRelease>", lambda e: self.port_status_label.configure(text=""))
-        create_standard_button(
+        white_button(
             port_row, self.t("runtime_modify_check_port"), self._on_check_port_clicked,
             font=get_cjk_font(9), width=80, height=28,
         ).pack(side="left", padx=(0, 10))
@@ -165,10 +190,10 @@ class RuntimeModifyTab:
         # 启动/停止与状态
         action_row = ctk.CTkFrame(content, fg_color=Colors.WHITE)
         action_row.pack(fill="x", pady=(0, 10))
-        self.launch_button = create_standard_button(
+        self.launch_button = white_button(
             action_row, self.t("runtime_modify_launch_button"), self._on_launch_clicked)
         self.launch_button.pack(side="left", padx=(0, 10))
-        self.stop_button = create_standard_button(
+        self.stop_button = white_button(
             action_row, self.t("runtime_modify_stop_server"), self._on_stop_clicked, state="disabled")
         self.stop_button.pack(side="left", padx=(0, 10))
         self.game_status_label = ctk.CTkLabel(action_row, text="", font=get_cjk_font(10))
@@ -193,25 +218,25 @@ class RuntimeModifyTab:
             wrap="word",
         )
         self.status_text.pack(fill="both", expand=True)
-        self._set_status_text(self.t("runtime_modify_status_ready"))
+        set_textbox_text(self.status_text, self.t("runtime_modify_status_ready"))
 
         # 功能入口：控制台 | sf 编辑  kag.stat 编辑 | 杂项
         tools_row = ctk.CTkFrame(content, fg_color=Colors.WHITE)
         tools_row.pack(anchor="w", pady=(10, 0), fill="x")
-        create_standard_button(
+        white_button(
             tools_row, self.t("runtime_modify_open_console_button"), self._open_console,
         ).pack(side="left")
         self._separator(tools_row)
-        self.sf_edit_button = create_standard_button(
+        self.sf_edit_button = white_button(
             tools_row, self.t("runtime_modify_sf_edit_button"), lambda: self._open_variable_editor("sf"),
             state="disabled")
         self.sf_edit_button.pack(side="left")
-        self.tyrano_edit_button = create_standard_button(
+        self.kag_stat_edit_button = white_button(
             tools_row, self.t("runtime_modify_tyrano_edit_button"), lambda: self._open_variable_editor("kag_stat"),
             state="disabled")
-        self.tyrano_edit_button.pack(side="left", padx=(10, 0))
+        self.kag_stat_edit_button.pack(side="left", padx=(10, 0))
         self._separator(tools_row)
-        self.misc_button = create_standard_button(
+        self.misc_button = white_button(
             tools_row, self.t("runtime_modify_misc_button"), self._open_misc_dialog, state="disabled")
         self.misc_button.pack(side="left")
 
@@ -230,12 +255,6 @@ class RuntimeModifyTab:
             self.description_label.pack(anchor="w")
         else:
             self.description_label.pack_forget()
-
-    def _set_status_text(self, message: str) -> None:
-        self.status_text.configure(state="normal")
-        self.status_text.delete("1.0", "end")
-        self.status_text.insert("1.0", message)
-        self.status_text.configure(state="disabled")
 
     # ------------------------------------------------------------ 状态
 
@@ -262,12 +281,11 @@ class RuntimeModifyTab:
 
         self.stop_button.configure(state="normal" if self._game_running else "disabled")
         runtime_state = "normal" if self._hook_enabled else "disabled"
-        for button in (self.sf_edit_button, self.tyrano_edit_button, self.misc_button):
+        for button in (self.sf_edit_button, self.kag_stat_edit_button, self.misc_button):
             button.configure(state=runtime_state)
-        if _window_alive(self.console_window):
-            self.console_window.set_enabled(self._hook_enabled)
-        if _window_alive(self.misc_dialog):
-            self.misc_dialog.set_enabled(self._hook_enabled)
+        for dialog in (self.console_window, self.misc_dialog):
+            if dialog is not None and dialog.is_open():
+                dialog.set_enabled(self._hook_enabled)
 
     def _poll_status(self) -> None:
         self._poll_job = None
@@ -353,35 +371,38 @@ class RuntimeModifyTab:
 
         self._is_launching = True
         self.launch_button.configure(state="disabled", text=self.t("runtime_modify_launching"))
-        self._set_status_text(self.t("runtime_modify_status_launching"))
+        set_textbox_text(self.status_text, self.t("runtime_modify_status_launching"))
         run_in_background(self.parent, lambda: self.service.launch_and_test(exe_path, port), self._on_launch_done)
 
-    def _on_launch_done(self, result: Optional[Tuple[bool, Optional[str], Dict[str, Any]]],
-                        exc: Optional[BaseException]) -> None:
+    def _on_launch_done(self, info: Optional[Dict[str, Any]], error: Optional[BaseException]) -> None:
         if self._closed:
             return
         self._is_launching = False
         self.launch_button.configure(state="normal", text=self.t("runtime_modify_launch_button"))
-        if exc is not None:
-            success, error, info = False, self.t("runtime_modify_error_launch_failed", error=str(exc)), {}
-        else:
-            success, error, info = result
 
         self._status_generation += 1
-        self._set_game_status(success or self._game_running, info.get("ws_url") if success else None)
+        if error is None:
+            self._set_game_status(True, info["ws_url"])
+        else:
+            self._set_game_status(self._game_running, None)
         self._poll_soon()
 
-        details = self._format_launch_details(info)
-        if success:
-            self._set_status_text(self.t("runtime_modify_connection_success") + details)
+        if error is None:
+            set_textbox_text(self.status_text,
+                             self.t("runtime_modify_connection_success") + self._format_launch_details(info))
             showinfo_relative(self.root, self.t("success"), self.t("runtime_modify_connection_success"))
-        elif info.get("pending_cdp"):
-            # 游戏还在启动（Steam 较慢），不弹窗，之后的状态轮询会发现它
-            self._set_status_text(self.t("runtime_modify_error_game_not_ready") + details)
+            return
+        if isinstance(error, LaunchError):
+            details = self._format_launch_details(error.info)
+            if error.still_starting:
+                # 游戏还在启动（Steam 较慢），不弹窗，之后的状态轮询会发现它
+                set_textbox_text(self.status_text, self.t("runtime_modify_error_game_not_ready") + details)
+                return
+            message = (str(error) or self.t("runtime_modify_connection_failed")) + details
         else:
-            message = (error or self.t("runtime_modify_connection_failed")) + details
-            self._set_status_text(message)
-            showerror_relative(self.root, self.t("error"), message)
+            message = self.t("runtime_modify_error_launch_failed", error=str(error))
+        set_textbox_text(self.status_text, message)
+        showerror_relative(self.root, self.t("error"), message)
 
     def _format_launch_details(self, info: Dict[str, Any]) -> str:
         """启动详情（启动方式、页面标题、地址、TYRANO 类型）；没有时返回空字符串"""
@@ -415,7 +436,7 @@ class RuntimeModifyTab:
             showerror_relative(
                 self.root, self.t("error"), self.t("runtime_modify_error_stop_game_failed", error=str(exc)))
             return
-        self._set_status_text(self.t("runtime_modify_game_stopped"))
+        set_textbox_text(self.status_text, self.t("runtime_modify_game_stopped"))
         self._status_generation += 1
         self._set_game_status(False, None)
         self._poll_soon()
@@ -427,68 +448,69 @@ class RuntimeModifyTab:
         port = self._port_or_show_error()
         if port is None:
             return
-        js_path = "TYRANO.kag.variable.sf" if kind == "sf" else "TYRANO.kag.stat"
+        js_path = SF_JS_PATH if kind == "sf" else KAG_STAT_JS_PATH
 
-        def read() -> Tuple[Optional[str], Optional[Dict[str, Any]], Optional[str]]:
+        def read() -> Tuple[str, Dict[str, Any]]:
             ws_url = fetch_ws_url(port)
             if ws_url is None:
-                return None, None, None
-            data, error = read_json_variable(ws_url, js_path)
-            return ws_url, data, error
+                raise GameNotConnectedError(f"No game page on port {port}")
+            return ws_url, read_json_variable(ws_url, js_path)
 
-        run_in_background(self.parent, read, lambda result, exc: self._on_variable_read(kind, result, exc))
+        run_in_background(self.parent, read, lambda result, error: self._on_variable_read(kind, result, error))
 
-    def _on_variable_read(self, kind: str, result: Optional[tuple], exc: Optional[BaseException]) -> None:
+    def _on_variable_read(self, kind: str, result: Optional[Tuple[str, Dict[str, Any]]],
+                          error: Optional[BaseException]) -> None:
         if self._closed:
             return
-        ws_url, data, error = result if exc is None else ("", None, str(exc))
-        if ws_url is None:
+        if isinstance(error, GameNotConnectedError):
             showerror_relative(self.root, self.t("error"), self.t("runtime_modify_sf_game_not_running"))
             return
+        texts = SF_EDITOR_TEXTS if kind == "sf" else KAG_STAT_EDITOR_TEXTS
         if error is not None:
-            key = "runtime_modify_sf_read_failed" if kind == "sf" else "runtime_modify_kag_stat_read_failed"
-            showerror_relative(self.root, self.t("error"), self.t(key).format(error=error))
+            showerror_relative(self.root, self.t("error"), self.t(texts.load_failed, error=str(error)))
             return
 
-        from src.modules.save_analysis.sf.save_file_viewer import (
-            DEFAULT_SF_COLLAPSED_FIELDS,
-            SaveFileViewer,
-            ViewerConfig,
-        )
-        common = dict(
-            ws_url=ws_url,
-            service=self.service,
-            enable_edit_by_default=True,
-            save_button_text="runtime_modify_sf_save_inject_button",
-            show_enable_edit_checkbox=False,
-        )
+        ws_url, data = result
         if kind == "sf":
-            config = ViewerConfig(collapsed_fields=DEFAULT_SF_COLLAPSED_FIELDS, **common)
-        else:
-            config = ViewerConfig(
-                show_collapse_checkbox=True,
-                show_hint_label=True,
-                title_key="runtime_modify_kag_stat_edit_title",
-                inject_method="kag_stat",
-                collapsed_fields=DEFAULT_KAG_STAT_COLLAPSED_FIELDS,
-                **common,
+            SaveFileViewer.open_or_focus(
+                viewer_id="runtime_sf",
+                parent=self.root,
+                t=self.t,
+                data=data,
+                title=self.t("save_file_viewer_title"),
+                load=lambda: read_json_variable(ws_url, SF_JS_PATH),
+                save=lambda edited: inject_and_save_sf(ws_url, edited),
+                texts=texts,
+                collapsed_fields=DEFAULT_SF_COLLAPSED_FIELDS,
+                runtime=True,
+                # 打开编辑器之后游戏可能又改了 sf（如解锁了结局），注入前让用户确认
+                find_outside_changes=lambda original: describe_changes(
+                    original, read_json_variable(ws_url, SF_JS_PATH)),
             )
-        SaveFileViewer.open_or_focus(
-            viewer_id="runtime_sf" if kind == "sf" else "runtime_kag_stat",
-            window=self.root,
-            storage_dir=self.storage_dir or "",
-            save_data=data,
-            t_func=self.t,
-            on_close_callback=None,
-            mode="runtime",
-            viewer_config=config,
-        )
+        else:
+            SaveFileViewer.open_or_focus(
+                viewer_id="runtime_kag_stat",
+                parent=self.root,
+                t=self.t,
+                data=data,
+                title=self.t("runtime_modify_kag_stat_edit_title"),
+                load=lambda: read_json_variable(ws_url, KAG_STAT_JS_PATH),
+                save=lambda edited: assign_json_variable(ws_url, KAG_STAT_JS_PATH, edited),
+                texts=texts,
+                collapsed_fields=DEFAULT_KAG_STAT_COLLAPSED_FIELDS,
+                show_collapse_toggle=True,
+                runtime=True,
+            )
 
     # ------------------------------------------------------------ 弹窗
 
+    def _open_dialogs(self) -> List[RuntimeDialog]:
+        dialogs = (self.console_window, self.misc_dialog, self.cache_clean_dialog)
+        return [dialog for dialog in dialogs if dialog is not None and dialog.is_open()]
+
     def _open_console(self) -> None:
-        if _window_alive(self.console_window):
-            restore_and_activate_window(self.console_window)
+        if self.console_window is not None and self.console_window.is_open():
+            self.console_window.show()
             return
         self.console_window = DevToolsConsoleWindow(
             self.root, self.t, lambda: self._ws_url, self.storage_dir, on_close=self._on_console_closed)
@@ -498,16 +520,16 @@ class RuntimeModifyTab:
         self.console_window = None
 
     def _open_misc_dialog(self) -> None:
-        if _window_alive(self.misc_dialog):
-            restore_and_activate_window(self.misc_dialog)
+        if self.misc_dialog is not None and self.misc_dialog.is_open():
+            self.misc_dialog.show()
         else:
             self.misc_dialog = RuntimeMiscDialog(
                 self.root, self.t, self._force_fast_forward, self._open_cache_clean_dialog)
         self.misc_dialog.set_enabled(self._hook_enabled)
 
     def _open_cache_clean_dialog(self) -> None:
-        if _window_alive(self.cache_clean_dialog):
-            restore_and_activate_window(self.cache_clean_dialog)
+        if self.cache_clean_dialog is not None and self.cache_clean_dialog.is_open():
+            self.cache_clean_dialog.show()
         else:
             self.cache_clean_dialog = CacheCleanDialog(self.root, self.t, lambda: self._ws_url)
 
@@ -556,24 +578,18 @@ class RuntimeModifyTab:
         """把当前 label 标记为已读，让游戏允许快进"""
         ws_url = self._ws_url
         if ws_url is None:
-            self._on_fast_forward_done((False, "websocket_not_available"), None)
+            showerror_relative(self.root, self.t("error"), self.t("runtime_modify_mark_read_websocket_error"))
             return
-        run_in_background(self.parent, lambda: self.service.mark_current_label_read(ws_url), self._on_fast_forward_done)
+        run_in_background(self.parent, lambda: mark_current_label_read(ws_url), self._on_fast_forward_done)
 
-    def _on_fast_forward_done(self, result: Optional[Tuple[bool, Optional[str]]], exc: Optional[BaseException]) -> None:
-        success, error = result if exc is None else (False, str(exc))
-        if success:
+    def _on_fast_forward_done(self, _result: None, error: Optional[BaseException]) -> None:
+        if error is None:
             return
-        error = error or ""
         logger.error(f"Failed to mark as read: {error}")
-        if "game_not_using_read_record" in error:
-            message = self.t("runtime_modify_mark_read_no_record")
-        elif "not_in_any_label" in error:
-            message = self.t("runtime_modify_mark_read_no_label")
-        elif "websocket_not_available" in error:
-            message = self.t("runtime_modify_mark_read_websocket_error")
+        if isinstance(error, MarkReadRefusedError) and error.code in MARK_READ_REFUSED_MESSAGES:
+            message = self.t(MARK_READ_REFUSED_MESSAGES[error.code])
         else:
-            message = self.t("runtime_modify_mark_read_failed", error=error)
+            message = self.t("runtime_modify_mark_read_failed", error=str(error))
         showerror_relative(self.root, self.t("error"), message)
 
     # ------------------------------------------------------------ 生命周期
@@ -589,9 +605,8 @@ class RuntimeModifyTab:
                     pass
         self._unregister_hotkey()
 
-        for window in (self.console_window, self.misc_dialog, self.cache_clean_dialog):
-            if _window_alive(window):
-                window.destroy()
+        for dialog in self._open_dialogs():
+            dialog.close()
 
         if stop_game and self.service.game_process is not None:
             try:
@@ -607,6 +622,5 @@ class RuntimeModifyTab:
         self._build_ui()
         self.port_entry.delete(0, "end")
         self.port_entry.insert(0, port_text)
-        for window in (self.console_window, self.misc_dialog, self.cache_clean_dialog):
-            if _window_alive(window):
-                window.update_language()
+        for dialog in self._open_dialogs():
+            dialog.update_language()

@@ -17,7 +17,7 @@ import customtkinter as ctk
 from PIL import Image
 
 from src.modules.common.image_operations import ImageExportHelper, ImageReplaceHelper
-from src.modules.save_analysis.sf.save_file_viewer import SaveFileViewer, ViewerConfig
+from src.modules.save_analysis.sf.save_file_viewer import SaveFileViewer
 from src.modules.save_analysis.tyrano.analyzer import (
     day_text,
     describe_slot,
@@ -239,26 +239,17 @@ class TyranoSaveSlot(SlotCard):
         def load_slot() -> Optional[Dict[str, Any]]:
             return analyzer.save_slots[index] if index < len(analyzer.save_slots) else None
 
-        config = ViewerConfig(
-            enable_edit_by_default=True,
-            show_enable_edit_checkbox=False,
-            show_collapse_checkbox=True,
-            show_hint_label=True,
-            title_key="save_file_viewer_title",
-            collapsed_fields=list(TYRANO_COLLAPSED_FIELDS),
-            custom_load_func=load_slot,
-            custom_save_func=lambda edited: analyzer.replace_slot(index, edited),
-            on_save_callback=lambda edited: self.viewer.refresh(),
-        )
         editor = SaveFileViewer.open_or_focus(
             viewer_id=f"tyrano_slot:{analyzer.storage_dir}:{index}",
-            window=self.root,
-            storage_dir=str(analyzer.storage_dir),
-            save_data=self.slot_data,
-            t_func=self.translate,
-            on_close_callback=None,
-            mode="file",
-            viewer_config=config,
+            parent=self.root,
+            t=self.translate,
+            data=self.slot_data,
+            title=self._edit_title(),
+            load=load_slot,
+            save=lambda edited: analyzer.replace_slot(index, edited),
+            collapsed_fields=TYRANO_COLLAPSED_FIELDS,
+            show_collapse_toggle=True,
+            on_saved=lambda edited: self.viewer.refresh(),
         )
         window = getattr(editor, "viewer_window", None)
         if window is not None and window.winfo_exists():

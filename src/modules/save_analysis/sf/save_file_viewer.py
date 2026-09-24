@@ -1,11 +1,10 @@
 """存档查看/编辑窗口
 
 以 JSON 文本显示存档内容，支持折叠大字段、搜索、复制、编辑后保存。
-被多处复用：
-- sf 存档分析页的「查看存档文件」（mode="file"，写回 DevilConnection_sf.sav）
-- tyrano 存档槽 / 自动存档（mode="file"，通过 ViewerConfig.custom_load_func/custom_save_func
-  或子类重写 _save_to_file 保存到别的文件）
-- 运行时修改页（mode="runtime"，通过 CDP 读写游戏内存中的 sf 或 kag.stat）
+窗口本身不知道数据存在哪里：调用方传入 load() 和 save(data) 两个函数。
+- sf 存档分析页的「查看存档文件」：读写 DevilConnection_sf.sav
+- tyrano 存档槽 / 自动存档：读写对应的存档槽或文件
+- 运行时修改页（runtime=True）：通过 CDP 读写游戏内存中的 sf 或 kag.stat
 """
 
 import copy
@@ -13,15 +12,12 @@ import json
 import logging
 import re
 import tkinter as tk
-from dataclasses import dataclass, field
-from pathlib import Path
-from tkinter import Scrollbar, messagebox, ttk
-from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
+from dataclasses import dataclass
+from tkinter import Scrollbar, ttk
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
-from src.constants import SF_SAVE_FILENAME
 from src.utils.background import run_in_background
 from src.utils.hint_animation import HintAnimation
-from src.utils.sav_io import write_sav
 from src.utils.styles import Colors, get_cjk_font, get_mono_font
 from src.utils.ui_utils import (
     askyesno_relative,
@@ -32,7 +28,6 @@ from src.utils.ui_utils import (
     showwarning_relative,
 )
 
-from .fields import load_save_file
 from .viewer_json import format_display_data, restore_collapsed_fields
 
 logger = logging.getLogger(__name__)
@@ -41,12 +36,11 @@ logger = logging.getLogger(__name__)
 CHECKBOX_STYLE_NORMAL = "SfViewer.TCheckbutton"
 CHECKBOX_STYLE_HINT = "SfViewerHint.TCheckbutton"
 
-__all__ = ["SaveFileViewer", "ViewerConfig", "DEFAULT_SF_COLLAPSED_FIELDS"]
+__all__ = ["SaveFileViewer", "ViewerTexts", "DEFAULT_SF_COLLAPSED_FIELDS"]
 
 DEFAULT_SF_COLLAPSED_FIELDS: List[str] = ["record", "_tap_effect", "initialVars"]
 
 WINDOW_SIZE = "1200x900"
-CLOSE_CALLBACK_DELAY_MS = 100
 # 注入后稍等片刻再从游戏读回数据，确保游戏已经处理完写入
 REFRESH_AFTER_INJECT_DELAY_MS = 200
 
@@ -66,30 +60,13 @@ JSON_HIGHLIGHT_PATTERNS = [
 
 
 @dataclass
-class ViewerConfig:
-    """查看器配置
-
-    Attributes:
-        ws_url / service: 运行时模式使用的 CDP 地址和 RuntimeModifyService
-        inject_method: 运行时模式读写的对象，"sf" 或 "kag_stat"
-        collapsed_fields: 默认折叠的字段路径（支持 "stat.map_label" 这样的嵌套路径）
-        custom_load_func: 文件模式下「刷新/开启编辑」时重新加载数据；不填则读取 sf 存档
-        custom_save_func: 文件模式下的保存函数，返回是否成功；不填则写入 sf 存档
-        on_save_callback: 保存成功后调用，参数为保存的数据
-    """
-    ws_url: Optional[str] = None
-    service: Optional[Any] = None
-    inject_method: str = "sf"
-    enable_edit_by_default: bool = False
-    save_button_text: str = "save_file"
-    show_enable_edit_checkbox: bool = False
-    show_collapse_checkbox: bool = False
-    show_hint_label: bool = False
-    title_key: str = "save_file_viewer_title"
-    collapsed_fields: List[str] = field(default_factory=list)
-    custom_load_func: Optional[Callable[[], Optional[Dict[str, Any]]]] = None
-    custom_save_func: Optional[Callable[[Dict[str, Any]], bool]] = None
-    on_save_callback: Optional[Callable[[Dict[str, Any]], None]] = None
+class ViewerTexts:
+    """随用途变化的文字（都是翻译键）；默认值用于保存到文件"""
+    save_button: str = "save_file"
+    confirm_save: str = "save_confirm_text"
+    save_success: str = "save_success"
+    save_failed: str = "save_file_failed"      # 带 {error}
+    load_failed: Optional[str] = None          # 带 {error}；None 时直接显示错误信息
 
 
 # viewer_id -> 已打开的查看器；同一份数据只开一个窗口
@@ -119,69 +96,77 @@ class SaveFileViewer:
         if existing is not None and existing.viewer_window.winfo_exists():
             restore_and_activate_window(existing.viewer_window)
             return existing
-        viewer = cls(**kwargs, _viewer_id=viewer_id)
+        viewer = cls(**kwargs)
         _open_viewers[viewer_id] = viewer
+        viewer.viewer_window.bind("<Destroy>", lambda event: viewer._on_destroy(event, viewer_id))
         return viewer
 
     def __init__(
         self,
-        window: tk.Widget,
-        storage_dir: str,
-        save_data: Dict[str, Any],
-        t_func: Callable[[str], str],
-        on_close_callback: Optional[Callable[[], None]] = None,
-        mode: Literal["file", "runtime"] = "file",
-        viewer_config: Optional[ViewerConfig] = None,
-        _viewer_id: Optional[str] = None,
+        parent: tk.Misc,
+        t: Callable[..., str],
+        data: Dict[str, Any],
+        title: str,
+        load: Callable[[], Optional[Dict[str, Any]]],
+        save: Callable[[Dict[str, Any]], Any],
+        texts: Optional[ViewerTexts] = None,
+        collapsed_fields: Iterable[str] = (),
+        show_collapse_toggle: bool = False,
+        edit_checkbox: bool = False,
+        runtime: bool = False,
+        find_outside_changes: Optional[Callable[[Dict[str, Any]], List[str]]] = None,
+        on_saved: Optional[Callable[[Dict[str, Any]], None]] = None,
     ) -> None:
         """
         Args:
-            window: 任意所属控件，用来找到主窗口
-            on_close_callback: 关闭窗口时调用（仅当这次打开期间保存过数据）
+            parent: 任意所属控件，用来找到主窗口
+            data: 初始显示的数据
+            title: 窗口标题（已翻译的文字）
+            load: 「刷新」和「启用编辑」时重新读取数据；出错时抛出异常，返回 None 表示数据已不存在（保持现状）
+            save: 保存编辑后的数据；出错时抛出异常（返回 False 也视为失败）
+            collapsed_fields: 默认折叠的字段路径（支持 "stat.map_label" 这样的嵌套路径）
+            show_collapse_toggle: 显示「取消折叠」复选框和说明文字
+            edit_checkbox: True 时默认只读，勾选「启用编辑」才能修改；False 时直接可编辑
+            runtime: load/save 要和运行中的游戏通信：在后台线程执行，保存后再从游戏读回一次
+            find_outside_changes: 保存前检查数据在打开后是否被别处改过，参数是打开时的数据，
+                返回差异说明（空列表表示没变）；有差异时让用户确认
+            on_saved: 保存成功后调用，参数为保存的数据
         """
-        self._viewer_id = _viewer_id
-        self.window = window
-        self.storage_dir = storage_dir
-        self.save_data = save_data
-        # 运行时模式注入前用它检测游戏里的数据是否在打开后被改过
-        self.original_save_data = self._deep_copy_data(save_data)
-        self.t = t_func
-        self.on_close_callback = on_close_callback
-        self.mode = mode
-        self.viewer_config = viewer_config or ViewerConfig()
-        self._data_was_saved = False
+        self.t = t
+        self.load = load
+        self.save = save
+        self.texts = texts or ViewerTexts()
+        self.collapsed_fields = list(collapsed_fields)
+        self.runtime = runtime
+        self.find_outside_changes = find_outside_changes
+        self.on_saved = on_saved
+        self._set_data(data)
         self._baseline = ""          # 最近一次渲染的文本，用来判断是否有未保存的修改
         self._line_count = 0
         self._search_term = ""
         self._search_index = -1
-        self.save_button: Optional[ttk.Button] = None
         self._hint_animation: Optional[HintAnimation] = None
 
-        self.viewer_window = tk.Toplevel(window.nametowidget("."))
-        self.viewer_window.title(self.t(self.viewer_config.title_key))
+        self.viewer_window = tk.Toplevel(parent.nametowidget("."))
+        self.viewer_window.title(title)
         self.viewer_window.geometry(WINDOW_SIZE)
         self.viewer_window.configure(bg=Colors.MODAL_BG)
         set_window_icon(self.viewer_window)
-        self.viewer_window.bind("<Destroy>", self._on_destroy)
         self.viewer_window.protocol("WM_DELETE_WINDOW", self._on_close)
 
         self.disable_collapse_var = tk.BooleanVar(value=False)
-        self.enable_edit_var = tk.BooleanVar(value=self.viewer_config.enable_edit_by_default)
-        self._build_ui()
+        self.enable_edit_var = tk.BooleanVar(value=not edit_checkbox)
+        self._build_ui(show_collapse_toggle, edit_checkbox)
         self._render()
-
-    @staticmethod
-    def _deep_copy_data(data: Dict[str, Any]) -> Dict[str, Any]:
-        return copy.deepcopy(data)
 
     # ---------------------------------------------------------------- 界面
 
-    def _build_ui(self) -> None:
+    def _build_ui(self, show_collapse_toggle: bool, edit_checkbox: bool) -> None:
         self._setup_styles()
         main_frame = tk.Frame(self.viewer_window, bg=Colors.MODAL_BG)
         main_frame.pack(fill="both", expand=True, padx=5, pady=5)
 
-        if self.viewer_config.show_hint_label:
+        if show_collapse_toggle:
             hint_frame = tk.Frame(main_frame, bg=Colors.MODAL_BG)
             hint_frame.pack(fill="x", pady=(0, 10))
             ttk.Label(hint_frame, text=self.t("viewer_hint_text"), font=get_cjk_font(9), wraplength=850,
@@ -189,7 +174,7 @@ class SaveFileViewer:
 
         toolbar = tk.Frame(main_frame, bg=Colors.MODAL_BG)
         toolbar.pack(fill="x", pady=(0, 5))
-        self._build_toolbar(toolbar)
+        self._build_toolbar(toolbar, show_collapse_toggle, edit_checkbox)
         self._build_text_area(main_frame)
 
     def _setup_styles(self) -> None:
@@ -204,8 +189,8 @@ class SaveFileViewer:
         style.configure(CHECKBOX_STYLE_NORMAL, background=Colors.MODAL_BG)
         style.configure(CHECKBOX_STYLE_HINT, background=Colors.MODAL_BG, foreground="#FF6B35")
 
-    def _build_toolbar(self, toolbar: tk.Frame) -> None:
-        if self.viewer_config.show_collapse_checkbox:
+    def _build_toolbar(self, toolbar: tk.Frame, show_collapse_toggle: bool, edit_checkbox: bool) -> None:
+        if show_collapse_toggle:
             ttk.Checkbutton(toolbar, text=self.t("disable_collapse_horizontal"), variable=self.disable_collapse_var,
                             command=self._on_collapse_toggled, style="Modal.TCheckbutton").pack(side="left", padx=5)
 
@@ -229,7 +214,7 @@ class SaveFileViewer:
         toolbar_right.pack(side="right", padx=5)
         ttk.Button(toolbar_right, text=self.t("refresh"), command=self._on_refresh_clicked).pack(side="right", padx=5)
 
-        if self.viewer_config.show_enable_edit_checkbox:
+        if edit_checkbox:
             wrapper = tk.Frame(toolbar_right, bg=Colors.MODAL_BG)
             wrapper.pack(side="right", padx=5)
             checkbox = ttk.Checkbutton(wrapper, text=self.t("enable_edit"), variable=self.enable_edit_var,
@@ -238,7 +223,7 @@ class SaveFileViewer:
             self._hint_animation = HintAnimation(self.viewer_window, checkbox, wrapper,
                                                  CHECKBOX_STYLE_NORMAL, CHECKBOX_STYLE_HINT)
 
-        self.save_button = ttk.Button(toolbar_right, text=self.t(self.viewer_config.save_button_text),
+        self.save_button = ttk.Button(toolbar_right, text=self.t(self.texts.save_button),
                                       command=self._on_save_clicked)
         self.save_button.pack(side="right", padx=5)
 
@@ -286,6 +271,11 @@ class SaveFileViewer:
     def _get_text(self) -> str:
         return self.text_widget.get("1.0", "end-1c")
 
+    def _set_data(self, data: Dict[str, Any]) -> None:
+        self.save_data = data
+        # 保存前用它检测数据在打开之后是否被别处（游戏）改过
+        self.original_save_data = copy.deepcopy(data)
+
     def _render(self) -> None:
         """按当前数据和折叠设置重新生成文本；之后的修改都相对于这次渲染的内容判断"""
         scroll_position = self.text_widget.yview()[0]
@@ -293,8 +283,7 @@ class SaveFileViewer:
         if self.disable_collapse_var.get():
             content = json.dumps(self.save_data, ensure_ascii=False, indent=2)
         else:
-            content = format_display_data(self.save_data, self.viewer_config.collapsed_fields,
-                                          self.t("collapsed_field_text"))
+            content = format_display_data(self.save_data, self.collapsed_fields, self.t("collapsed_field_text"))
         self.text_widget.config(state="normal")
         self.text_widget.delete("1.0", "end")
         self.text_widget.insert("1.0", content)
@@ -307,8 +296,7 @@ class SaveFileViewer:
     def _apply_edit_state(self) -> None:
         state = "normal" if self.enable_edit_var.get() else "disabled"
         self.text_widget.config(state=state)
-        if self.save_button is not None:
-            self.save_button.config(state=state)
+        self.save_button.config(state=state)
 
     def _update_line_numbers(self) -> None:
         line_count = int(self.text_widget.index("end-1c").split(".")[0])
@@ -381,198 +369,123 @@ class SaveFileViewer:
             if not self._confirm_discard_changes():
                 self.enable_edit_var.set(True)
                 return
-        if self.mode == "file":
-            # 重新读取文件，避免在过期的数据上编辑
-            data = self._load_file_data()
-            if data is None:
-                self.enable_edit_var.set(False)
-                self._apply_edit_state()
-                return
-            self._set_data(data)
-        self._render()
+        def back_to_read_only() -> None:
+            self.enable_edit_var.set(False)
+            self._apply_edit_state()
 
-    def _set_data(self, data: Dict[str, Any]) -> None:
-        self.save_data = data
-        self.original_save_data = self._deep_copy_data(data)
+        # 重新读取，避免在过期的数据上编辑；读不到时退回只读
+        self._reload(on_failed=back_to_read_only)
 
     def _on_refresh_clicked(self) -> None:
         if self._has_unsaved_changes() and not self._confirm_discard_changes():
             return
-        if self.mode == "runtime":
-            self._refresh_from_runtime()
+        self._reload()
+
+    # ---------------------------------------------------------------- 读取 / 保存
+
+    def _call(self, work: Callable[[], Any], on_done: Callable[[Any, Optional[BaseException]], None]) -> None:
+        """执行 load/save 等调用方传入的函数，结果交给 on_done(结果, 异常)
+
+        运行时模式要等游戏回复，放到后台线程；读写文件很快，直接执行。
+        """
+        if self.runtime:
+            run_in_background(self.viewer_window, work, on_done)
             return
-        data = self._load_file_data()
-        if data is not None:
+        try:
+            result = work()
+        except Exception as e:
+            logger.error("Save viewer call failed: %s", e, exc_info=True)
+            on_done(None, e)
+        else:
+            on_done(result, None)
+
+    def _show_load_error(self, error: BaseException) -> None:
+        if isinstance(error, FileNotFoundError):
+            message = self.t("save_file_not_found")
+        elif self.texts.load_failed:
+            message = self.t(self.texts.load_failed, error=str(error))
+        else:
+            message = str(error)
+        showerror_relative(self.viewer_window, self.t("error"), message)
+
+    def _reload(self, on_failed: Optional[Callable[[], None]] = None) -> None:
+        """重新 load() 并显示；失败（或数据已不存在）时调用 on_failed"""
+        def done(data: Optional[Dict[str, Any]], error: Optional[BaseException]) -> None:
+            if error is not None:
+                self._show_load_error(error)
+            if data is None:
+                if on_failed is not None:
+                    on_failed()
+                return
             self._set_data(data)
             self._render()
 
-    def _load_file_data(self) -> Optional[Dict[str, Any]]:
-        load_func = self.viewer_config.custom_load_func
-        try:
-            if load_func is not None:
-                return load_func()
-            return load_save_file(self.storage_dir)
-        except FileNotFoundError:
-            showerror_relative(self.viewer_window, self.t("error"), self.t("save_file_not_found"))
-        except Exception as e:
-            logger.error("Failed to load save data: %s", e, exc_info=True)
-            name = SF_SAVE_FILENAME if load_func is None else ""
-            showerror_relative(self.viewer_window, self.t("error"), f"{name} {e}".strip())
-        return None
+        self._call(self.load, done)
 
     def _on_save_clicked(self) -> None:
-        content = self._get_text()
         try:
-            edited_data = json.loads(content)
+            edited_data = json.loads(self._get_text())
         except json.JSONDecodeError as e:
             showerror_relative(self.viewer_window, self.t("json_format_error"),
-                               self.t("json_format_error_detail").format(error=str(e)))
+                               self.t("json_format_error_detail", error=str(e)))
             return
         if not self.disable_collapse_var.get() and isinstance(edited_data, dict):
-            restore_collapsed_fields(edited_data, self.save_data, self.viewer_config.collapsed_fields,
+            restore_collapsed_fields(edited_data, self.save_data, self.collapsed_fields,
                                      self.t("collapsed_field_text"))
-        if self.mode == "runtime":
-            self._save_to_runtime(edited_data)
-        else:
-            # 参数形式为兼容 tyrano 自动存档查看器（AutoSaveFileViewer）对本方法的重写
-            self._save_to_file(edited_data, content, self.enable_edit_var, self.text_widget,
-                               self._render, self._get_text)
-
-    def _save_to_file(self, edited_data: Dict[str, Any], content: str, enable_edit_var: tk.BooleanVar,
-                      text_widget: tk.Text, update_display: Callable[[], None],
-                      get_current_text_content: Callable[[], str]) -> None:
-        """确认后保存到文件；子类可重写以保存到别处"""
-        if not messagebox.askyesno(self.t("save_confirm_title"), self.t("save_confirm_text"),
-                                   parent=self.viewer_window):
+        if not askyesno_relative(self.viewer_window, self.t("save_confirm_title"), self.t(self.texts.confirm_save)):
             return
-        try:
-            if self.viewer_config.custom_save_func is not None:
-                if not self.viewer_config.custom_save_func(edited_data):
-                    showerror_relative(self.viewer_window, self.t("error"),
-                                       self.t("save_file_failed").format(error="保存失败"))
-                    return
-            else:
-                write_sav(Path(self.storage_dir) / SF_SAVE_FILENAME, edited_data)
-        except Exception as e:
-            logger.error("Failed to save: %s", e, exc_info=True)
-            showerror_relative(self.viewer_window, self.t("error"), self.t("save_file_failed").format(error=str(e)))
+        # 取消或失败时保留用户的编辑内容（仍视为未保存）
+        if self.find_outside_changes is None:
+            self._save(edited_data)
             return
 
-        self._set_data(edited_data)
-        self._data_was_saved = True
-        showinfo_relative(self.viewer_window, self.t("success"), self.t("save_success"))
-        update_display()
-        self._call_on_save(edited_data)
+        original = self.original_save_data
 
-    def _call_on_save(self, edited_data: Dict[str, Any]) -> None:
-        if self.viewer_config.on_save_callback:
-            try:
-                self.viewer_config.on_save_callback(edited_data)
-            except Exception as e:
-                logger.error("on_save_callback failed: %s", e, exc_info=True)
-
-    # ---------------------------------------------------------------- 运行时模式
-
-    def _run_runtime_call(self, call: Callable[[], Any], on_done: Callable[[Any, Optional[str]], None]) -> None:
-        """在后台线程执行返回 (结果, 错误信息) 的 service 调用，完成后在主线程调用 on_done(结果, 错误信息)"""
-        def done(result: Optional[Tuple[Any, Optional[str]]], error: Optional[BaseException]) -> None:
+        def on_checked(changes: Optional[List[str]], error: Optional[BaseException]) -> None:
             if error is not None:
-                on_done(None, str(error))
-            else:
-                on_done(*result)
+                self._show_save_error(error)
+                return
+            if changes and not askyesno_relative(
+                    self.viewer_window, self.t("warning"),
+                    self.t("runtime_modify_sf_changes_detected", changes="\n".join(changes))):
+                return
+            self._save(edited_data)
 
-        run_in_background(self.viewer_window, call, done)
+        self._call(lambda: self.find_outside_changes(original), on_checked)
 
-    def _runtime_target(self) -> Optional[Tuple[Any, str, bool]]:
-        """返回 (service, ws_url, 是否为 kag.stat)；游戏未连接时弹窗并返回 None"""
-        config = self.viewer_config
-        if config.service is None or config.ws_url is None:
-            showerror_relative(self.viewer_window, self.t("error"), self.t("runtime_modify_sf_game_not_running"))
-            return None
-        return config.service, config.ws_url, config.inject_method == "kag_stat"
+    def _show_save_error(self, error: BaseException) -> None:
+        showerror_relative(self.viewer_window, self.t("error"), self.t(self.texts.save_failed, error=str(error)))
 
-    def _read_runtime(self, on_data: Callable[[Optional[Dict[str, Any]], Optional[str]], None]) -> None:
-        config = self.viewer_config
-        service = config.service
-        read = service.read_tyrano_kag_stat if config.inject_method == "kag_stat" else service.read_tyrano_variable_sf
-        self._run_runtime_call(lambda: read(config.ws_url), on_data)
-
-    def _refresh_from_runtime(self) -> None:
-        target = self._runtime_target()
-        if target is None:
-            return
-        is_kag = target[2]
-
-        def on_data(data: Optional[Dict[str, Any]], error: Optional[str]) -> None:
-            if error is None and data is None:
-                if not is_kag:
-                    showerror_relative(self.viewer_window, self.t("error"),
-                                       self.t("runtime_modify_sf_error_empty_data"))
-                    return
-                error = "Empty data"
+    def _save(self, edited_data: Dict[str, Any]) -> None:
+        def done(result: Any, error: Optional[BaseException]) -> None:
+            if error is None and result is False:
+                error = RuntimeError(self.t("viewer_save_failed_reason"))
             if error is not None:
-                key = "runtime_modify_kag_stat_read_failed" if is_kag else "runtime_modify_sf_read_failed"
-                showerror_relative(self.viewer_window, self.t("error"), self.t(key).format(error=error))
+                self._show_save_error(error)
                 return
-            self._set_data(data)
-            self._render()
-
-        self._read_runtime(on_data)
-
-    def _save_to_runtime(self, edited_data: Dict[str, Any]) -> None:
-        """注入到游戏内存。取消或失败时保留用户的编辑内容（仍视为未保存）"""
-        target = self._runtime_target()
-        if target is None:
-            return
-        service, ws_url, is_kag = target
-        confirm_key = "runtime_modify_kag_stat_confirm_inject" if is_kag else "runtime_modify_sf_confirm_inject"
-        if not messagebox.askyesno(self.t("save_confirm_title"), self.t(confirm_key), parent=self.viewer_window):
-            return
-
-        def on_injected(success: bool, error: Optional[str]) -> None:
-            if not success:
-                if is_kag:
-                    message = self.t("runtime_modify_kag_stat_inject_failed").format(error=error or "Unknown error")
-                else:
-                    message = self.t("runtime_modify_sf_inject_failed").format(
-                        error=error or self.t("runtime_modify_sf_error_unknown"))
-                showerror_relative(self.viewer_window, self.t("error"), message)
-                return
-            self._call_on_save(edited_data)
-            showinfo_relative(self.viewer_window, self.t("success"), self.t("runtime_modify_sf_inject_success"))
             self._set_data(edited_data)
-            self._data_was_saved = True
+            showinfo_relative(self.viewer_window, self.t("success"), self.t(self.texts.save_success))
             self._render()
-            self.viewer_window.after(REFRESH_AFTER_INJECT_DELAY_MS, reread)
+            if self.on_saved is not None:
+                try:
+                    self.on_saved(edited_data)
+                except Exception as e:
+                    logger.error("on_saved callback failed: %s", e, exc_info=True)
+            if self.runtime:
+                self.viewer_window.after(REFRESH_AFTER_INJECT_DELAY_MS, reread)
 
         def reread() -> None:
-            if self.viewer_window.winfo_exists():
-                self._read_runtime(on_reread)
-
-        def on_reread(data: Optional[Dict[str, Any]], error: Optional[str]) -> None:
             # 读回游戏处理后的数据；用户已经开始新的编辑时不覆盖
-            if error is not None:
-                logger.warning("Failed to refresh after inject: %s", error)
-            elif data is not None and not self._has_unsaved_changes():
-                self._set_data(data)
-                self._render()
+            def on_reread(data: Optional[Dict[str, Any]], error: Optional[BaseException]) -> None:
+                if error is not None:
+                    logger.warning("Failed to refresh after inject: %s", error)
+                elif data is not None and not self._has_unsaved_changes():
+                    self._set_data(data)
+                    self._render()
 
-        def on_checked(has_changes: bool, changes: Any) -> None:
-            if isinstance(changes, str):  # 检测过程出错，changes 是错误信息
-                on_injected(False, changes)
-                return
-            if has_changes and not messagebox.askyesno(
-                    self.t("warning"),
-                    self.t("runtime_modify_sf_changes_detected").format(changes=changes.get("changes_text", "")),
-                    parent=self.viewer_window):
-                return
-            self._run_runtime_call(lambda: service.inject_and_save_sf(ws_url, edited_data), on_injected)
+            self._call(self.load, on_reread)
 
-        if is_kag:
-            self._run_runtime_call(lambda: service.inject_kag_stat(ws_url, edited_data), on_injected)
-        else:
-            # 先确认游戏里的数据在打开编辑器之后没有被游戏改过，否则提示用户
-            self._run_runtime_call(lambda: service.check_sf_changes(ws_url, self.original_save_data), on_checked)
+        self._call(lambda: self.save(edited_data), done)
 
     # ---------------------------------------------------------------- 搜索
 
@@ -627,12 +540,9 @@ class SaveFileViewer:
     def _on_close(self) -> None:
         if self._has_unsaved_changes() and not self._confirm_discard_changes():
             return
-        root = self.viewer_window.nametowidget(".")
         self.viewer_window.destroy()
-        if self.on_close_callback and self._data_was_saved:
-            root.after(CLOSE_CALLBACK_DELAY_MS, self.on_close_callback)
 
-    def _on_destroy(self, event: tk.Event) -> None:
+    def _on_destroy(self, event: tk.Event, viewer_id: str) -> None:
         # 子控件销毁时也会触发 <Destroy>，只处理窗口本身
-        if event.widget is self.viewer_window and _open_viewers.get(self._viewer_id) is self:
-            del _open_viewers[self._viewer_id]
+        if event.widget is self.viewer_window and _open_viewers.get(viewer_id) is self:
+            del _open_viewers[viewer_id]
