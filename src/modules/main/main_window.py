@@ -44,7 +44,6 @@ TAB_TITLE_KEYS = [
 ]
 LAZY_TABS = (BACKUP_TAB, TYRANO_TAB, RUNTIME_TAB, OTHERS_TAB)
 
-TYRANO_PREWARM_DELAY_MS = 2400  # 选择目录后稍等再在后台预读 Tyrano 存档，不和界面创建抢时间
 THEME_CHECK_INTERVAL_MS = 5000
 DEFAULT_TOAST_IGNORE_RECORD = "record, initialVars"
 HELP_URL = "https://github.com/Hxueit/Devil-Connection-Sav-Manager"
@@ -92,7 +91,6 @@ class SavTool:
         self.runtime_modify_tab: Optional[RuntimeModifyTab] = None
         self.others_tab: Optional[OthersTab] = None
         self._pending_tabs: set = set()  # 还没创建的懒加载标签页
-        self._prewarmed_tyrano: Optional[TyranoAnalyzer] = None
 
         # 存档变动提示（在「其他」页中开关）
         self.toast_enabled = False
@@ -206,7 +204,6 @@ class SavTool:
         self.storage_dir = storage_dir
         for index in LAZY_TABS:
             self._teardown_lazy_tab(index)
-        self._prewarmed_tyrano = None
         self._update_version_info_visibility()
 
         self.hint_labels[SCREENSHOT_TAB].pack_forget()
@@ -224,7 +221,6 @@ class SavTool:
         self._pending_tabs = set(LAZY_TABS)
         self._restart_save_monitor()
         self._create_tab_if_pending(self._current_tab())
-        self.root.after(TYRANO_PREWARM_DELAY_MS, self._prewarm_tyrano)
 
     def _create_screenshot_tab(self) -> None:
         self.screenshot_manager_ui = ScreenshotManagerUI(
@@ -300,36 +296,22 @@ class SavTool:
         )
 
     def _create_tyrano_tab(self) -> None:
-        analyzer = self._prewarmed_tyrano
-        self._prewarmed_tyrano = None
-        if analyzer is None:
-            analyzer = TyranoAnalyzer(self.storage_dir)
-            analyzer.load_save_file()
-        self.tyrano_tab = TyranoSaveViewer(self.tab_frames[TYRANO_TAB], analyzer, self.t, self.root)
+        # 存档文件较大（含缩略图），由标签页自己在后台读取
+        self.tyrano_tab = TyranoSaveViewer(
+            self.tab_frames[TYRANO_TAB], self.root, TyranoAnalyzer(self.storage_dir), self.t
+        )
 
     def _create_runtime_tab(self) -> None:
-        self.runtime_modify_tab = RuntimeModifyTab(self.tab_frames[RUNTIME_TAB], self.storage_dir, self.t, self.root)
+        self.runtime_modify_tab = RuntimeModifyTab(self.tab_frames[RUNTIME_TAB], self.root, self.storage_dir, self.t)
 
     def _create_others_tab(self) -> None:
-        self.others_tab = OthersTab(self.tab_frames[OTHERS_TAB], self)
-
-    def _prewarm_tyrano(self) -> None:
-        """在后台预读 Tyrano 存档，用户切到该页时就不用再等文件读取"""
-        storage_dir = self.storage_dir
-        if TYRANO_TAB not in self._pending_tabs or self._prewarmed_tyrano is not None:
-            return
-
-        def load() -> TyranoAnalyzer:
-            analyzer = TyranoAnalyzer(storage_dir)
-            analyzer.load_save_file()
-            return analyzer
-
-        def done(analyzer, error) -> None:
-            # 预读期间用户可能换了目录或已经打开了该页，这时结果作废
-            if error is None and storage_dir == self.storage_dir and TYRANO_TAB in self._pending_tabs:
-                self._prewarmed_tyrano = analyzer
-
-        run_in_background(self.root, load, done)
+        self.others_tab = OthersTab(
+            self.tab_frames[OTHERS_TAB], self.storage_dir, self.t,
+            toast_enabled=self.toast_enabled,
+            toast_ignore_record=self.toast_ignore_record,
+            on_toast_enabled_changed=self.set_toast_enabled,
+            on_toast_ignore_record_changed=self.set_toast_ignore_record,
+        )
 
     # ---------- 还原备份 ----------
 
@@ -347,7 +329,6 @@ class SavTool:
             self._run_safely("Reload screenshots", self.screenshot_manager_ui.load_screenshots)
         if self.save_analyzer is not None:
             self._run_safely("Refresh SF analyzer tab", lambda: self.save_analyzer.refresh(force=True))
-        self._prewarmed_tyrano = None
         if self.tyrano_tab is not None:
             self._teardown_lazy_tab(TYRANO_TAB)
 
@@ -401,18 +382,17 @@ class SavTool:
 
         # 每个标签页单独更新：某一页出错不影响其他页
         if self.screenshot_manager_ui is not None:
-            self._run_safely("Update screenshot tab texts", self.screenshot_manager_ui.update_ui_texts)
-            self._run_safely("Reload screenshots", self.screenshot_manager_ui.load_screenshots)
+            self._run_safely("Update screenshot tab texts", self.screenshot_manager_ui.update_language)
         if self.backup_restore_tab is not None:
-            self._run_safely("Update backup tab texts", self.backup_restore_tab.update_ui_texts)
+            self._run_safely("Update backup tab texts", self.backup_restore_tab.update_language)
         if self.runtime_modify_tab is not None:
             self._run_safely("Update runtime modify tab texts", self.runtime_modify_tab.update_language)
         if self.others_tab is not None:
-            self._run_safely("Update others tab texts", lambda: self.others_tab.update_language(lang))
+            self._run_safely("Update others tab texts", self.others_tab.update_language)
         if self.save_analyzer is not None:
             self._run_safely("Update SF analyzer tab texts", self.save_analyzer.update_language)
         if self.tyrano_tab is not None:
-            self._run_safely("Update Tyrano tab texts", self.tyrano_tab.update_ui_texts)
+            self._run_safely("Update Tyrano tab texts", self.tyrano_tab.update_language)
 
     # ---------- 其他 ----------
 

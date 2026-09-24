@@ -173,7 +173,8 @@ class ScreenshotManagerUI:
         for button in self._edit_buttons:
             button.bind('<Button-1>', self._on_edit_button_click, add='+')
 
-    def update_ui_texts(self) -> None:
+    def update_language(self) -> None:
+        """切换语言后更新文字，并重新载入列表（列表里的日期等文字也要换）"""
         self.hint_label.config(text=self.t("select_dir_hint"))
         self.list_label.config(text=self.t("screenshot_list"))
         self.preview_label_text.config(text=self.t("preview"))
@@ -187,6 +188,7 @@ class ScreenshotManagerUI:
         self.export_button.config(text=self.t("export_image"))
         self.batch_export_button.config(text=self.t("batch_export"))
         self.enable_edit_checkbox.config(text=self.t("enable_edit"))
+        self.load_screenshots(silent=True)
 
     # ---------- 编辑模式 ----------
 

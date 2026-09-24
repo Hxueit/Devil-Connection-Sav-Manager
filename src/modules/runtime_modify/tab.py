@@ -83,9 +83,9 @@ class RuntimeModifyTab:
     def __init__(
         self,
         parent: ctk.CTkFrame,
+        root: ctk.CTk,
         storage_dir: Optional[str],
         t: Callable[..., str],
-        root: ctk.CTk,
     ) -> None:
         self.parent = parent
         self.storage_dir = storage_dir

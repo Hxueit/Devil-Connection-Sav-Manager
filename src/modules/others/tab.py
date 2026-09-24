@@ -8,6 +8,7 @@ import json
 import logging
 import webbrowser
 from pathlib import Path
+from typing import Callable
 from tkinter import filedialog
 
 import customtkinter as ctk
@@ -25,17 +26,27 @@ TYRANO_JSON_FILENAME = "DevilConnection_tyrano_data.json"
 
 
 class OthersTab:
-    """app 是主窗口 SavTool：提供 storage_dir、t() 以及 toast 设置"""
+    """「其他」标签页：tyrano 存档导出/导入、存档变化通知（toast）设置、检查更新
 
-    def __init__(self, parent: ctk.CTkFrame, app) -> None:
+    toast 设置保存在主窗口里（本页会随语言切换重建），修改时通过两个回调通知主窗口。
+    """
+
+    def __init__(self, parent: ctk.CTkFrame, storage_dir: str, t: Callable[..., str], *,
+                 toast_enabled: bool, toast_ignore_record: str,
+                 on_toast_enabled_changed: Callable[[bool], None],
+                 on_toast_ignore_record_changed: Callable[[str], None]) -> None:
         self.parent = parent
-        self.app = app
-        self.t = app.t
+        self.storage_dir = storage_dir
+        self.t = t
+        self.toast_enabled = toast_enabled
+        self.toast_ignore_record = toast_ignore_record
+        self._on_toast_enabled_changed = on_toast_enabled_changed
+        self._on_toast_ignore_record_changed = on_toast_ignore_record_changed
         self._build_ui()
 
     @property
     def tyrano_path(self) -> Path:
-        return Path(self.app.storage_dir) / TYRANO_SAVE_FILENAME
+        return Path(self.storage_dir) / TYRANO_SAVE_FILENAME
 
     # ---------- 界面 ----------
 
@@ -56,7 +67,7 @@ class OthersTab:
             border_color=Colors.GRAY, border_width=1, corner_radius=6, wrap="none",
         )
         path_display.pack(fill="x", anchor="w")
-        path_display.insert("1.0", str(self.app.storage_dir))
+        path_display.insert("1.0", str(self.storage_dir))
         path_display.configure(state="disabled")
 
         button_frame = ctk.CTkFrame(content, fg_color=Colors.WHITE)
@@ -65,7 +76,7 @@ class OthersTab:
         # toast 开关
         toast_frame = ctk.CTkFrame(button_frame, fg_color=Colors.WHITE)
         toast_frame.pack(fill="x", pady=10)
-        self.toast_var = ctk.BooleanVar(value=self.app.toast_enabled)
+        self.toast_var = ctk.BooleanVar(value=self.toast_enabled)
         ctk.CTkCheckBox(
             toast_frame, text=self.t("enable_toast"), variable=self.toast_var, command=self._on_toast_toggle,
             fg_color=Colors.ACCENT_BLUE, hover_color=Colors.ACCENT_PINK, border_width=2, corner_radius=6,
@@ -78,14 +89,14 @@ class OthersTab:
             ignore_frame, text=self.t("toast_ignore_vars_label"), font=get_cjk_font(10),
             text_color=Colors.TEXT_PRIMARY,
         ).pack(anchor="w", pady=(0, 5))
-        self.ignore_vars_var = ctk.StringVar(value=self.app.toast_ignore_record)
+        self.ignore_vars_var = ctk.StringVar(value=self.toast_ignore_record)
         self.ignore_vars_entry = ctk.CTkEntry(
             ignore_frame, textvariable=self.ignore_vars_var, font=get_cjk_font(10), corner_radius=8,
             fg_color=Colors.WHITE, text_color=Colors.TEXT_PRIMARY, border_color=Colors.GRAY, width=400,
             placeholder_text=self.t("toast_ignore_vars_hint"),
         )
         self.ignore_vars_entry.pack(fill="x", anchor="w")
-        self.ignore_vars_entry.bind("<KeyRelease>", lambda e: self.app.set_toast_ignore_record(self.ignore_vars_var.get()))
+        self.ignore_vars_entry.bind("<KeyRelease>", lambda e: self._on_ignore_record_edited())
         ctk.CTkLabel(
             ignore_frame, text=self.t("toast_ignore_vars_hint"), font=get_cjk_font(9),
             text_color=Colors.TEXT_SECONDARY,
@@ -97,19 +108,24 @@ class OthersTab:
         self.update_button = white_button(button_frame, self.t("check_for_updates"), self._check_for_updates)
         self.update_button.pack(fill="x", pady=10)
 
-    def update_language(self, language: str = None) -> None:
-        """整个页面按新语言重建（language 参数没有用到，t 已经切换了语言）"""
+    def update_language(self) -> None:
+        """整个页面按新语言重建（t 已经切换了语言）"""
         self.container.destroy()
         self._build_ui()
 
     # ---------- toast 设置 ----------
 
     def _on_toast_toggle(self) -> None:
-        self.app.set_toast_enabled(self.toast_var.get())
+        self.toast_enabled = self.toast_var.get()
+        self._on_toast_enabled_changed(self.toast_enabled)
         self._update_ignore_entry_state()
 
+    def _on_ignore_record_edited(self) -> None:
+        self.toast_ignore_record = self.ignore_vars_var.get()
+        self._on_toast_ignore_record_changed(self.toast_ignore_record)
+
     def _update_ignore_entry_state(self) -> None:
-        if self.app.toast_enabled:
+        if self.toast_enabled:
             self.ignore_vars_entry.configure(
                 state="normal", fg_color=Colors.WHITE, text_color=Colors.TEXT_PRIMARY, border_color=Colors.GRAY
             )

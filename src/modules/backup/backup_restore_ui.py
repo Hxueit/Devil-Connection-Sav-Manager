@@ -376,7 +376,7 @@ class BackupRestoreTab:
 
     # ---------- 语言 ----------
 
-    def update_ui_texts(self) -> None:
+    def update_language(self) -> None:
         self._update_hint_text()
         self.backup_button.config(text=self.t("backup_button"))
         self.backup_list_title.config(text=self.t("backup_list_title"))

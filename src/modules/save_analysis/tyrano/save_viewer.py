@@ -51,14 +51,14 @@ class TyranoSaveViewer:
     def __init__(
         self,
         parent: ctk.CTkFrame,
+        root: tk.Misc,
         analyzer: TyranoAnalyzer,
-        translation_func: Callable[..., str],
-        root_window: Optional[tk.Misc] = None,
+        t: Callable[..., str],
     ) -> None:
         self.parent = parent
+        self.root_window = root
         self.analyzer = analyzer
-        self.t = translation_func
-        self.root_window = root_window or parent.winfo_toplevel()
+        self.t = t
         self.image_cache = ImageCache()
         self.slot_widgets: List[TyranoSaveSlot] = []
 
@@ -111,7 +111,7 @@ class TyranoSaveViewer:
         self._texts.append((button, text_key))
         return button
 
-    def update_ui_texts(self) -> None:
+    def update_language(self) -> None:
         """切换语言后更新文字"""
         for widget, key in self._texts:
             widget.configure(text=self.t(key))
