@@ -8,6 +8,7 @@ import tkinter as tk
 
 from src.modules.runtime_modify.dialogs import RuntimeDialog, create_standard_button
 from src.modules.runtime_modify.service import evaluate
+from src.modules.save_analysis.tyrano.analyzer import describe_slot
 from src.modules.save_analysis.tyrano.constants import TYRANO_QUICK_SAVE_FILENAME
 from src.utils.background import run_in_background
 from src.utils.sav_io import read_sav
@@ -46,44 +47,9 @@ def _load_quick_save_slot(storage_dir: Optional[str]) -> Optional[Dict[str, Any]
     return None
 
 
-def _to_int(value: Any) -> Optional[int]:
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
 def describe_quick_save(slot: Optional[Dict[str, Any]], t: Callable[..., str]) -> str:
     """把快速存档槽概括成一行：第几天 · ●●○ · 保存时间 · 副标题"""
-    if not slot:
-        return t("runtime_modify_console_no_quick_save")
-
-    stat = slot.get("stat")
-    f = stat.get("f") if isinstance(stat, dict) else None
-    if not isinstance(f, dict):
-        f = {}
-
-    # 尾声阶段用 day_epilogue 计天（非 0 时有效），否则用 day
-    epilogue_day = _to_int(f.get("day_epilogue"))
-    is_epilogue = bool(epilogue_day)
-    day = epilogue_day if is_epilogue else _to_int(f.get("day"))
-
-    parts = []
-    if day is not None:
-        if is_epilogue:
-            parts.append(t("tyrano_epilogue_day_label").format(day=day))
-        else:
-            parts.append(t("tyrano_day_label").format(day=day))
-            # finished 每天占 3 格，记录当天完成了哪些事件
-            finished = f.get("finished")
-            done = len(finished[day * 3:day * 3 + 3]) if isinstance(finished, list) and day >= 0 else 0
-            parts.append("".join("●" if i < done else "○" for i in range(3)))
-    if slot.get("save_date") is not None:
-        parts.append(str(slot["save_date"]))
-    if slot.get("subtitle") and slot.get("subtitleText"):
-        parts.append(str(slot["subtitleText"]))
-
-    return " · ".join(parts) if parts else t("runtime_modify_console_no_quick_save")
+    return describe_slot(slot, t) or t("runtime_modify_console_no_quick_save")
 
 
 def format_result(result: Any) -> str:

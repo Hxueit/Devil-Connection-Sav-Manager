@@ -17,7 +17,7 @@ class HintAnimation:
     """target_widget 需带 .wrapper（包住它的 pack 布局 Frame），可选 ._original_pack_info"""
 
     def __init__(self, root: tk.Misc, target_widget: ttk.Checkbutton,
-                 normal_style: str, hint_style: str = "ScreenshotHint.TCheckbutton") -> None:
+                 normal_style: str, hint_style: str) -> None:
         self.root = root
         self.target_widget = target_widget
         self.normal_style = normal_style

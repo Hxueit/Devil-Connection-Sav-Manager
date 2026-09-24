@@ -23,7 +23,7 @@ from src.modules.runtime_modify.tab import RuntimeModifyTab
 from src.modules.save_analysis.sf.analyzer import SaveAnalyzer
 from src.modules.save_analysis.tyrano.analyzer import TyranoAnalyzer
 from src.modules.save_analysis.tyrano.save_viewer import TyranoSaveViewer
-from src.modules.screenshot import ScreenshotManagerUI
+from src.modules.screenshot.screenshot_ui import ScreenshotManagerUI
 from src.utils.background import run_in_background
 from src.utils.styles import Colors, get_cjk_font, init_styles
 from src.utils.toast import Toast
@@ -140,8 +140,14 @@ class SavTool:
         root.after(THEME_CHECK_INTERVAL_MS, self._check_theme)
 
     def t(self, key: str, **kwargs) -> str:
+        """翻译函数：返回当前语言的文字，找不到时返回 key 本身。各标签页共用这一个函数"""
         text = TRANSLATIONS[self.language].get(key, key)
-        return text.format(**kwargs) if kwargs else text
+        if kwargs:
+            try:
+                return text.format(**kwargs)
+            except (KeyError, ValueError):
+                return text
+        return text
 
     def _create_hint_label(self, frame: ctk.CTkFrame) -> ctk.CTkLabel:
         """「请先选择目录」提示"""
@@ -204,7 +210,7 @@ class SavTool:
         self.hint_labels[SCREENSHOT_TAB].pack_forget()
         if self.screenshot_manager_ui is None:
             self.screenshot_manager_ui = ScreenshotManagerUI(
-                self.tab_frames[SCREENSHOT_TAB], self.root, storage_dir, TRANSLATIONS, self.language, self.t
+                self.tab_frames[SCREENSHOT_TAB], self.root, storage_dir, self.t
             )
         else:
             self.screenshot_manager_ui.set_storage_dir(storage_dir)
@@ -212,7 +218,7 @@ class SavTool:
 
         self._clear_frame(SF_TAB)
         self.hint_labels[SF_TAB].pack_forget()
-        self.save_analyzer = SaveAnalyzer(self.tab_frames[SF_TAB], storage_dir, TRANSLATIONS, self.language)
+        self.save_analyzer = SaveAnalyzer(self.tab_frames[SF_TAB], storage_dir, self.t)
 
         self._pending_tabs = set(LAZY_TABS)
         self._restart_save_monitor()
@@ -243,9 +249,6 @@ class SavTool:
             except Exception as e:
                 logger.debug(f"Failed to clean up {attr}: {e}")
             setattr(self, attr, None)
-        # 运行时修改页切换语言时会清空整个 frame，提示标签可能已被销毁
-        if not self.hint_labels[index].winfo_exists():
-            self.hint_labels[index] = self._create_hint_label(self.tab_frames[index])
         self._clear_frame(index)
         self.hint_labels[index].pack(pady=50)
         self._pending_tabs.add(index)
@@ -279,7 +282,7 @@ class SavTool:
         elif index == TYRANO_TAB:
             self._create_tyrano_tab()
         elif index == RUNTIME_TAB:
-            self.runtime_modify_tab = RuntimeModifyTab(frame, self.storage_dir, TRANSLATIONS, self.language, self.root)
+            self.runtime_modify_tab = RuntimeModifyTab(frame, self.storage_dir, self.t, self.root)
         elif index == OTHERS_TAB:
             self.others_tab = OthersTab(frame, self)
         return True
@@ -292,7 +295,7 @@ class SavTool:
             analyzer.load_save_file()
         try:
             self.tyrano_tab = TyranoSaveViewer(
-                self.tab_frames[TYRANO_TAB], analyzer, self.t, get_cjk_font, Colors, self.root
+                self.tab_frames[TYRANO_TAB], analyzer, self.t, self.root
             )
         except Exception:
             logger.exception("Failed to create TyranoSaveViewer")
@@ -362,8 +365,8 @@ class SavTool:
     def _show_ab_initio(self) -> None:
         """_storage 被整个删除时（游戏的「AB INITIO」）显示蓝色提示"""
         toast = Toast(self.root, "AB INITIO", duration=30000, fade_in=200, fade_out=200)
-        # 要用底层的 tk.Text：CTkTextbox 不支持 config()，tag 也不能设置字体
-        text = toast._tk_text
+        # message_text 是底层的 tk.Text（CTkTextbox 的 tag 不能设置字体）
+        text = toast.message_text
         text.config(state="normal")
         text.delete("1.0", "end")
         text.tag_configure("ab_initio_blue", foreground=Colors.TEXT_INFO_BRIGHT, font=get_cjk_font(12, "bold"))
@@ -391,12 +394,11 @@ class SavTool:
         if self.backup_restore_tab is not None:
             self.backup_restore_tab.update_ui_texts()
         if self.runtime_modify_tab is not None:
-            self.runtime_modify_tab.update_language(lang)
+            self.runtime_modify_tab.update_language()
         if self.others_tab is not None:
             self.others_tab.update_language(lang)
         if self.save_analyzer is not None:
             try:
-                self.save_analyzer.current_language = lang
                 self.save_analyzer.refresh()
             except Exception:
                 logger.exception("Save analyzer language update error")
@@ -425,7 +427,6 @@ class SavTool:
                 logger.debug(f"清理tyrano标签页时出错: {e}")
         if self.runtime_modify_tab is not None:
             try:
-                self.runtime_modify_tab.state.is_closing = True
                 self.runtime_modify_tab.cleanup()
             except Exception as e:
                 logger.debug(f"清理运行时修改标签页时出错: {e}")

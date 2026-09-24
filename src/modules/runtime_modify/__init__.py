@@ -1,4 +1,1 @@
-"""运行时修改模块
-
-提供游戏运行时JS注入功能，通过CDP协议连接游戏并执行JS代码
-"""
+"""运行时修改：通过 Chrome DevTools Protocol 连接正在运行的游戏，读写 TyranoScript 变量"""

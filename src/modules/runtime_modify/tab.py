@@ -5,7 +5,7 @@
 """
 import logging
 import threading
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
 import customtkinter as ctk
 import tkinter as tk
@@ -59,14 +59,12 @@ class RuntimeModifyTab:
         self,
         parent: ctk.CTkFrame,
         storage_dir: Optional[str],
-        translations: Dict[str, Dict[str, str]],
-        current_language: str,
+        t: Callable[..., str],
         root: ctk.CTk,
     ) -> None:
         self.parent = parent
         self.storage_dir = storage_dir
-        self.translations = translations
-        self.current_language = current_language
+        self.t = t  # 翻译函数，总是返回当前语言的文字
         self.root = root
         self.service = RuntimeModifyService(get_game_exe_path(storage_dir))
 
@@ -92,15 +90,6 @@ class RuntimeModifyTab:
         self._build_ui()
         self._register_hotkey()
         self._poll_status()
-
-    def t(self, key: str, **kwargs: Any) -> str:
-        text = self.translations.get(self.current_language, {}).get(key, key)
-        if kwargs:
-            try:
-                return text.format(**kwargs)
-            except (KeyError, ValueError):
-                return text
-        return text
 
     @property
     def _hook_enabled(self) -> bool:
@@ -611,9 +600,8 @@ class RuntimeModifyTab:
             except OSError as e:
                 logger.debug(f"Error stopping game during cleanup: {e}")
 
-    def update_language(self, language: str) -> None:
+    def update_language(self) -> None:
         """切换语言：重建本页界面（保留端口输入），并刷新已打开弹窗的文字"""
-        self.current_language = language
         port_text = self.port_entry.get()
         self.container.destroy()
         self._build_ui()

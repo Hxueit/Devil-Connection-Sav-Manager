@@ -55,12 +55,10 @@ class _Row:
 class SaveAnalyzer:
     """sf 存档分析页"""
 
-    def __init__(self, parent: tk.Widget, storage_dir: str,
-                 translations: Dict[str, Dict[str, str]], current_language: str) -> None:
+    def __init__(self, parent: tk.Widget, storage_dir: str, t: Callable[..., str]) -> None:
         self.window = parent
         self.storage_dir = storage_dir
-        self.translations = translations
-        self.current_language = current_language
+        self.t = t  # 翻译函数，总是返回当前语言的文字
         self.save_data: Optional[Dict[str, Any]] = None
 
         self.window.update_idletasks()
@@ -76,10 +74,6 @@ class SaveAnalyzer:
         self.show_var_names_var = tk.BooleanVar(value=False)
         self._build_layout()
         self.window.after_idle(self.refresh)
-
-    def t(self, key: str, **kwargs: Any) -> str:
-        text = self.translations[self.current_language].get(key, key)
-        return text.format(**kwargs) if kwargs else text
 
     def _tr(self, key: str) -> str:
         """翻译并替换 [GAMEPATCH_DATE] 占位符"""

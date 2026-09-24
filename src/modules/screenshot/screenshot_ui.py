@@ -14,13 +14,17 @@ from PIL import Image, ImageTk
 
 from src.modules.common.draggable_list import TreeDragReorder
 from src.modules.screenshot import screenshot_dialogs as dialogs
-from src.modules.screenshot.animation_constants import CHECKBOX_STYLE_HINT, CHECKBOX_STYLE_NORMAL
 from src.modules.screenshot.gallery_preview import GalleryPreview
 from src.modules.screenshot.screenshot_manager import ScreenshotManager, read_image_file
+from src.utils.hint_animation import HintAnimation
 from src.utils.styles import Colors, get_cjk_font
 from src.utils.ui_utils import askyesno_relative, showerror_relative, showinfo_relative, showwarning_relative
 
 logger = logging.getLogger(__name__)
+
+# 「开启修改」复选框的 ttk 样式名
+CHECKBOX_STYLE_NORMAL = "Screenshot.TCheckbutton"
+CHECKBOX_STYLE_HINT = "ScreenshotHint.TCheckbutton"
 
 PREVIEW_SIZE = (240, 180)
 PER_PAGE = 12
@@ -40,8 +44,7 @@ class ScreenshotManagerUI:
     """截图管理标签页"""
 
     def __init__(self, parent_frame: tk.Frame, root: tk.Tk, storage_dir: Optional[str],
-                 translations: dict, current_language: str, t_func: Callable[..., str]) -> None:
-        # translations / current_language 未使用，保留是为了兼容调用方的参数顺序
+                 t_func: Callable[..., str]) -> None:
         self.parent_frame = parent_frame
         self.root = root
         self.storage_dir = storage_dir
@@ -63,8 +66,6 @@ class ScreenshotManagerUI:
         self.tree.bind('<Button-1>', self._on_tree_click)
         TreeDragReorder(self.tree, lambda item: item in self._id_by_item, self._on_drop,
                         can_drag=lambda: self.edit_enabled)
-        # hint_animation 反过来要导入本包的 animation_constants，放在模块顶部会循环导入
-        from src.utils.hint_animation import HintAnimation
         self._hint = HintAnimation(root, self.enable_edit_checkbox, CHECKBOX_STYLE_NORMAL, CHECKBOX_STYLE_HINT)
         self._set_edit_mode(False)
 

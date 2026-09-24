@@ -31,7 +31,6 @@ python -m nuitka ^
     --output-filename=%OUTPUT_NAME% ^
     --windows-console-mode=disable ^
     --lto=yes ^
-    --nofollow-import-to=src.modules.save_analysis.sf.debug ^
     --nofollow-import-to=pythonnet ^
     --nofollow-import-to=clr_loader ^
     --nofollow-import-to=cryptography ^

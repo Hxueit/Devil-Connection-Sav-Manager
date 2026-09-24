@@ -425,20 +425,19 @@ class RuntimeModifyService:
             return True, None
         return False, result.get("message", "")
 
-    # 以下方法由 sf 查看器在它自己的事件循环里以协程方式调用，所以保留 async；
-    # 方法体是同步阻塞的，调用方本来就在后台线程里运行它们。
+    # 以下方法供 sf 查看器使用，都是阻塞调用，调用方需要在后台线程里运行它们
 
-    async def read_tyrano_variable_sf(self, ws_url: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    def read_tyrano_variable_sf(self, ws_url: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         return read_json_variable(ws_url, "TYRANO.kag.variable.sf")
 
-    async def read_tyrano_kag_stat(self, ws_url: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    def read_tyrano_kag_stat(self, ws_url: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         return read_json_variable(ws_url, "TYRANO.kag.stat")
 
-    async def inject_kag_stat(self, ws_url: str, edited_data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+    def inject_kag_stat(self, ws_url: str, edited_data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
         """写入 kag.stat（只改内存，不保存）"""
         return assign_json_variable(ws_url, "TYRANO.kag.stat", edited_data)
 
-    async def inject_and_save_sf(self, ws_url: str, edited_data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
+    def inject_and_save_sf(self, ws_url: str, edited_data: Dict[str, Any]) -> Tuple[bool, Optional[str]]:
         """把编辑后的 sf 深度合并到游戏当前的 sf 上，再调用 saveSystemVariable 保存"""
         if not edited_data:
             return False, "Cannot inject empty data"
@@ -448,7 +447,7 @@ class RuntimeModifyService:
         merged = deep_merge(current, edited_data)
         return assign_json_variable(ws_url, "TYRANO.kag.variable.sf", merged, save_system_variable=True)
 
-    async def check_sf_changes(self, ws_url: str, original_data: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
+    def check_sf_changes(self, ws_url: str, original_data: Dict[str, Any]) -> Tuple[bool, Dict[str, Any]]:
         """游戏内存里的 sf 与 original_data 不同时返回 (True, {"changes_text": 差异说明})"""
         current, error = read_json_variable(ws_url, "TYRANO.kag.variable.sf")
         if error is not None:

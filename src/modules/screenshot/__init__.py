@@ -1,6 +1,1 @@
-"""截图管理标签页"""
-
-from src.modules.screenshot.screenshot_manager import ScreenshotManager
-from src.modules.screenshot.screenshot_ui import ScreenshotManagerUI
-
-__all__ = ['ScreenshotManager', 'ScreenshotManagerUI']
+"""截图管理标签页（相册截图的查看、增删改、排序、导出）"""

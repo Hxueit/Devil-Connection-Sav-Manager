@@ -50,11 +50,8 @@ class TyranoSaveViewer:
         parent: ctk.CTkFrame,
         analyzer: TyranoAnalyzer,
         translation_func: Callable[[str], str],
-        get_cjk_font_func: Any = None,
-        colors_class: Any = None,
         root_window: Optional[tk.Misc] = None,
     ) -> None:
-        # get_cjk_font_func / colors_class 是旧接口的参数，这里直接使用 src.utils.styles 中的同一对象
         self.parent = parent
         self.analyzer = analyzer
         self.translate = translation_func

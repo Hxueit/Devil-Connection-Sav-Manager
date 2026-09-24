@@ -1,5 +1,4 @@
 """运行时修改：用一个假的 CDP 服务器（HTTP /json/list + WebSocket Runtime.evaluate）测试服务层"""
-import asyncio
 import http.server
 import json
 import socket
@@ -139,27 +138,27 @@ def test_evaluate_value_exception_and_timeout(cdp):
 
 def test_read_and_inject_sf(cdp, game):
     s = service.RuntimeModifyService()
-    data, error = asyncio.run(s.read_tyrano_variable_sf(cdp.ws_url))
+    data, error = s.read_tyrano_variable_sf(cdp.ws_url)
     assert error is None and data == game.sf
 
-    ok, error = asyncio.run(s.inject_and_save_sf(cdp.ws_url, {"nested": {"y": 5}, "text": "it's \"quoted\"\n"}))
+    ok, error = s.inject_and_save_sf(cdp.ws_url, {"nested": {"y": 5}, "text": "it's \"quoted\"\n"})
     assert (ok, error) == (True, None)
     assert game.sf["nested"] == {"x": 1, "y": 5}
     assert game.sf["text"] == "it's \"quoted\"\n"
     assert game.saved == 1
 
-    ok, _ = asyncio.run(s.inject_kag_stat(cdp.ws_url, {"f": {"day": 4}}))
+    ok, _ = s.inject_kag_stat(cdp.ws_url, {"f": {"day": 4}})
     assert ok and game.stat == {"f": {"day": 4}} and game.saved == 1
-    assert asyncio.run(s.inject_kag_stat(cdp.ws_url, {})) == (False, "Cannot inject empty data")
+    assert s.inject_kag_stat(cdp.ws_url, {}) == (False, "Cannot inject empty data")
 
 
 def test_check_sf_changes(cdp, game):
     s = service.RuntimeModifyService()
     original = dict(game.sf)
-    assert asyncio.run(s.check_sf_changes(cdp.ws_url, original))[0] is False
+    assert s.check_sf_changes(cdp.ws_url, original)[0] is False
     game.sf["a"] = 2
     game.sf["list"] = [1]
-    changed, info = asyncio.run(s.check_sf_changes(cdp.ws_url, original))
+    changed, info = s.check_sf_changes(cdp.ws_url, original)
     assert changed
     assert info["changes_text"] == "  a: 1 -> 2\n  list: Array changed (length: 2 -> 1)"
 

@@ -8,7 +8,6 @@
 - 运行时修改页（mode="runtime"，通过 CDP 读写游戏内存中的 sf 或 kag.stat）
 """
 
-import asyncio
 import copy
 import json
 import logging
@@ -19,7 +18,6 @@ from pathlib import Path
 from tkinter import Scrollbar, messagebox, ttk
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 
-from src.modules.screenshot.animation_constants import CHECKBOX_STYLE_HINT, CHECKBOX_STYLE_NORMAL
 from src.utils.background import run_in_background
 from src.utils.hint_animation import HintAnimation
 from src.utils.sav_io import write_sav
@@ -37,6 +35,10 @@ from .fields import SF_FILE_NAME, load_save_file
 from .viewer_json import format_display_data, restore_collapsed_fields
 
 logger = logging.getLogger(__name__)
+
+# 「开启修改」复选框的 ttk 样式名（ttk 样式是全局的，名字不能和截图页的重复）
+CHECKBOX_STYLE_NORMAL = "SfViewer.TCheckbutton"
+CHECKBOX_STYLE_HINT = "SfViewerHint.TCheckbutton"
 
 __all__ = ["SaveFileViewer", "ViewerConfig", "DEFAULT_SF_COLLAPSED_FIELDS"]
 
@@ -474,15 +476,15 @@ class SaveFileViewer:
 
     # ---------------------------------------------------------------- 运行时模式
 
-    def _run_async(self, coroutine_func: Callable[[], Any], on_done: Callable[[Any, Optional[str]], None]) -> None:
-        """在后台线程执行返回 (结果, 错误信息) 的协程，完成后在主线程调用 on_done(结果, 错误信息)"""
+    def _run_runtime_call(self, call: Callable[[], Any], on_done: Callable[[Any, Optional[str]], None]) -> None:
+        """在后台线程执行返回 (结果, 错误信息) 的 service 调用，完成后在主线程调用 on_done(结果, 错误信息)"""
         def done(result: Optional[Tuple[Any, Optional[str]]], error: Optional[BaseException]) -> None:
             if error is not None:
                 on_done(None, str(error))
             else:
                 on_done(*result)
 
-        run_in_background(self.viewer_window, lambda: asyncio.run(coroutine_func()), done)
+        run_in_background(self.viewer_window, call, done)
 
     def _runtime_target(self) -> Optional[Tuple[Any, str, bool]]:
         """返回 (service, ws_url, 是否为 kag.stat)；游戏未连接时弹窗并返回 None"""
@@ -496,7 +498,7 @@ class SaveFileViewer:
         config = self.viewer_config
         service = config.service
         read = service.read_tyrano_kag_stat if config.inject_method == "kag_stat" else service.read_tyrano_variable_sf
-        self._run_async(lambda: read(config.ws_url), on_data)
+        self._run_runtime_call(lambda: read(config.ws_url), on_data)
 
     def _refresh_from_runtime(self) -> None:
         target = self._runtime_target()
@@ -567,13 +569,13 @@ class SaveFileViewer:
                     self.t("runtime_modify_sf_changes_detected").format(changes=changes.get("changes_text", "")),
                     parent=self.viewer_window):
                 return
-            self._run_async(lambda: service.inject_and_save_sf(ws_url, edited_data), on_injected)
+            self._run_runtime_call(lambda: service.inject_and_save_sf(ws_url, edited_data), on_injected)
 
         if is_kag:
-            self._run_async(lambda: service.inject_kag_stat(ws_url, edited_data), on_injected)
+            self._run_runtime_call(lambda: service.inject_kag_stat(ws_url, edited_data), on_injected)
         else:
             # 先确认游戏里的数据在打开编辑器之后没有被游戏改过，否则提示用户
-            self._run_async(lambda: service.check_sf_changes(ws_url, self.original_save_data), on_checked)
+            self._run_runtime_call(lambda: service.check_sf_changes(ws_url, self.original_save_data), on_checked)
 
     # ---------------------------------------------------------------- 搜索
 
