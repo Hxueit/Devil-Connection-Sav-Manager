@@ -202,8 +202,14 @@ class SaveAnalyzer:
             self._show_load_error(f"{self.t('error')}: {SF_SAVE_FILENAME}\n{e}")
             return
 
+        try:
+            stats = compute_shared_data(save_data)
+        except (TypeError, ValueError, AttributeError) as e:
+            # 字段类型和游戏写入的不一样（被手动改坏的存档），当作无法读取
+            logger.error("Unexpected data in %s: %s", SF_SAVE_FILENAME, e, exc_info=True)
+            self._show_load_error(f"{self.t('error')}: {SF_SAVE_FILENAME}\n{e}")
+            return
         self.save_data = save_data
-        stats = compute_shared_data(save_data)
         if self._rendered_route != stats["is_fanatic_route"]:
             self._build_sections(save_data, stats)
         else:
