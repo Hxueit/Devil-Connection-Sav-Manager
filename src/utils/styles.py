@@ -200,8 +200,3 @@ def white_button(parent: tk.Misc, text: str, command, **options) -> ctk.CTkButto
     )
     style.update(options)
     return ctk.CTkButton(parent, text=text, command=command, **style)
-
-
-def ease_out_cubic(t: float) -> float:
-    """三次缓出：t ∈ [0, 1] -> [0, 1]"""
-    return 1.0 - pow(1.0 - t, 3)

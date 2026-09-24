@@ -11,8 +11,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from src.constants import SF_SAVE_FILENAME
 from src.constants import (
+    SF_SAVE_FILENAME,
     STICKER_ID_RANGES,
     TOTAL_CHARACTERS,
     TOTAL_ENDINGS,
@@ -24,7 +24,6 @@ from src.constants import (
 from src.utils.sav_io import read_sav
 
 logger = logging.getLogger(__name__)
-
 
 
 def load_save_file(storage_dir: str) -> Dict[str, Any]:
@@ -62,7 +61,7 @@ def _numeric_order(item: Any) -> int:
 
 
 def compute_shared_data(save_data: Dict[str, Any]) -> Dict[str, Any]:
-    """计算各分区共用的数据，避免每个字段各算一遍"""
+    """计算各分区共用的数据（字段定义里叫 stats），避免每个字段各算一遍"""
     endings = set(save_data.get("endings", []))
     collected_endings = set(save_data.get("collectedEndings", []))
 
@@ -74,7 +73,6 @@ def compute_shared_data(save_data: Dict[str, Any]) -> Dict[str, Any]:
     collected_characters = {c for c in save_data.get("collectedCharacters", []) if c and c.strip()}
 
     collected_omakes = set(save_data.get("omakes", []))
-    total_omakes = set(TOTAL_OMAKES)
 
     return {
         "is_fanatic_route": is_fanatic_route(save_data),
@@ -87,14 +85,11 @@ def compute_shared_data(save_data: Dict[str, Any]) -> Dict[str, Any]:
         "collected_characters": collected_characters,
         "missing_characters": sorted(characters - collected_characters),
         "collected_omakes": collected_omakes,
-        "total_omakes_set": total_omakes,
-        "missing_omakes": sorted(total_omakes - collected_omakes, key=_numeric_order),
-        "total_gallery_set": set(TOTAL_GALLERY),
-        "total_ng_scene_set": set(TOTAL_NG_SCENE),
+        "missing_omakes": sorted(set(TOTAL_OMAKES) - collected_omakes, key=_numeric_order),
     }
 
 
-# 计算函数的参数：(存档数据, compute_shared_data 的结果, 翻译函数)
+# 计算函数的参数：(save 存档数据, stats = compute_shared_data 的结果, t 翻译函数)
 ValueFunc = Callable[[Dict[str, Any], Dict[str, Any], Callable[[str], str]], Any]
 
 
@@ -127,8 +122,17 @@ def _join(items: List[Any], t: Callable[[str], str]) -> str:
     return ", ".join(str(i) for i in items) if items else t("none")
 
 
-def _gender(sd: Dict[str, Any], cd: Dict[str, Any], t: Callable[[str], str]) -> str:
-    value = get_nested_value(sd, "memory.seibetu")
+def _killed(save: Dict[str, Any], stats: Dict[str, Any], t: Callable[[str], str]) -> Any:
+    return t("variable_not_exist") if save.get("killed") is None else save["killed"]
+
+
+def _missing_endings(save: Dict[str, Any], stats: Dict[str, Any], t: Callable[[str], str]) -> str:
+    missing = stats["missing_endings"]
+    return f"{len(missing)}: {_join(missing, t)}" if missing else t("none")
+
+
+def _gender(save: Dict[str, Any], stats: Dict[str, Any], t: Callable[[str], str]) -> str:
+    value = get_nested_value(save, "memory.seibetu")
     return {1: t("gender_male"), 2: t("gender_female")}.get(value, t("not_set"))
 
 
@@ -140,45 +144,44 @@ SECTIONS: Dict[str, Section] = {s.key: s for s in [
         _var("Lamia_noroi", label_key="lamia_curse"),
         _var("trauma", label_key="trauma_value"),
         _var("killWarning", label_key="kill_warning"),
-        _var("killed", label_key="killed", tooltip_key="killed_tooltip",
-             compute=lambda sd, cd, t: t("variable_not_exist") if sd.get("killed") is None else sd["killed"]),
+        _var("killed", label_key="killed", tooltip_key="killed_tooltip", compute=_killed),
         _var("kill", label_key="kill_count", tooltip_key="kill_count_tooltip"),
     ]),
     Section("endings_statistics", [
-        Field("total_endings", compute=lambda sd, cd, t: TOTAL_ENDINGS),
+        Field("total_endings", compute=lambda save, stats, t: TOTAL_ENDINGS),
         Field("current_collected_endings", var_name="endings",
-              compute=lambda sd, cd, t: len(cd["endings"])),
+              compute=lambda save, stats, t: len(stats["endings"])),
         Field("total_collected_endings", var_name="collectedEndings",
               tooltip_key="total_collected_endings_tooltip",
-              compute=lambda sd, cd, t: len(cd["collected_endings"])),
-        Field("missing_endings", compute=lambda sd, cd, t: (
-            f"{len(cd['missing_endings'])}: {_join(cd['missing_endings'], t)}"
-            if cd["missing_endings"] else t("none"))),
+              compute=lambda save, stats, t: len(stats["collected_endings"])),
+        Field("missing_endings", compute=_missing_endings),
     ], button_text_key="view_requirements"),
     Section("stickers_statistics", [
-        Field("total_stickers", compute=lambda sd, cd, t: TOTAL_STICKERS),
-        Field("collected_stickers", var_name="sticker", compute=lambda sd, cd, t: len(cd["stickers"])),
-        Field("missing_stickers_count", compute=lambda sd, cd, t: len(cd["missing_stickers"])),
-        Field("missing_stickers", compute=lambda sd, cd, t: _join(cd["missing_stickers"], t)),
+        Field("total_stickers", compute=lambda save, stats, t: TOTAL_STICKERS),
+        Field("collected_stickers", var_name="sticker",
+              compute=lambda save, stats, t: len(stats["stickers"])),
+        Field("missing_stickers_count", compute=lambda save, stats, t: len(stats["missing_stickers"])),
+        Field("missing_stickers", compute=lambda save, stats, t: _join(stats["missing_stickers"], t)),
     ], button_text_key="view_requirements"),
     Section("characters_statistics", [
-        Field("total_characters", compute=lambda sd, cd, t: TOTAL_CHARACTERS),
+        Field("total_characters", compute=lambda save, stats, t: TOTAL_CHARACTERS),
         Field("current_collected_characters", var_name="characters",
-              compute=lambda sd, cd, t: len(cd["characters"])),
+              compute=lambda save, stats, t: len(stats["characters"])),
         Field("total_collected_characters", var_name="collectedCharacters",
               tooltip_key="total_collected_characters_tooltip",
-              compute=lambda sd, cd, t: len(cd["collected_characters"])),
-        Field("missing_characters", compute=lambda sd, cd, t: _join(cd["missing_characters"], t)),
+              compute=lambda save, stats, t: len(stats["collected_characters"])),
+        Field("missing_characters", compute=lambda save, stats, t: _join(stats["missing_characters"], t)),
     ]),
     Section("omakes_statistics", [
-        Field("total_omakes", compute=lambda sd, cd, t: len(cd["total_omakes_set"])),
-        Field("collected_omakes", var_name="omakes", compute=lambda sd, cd, t: len(cd["collected_omakes"])),
-        Field("missing_omakes", compute=lambda sd, cd, t: _join(cd["missing_omakes"], t)),
+        Field("total_omakes", compute=lambda save, stats, t: len(TOTAL_OMAKES)),
+        Field("collected_omakes", var_name="omakes",
+              compute=lambda save, stats, t: len(stats["collected_omakes"])),
+        Field("missing_omakes", compute=lambda save, stats, t: _join(stats["missing_omakes"], t)),
         Field("gallery_count", var_name="gallery",
-              compute=lambda sd, cd, t: f"{len(sd.get('gallery', []))}/{len(cd['total_gallery_set'])}"),
+              compute=lambda save, stats, t: f"{len(save.get('gallery', []))}/{len(TOTAL_GALLERY)}"),
         Field("ng_scene_count", var_name="ngScene", tooltip_key="ng_scene_count_tooltip",
               tooltip_optional=True,
-              compute=lambda sd, cd, t: f"{len(sd.get('ngScene', []))}/{len(cd['total_ng_scene_set'])}"),
+              compute=lambda save, stats, t: f"{len(save.get('ngScene', []))}/{len(TOTAL_NG_SCENE)}"),
     ], button_text_key="ng_scene_quick_check"),
     Section("game_statistics", [
         _var("wholeTotalMP", label_key="total_mp"),
@@ -193,7 +196,7 @@ SECTIONS: Dict[str, Section] = {s.key: s for s in [
     ]),
     Section("character_info", [
         _var("memory.name", label_key="character_name",
-             compute=lambda sd, cd, t: get_nested_value(sd, "memory.name") or t("not_set")),
+             compute=lambda save, stats, t: get_nested_value(save, "memory.name") or t("not_set")),
         _var("memory.seibetu", label_key="character_gender", compute=_gender),
         _var("memory.hutanari", label_key="hutanari"),
         _var("memory.cameraEnable", label_key="camera_enable"),
@@ -203,7 +206,7 @@ SECTIONS: Dict[str, Section] = {s.key: s for s in [
         _var("saveListNo", label_key="save_list_no"),
         # 相册页码从 0 开始，显示时 +1
         _var("albumPageNo", label_key="album_page_no",
-             compute=lambda sd, cd, t: (sd.get("albumPageNo") or 0) + 1),
+             compute=lambda save, stats, t: (save.get("albumPageNo") or 0) + 1),
         _var("system.autosave", label_key="autosave_enabled", default=False),
         _var("fullscreen", label_key="fullscreen", default=False),
     ], hint_key="other_info_hint"),
@@ -219,13 +222,13 @@ def section_order(fanatic_route: bool) -> List[str]:
     return [*order[:index], FANATIC_SECTION_KEY, *order[index:]]
 
 
-def field_value(field: Field, save_data: Dict[str, Any], computed: Dict[str, Any],
+def field_value(field: Field, save_data: Dict[str, Any], stats: Dict[str, Any],
                 t: Callable[[str], str]) -> str:
     """字段显示的文本；存档里的值类型异常时退回显示原始值"""
     raw = get_nested_value(save_data, field.path) if field.path else None
     try:
         if field.compute is not None:
-            value = field.compute(save_data, computed, t)
+            value = field.compute(save_data, stats, t)
         else:
             value = field.default if raw is None else raw
     except (TypeError, ValueError, KeyError, AttributeError) as e:

@@ -18,9 +18,9 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import customtkinter as ctk
 
-from src.constants import NEO_SAVE_FILENAME
-from src.constants import TOTAL_STICKERS
-from src.utils.styles import Colors, ease_out_cubic, get_cjk_font
+from src.constants import NEO_SAVE_FILENAME, TOTAL_STICKERS
+from src.utils.styles import Colors, get_cjk_font
+from src.utils.ui_utils import widget_alive
 
 from .fields import is_fanatic_route
 
@@ -160,11 +160,9 @@ def generate_gibberish_text(original_text: str) -> str:
 
 # ---------------------------------------------------------------- 进度环绘制
 
-def _alive(widget: Optional[tk.Misc]) -> bool:
-    try:
-        return widget is not None and bool(widget.winfo_exists())
-    except tk.TclError:
-        return False
+def ease_out_cubic(progress: float) -> float:
+    """三次缓出：progress ∈ [0, 1] -> [0, 1]，开始快、结束慢"""
+    return 1.0 - pow(1.0 - progress, 3)
 
 
 def _interpolate_color(color1: str, color2: str, factor: float) -> str:
@@ -246,12 +244,12 @@ def draw_background_ring(canvas: tk.Canvas, cx: int, cy: int) -> None:
 class StatisticsPanel:
     """统计面板；每次 update 都会重建内容并重新播放进度环动画"""
 
-    def __init__(self, parent: tk.Widget, storage_dir: str, t_func: Callable[[str], str]) -> None:
+    def __init__(self, parent: tk.Widget, storage_dir: str, t: Callable[..., str]) -> None:
         self.storage_dir = storage_dir
-        self.t = t_func
+        self.t = t
         self._ring_job: Optional[str] = None
         self._gibberish_job: Optional[str] = None
-        # 乱码效果：[(刷新函数, 原文)]，每次刷新把原文打乱后交给刷新函数
+        # 狂信徒路线的乱码效果：[(刷新函数, 原文)]，每次刷新把原文打乱后交给刷新函数
         self._gibberish_targets: List[Tuple[Callable[[str], None], str]] = []
 
         self.container = tk.Frame(parent, bg=Colors.WHITE)
@@ -260,22 +258,19 @@ class StatisticsPanel:
                  bg=Colors.WHITE).pack(pady=50)
 
     def update(self, save_data: Dict[str, Any]) -> None:
-        if not _alive(self.container):
+        if not widget_alive(self.container):
             return
         self._cancel_jobs()
         for child in self.container.winfo_children():
             child.destroy()
 
         fanatic = is_fanatic_route(save_data)
-        collected, percent = extract_sticker_data(save_data)
-        canvas, center = self._create_sticker_ring(percent, fanatic, collected)
-        mp_title, mp_value, mp_text = self._create_mp_display(save_data.get("wholeTotalMP", 0))
-        draw_judge, judge_texts = self._create_judge_display(extract_judge_data(save_data))
-        neo_label = self._create_neo_display(fanatic)
-
+        self._create_sticker_ring(save_data, fanatic)
+        self._create_mp_display(save_data.get("wholeTotalMP", 0), fanatic)
+        self._create_judge_display(extract_judge_data(save_data), fanatic)
+        self._create_neo_display(fanatic)
         if fanatic:
-            self._setup_gibberish(canvas, center, percent, collected, mp_title, mp_value, mp_text,
-                                  draw_judge, judge_texts, neo_label)
+            self._update_gibberish()
 
     def _cancel_jobs(self) -> None:
         for job in (self._ring_job, self._gibberish_job):
@@ -289,8 +284,8 @@ class StatisticsPanel:
 
     # ---- 贴纸进度环
 
-    def _create_sticker_ring(self, percent: float, fanatic: bool,
-                             collected: int) -> Tuple[ctk.CTkCanvas, int]:
+    def _create_sticker_ring(self, save_data: Dict[str, Any], fanatic: bool) -> None:
+        collected, percent = extract_sticker_data(save_data)
         frame = tk.Frame(self.container, bg=Colors.WHITE)
         frame.pack(pady=(0, 20))
         canvas = ctk.CTkCanvas(frame, width=CANVAS_SIZE, height=CANVAS_SIZE, bg=Colors.WHITE,
@@ -298,32 +293,50 @@ class StatisticsPanel:
         canvas.pack()
         center = CANVAS_SIZE // 2
         draw_background_ring(canvas, center, center)
-        canvas.create_text(center, center - 30, text=self.t("stickers_statistics"),
-                           font=get_cjk_font(12, "bold"), fill=Colors.TEXT_DARK, tags="title_text")
-        percent_text_id = canvas.create_text(center, center + 2, text="0.0%", font=get_cjk_font(20, "bold"),
-                                             fill=Colors.TEXT_DARK, tags="percent_text")
-        canvas.create_text(center, center + 40, text=f"{collected}/{TOTAL_STICKERS}", font=get_cjk_font(11),
-                           fill=Colors.TEXT_MUTED, tags="count_text")
+
+        title = self.t("stickers_statistics")
+        count = f"{collected}/{TOTAL_STICKERS}"
+        percent_text_id: Optional[int] = None
+        if fanatic:
+            # 三行文字都是深红色乱码（行距比正常时紧凑），百分比不跟随动画变化
+            lines = [
+                (center - 20, get_cjk_font(12, "bold"), title),
+                (center + 2, get_cjk_font(20, "bold"), f"{percent:.1f}%"),
+                (center + 22, get_cjk_font(11), count),
+            ]
+            for y, font, text in lines:
+                item = canvas.create_text(center, y, text=text, font=font, fill=FANATIC_TEXT_COLOR)
+                self._gibberish_targets.append((lambda s, i=item: canvas.itemconfig(i, text=s), text))
+        else:
+            canvas.create_text(center, center - 30, text=title, font=get_cjk_font(12, "bold"),
+                               fill=Colors.TEXT_DARK)
+            percent_text_id = canvas.create_text(center, center + 2, text="0.0%", font=get_cjk_font(20, "bold"),
+                                                 fill=Colors.TEXT_DARK)
+            canvas.create_text(center, center + 40, text=count, font=get_cjk_font(11), fill=Colors.TEXT_MUTED)
         self._animate_ring(canvas, center, percent, get_progress_color(percent, fanatic), percent_text_id)
-        return canvas, center
 
     def _animate_ring(self, canvas: tk.Canvas, center: int, target: float, color: str,
-                      percent_text_id: int) -> None:
-        """进度环从 0 增长到目标值（缓出）；到 100% 时再播放一次庆祝动画"""
+                      percent_text_id: Optional[int]) -> None:
+        """进度环从 0 增长到目标值（缓出）；到 100% 时再播放一次庆祝动画
+
+        percent_text_id: 环中间的百分比文字，动画中跟着变化；None 表示不更新
+        """
         start_time = time.time()
 
         def frame() -> None:
             self._ring_job = None
-            if not _alive(canvas):
+            if not widget_alive(canvas):
                 return
             progress = min((time.time() - start_time) / ANIMATION_DURATION_SECONDS, 1.0)
             current = target * ease_out_cubic(progress)
             draw_progress_ring(canvas, center, center, current, color, skip_full_highlight=target >= 100)
-            canvas.itemconfig(percent_text_id, text=f"{current:.1f}%")
             if progress < 1.0:
+                if percent_text_id is not None:
+                    canvas.itemconfig(percent_text_id, text=f"{current:.1f}%")
                 self._ring_job = self.container.after(ANIMATION_FRAME_INTERVAL_MS, frame)
                 return
-            canvas.itemconfig(percent_text_id, text=f"{target:.1f}%")
+            if percent_text_id is not None:
+                canvas.itemconfig(percent_text_id, text=f"{target:.1f}%")
             if target >= 100:
                 self._animate_celebration(canvas, center, color)
             else:
@@ -349,7 +362,7 @@ class StatisticsPanel:
 
         def frame() -> None:
             self._ring_job = None
-            if not _alive(canvas):
+            if not widget_alive(canvas):
                 return
             progress = (time.time() - start_time) / CELEBRATION_DURATION_SECONDS
             if progress >= 1.0:
@@ -366,20 +379,23 @@ class StatisticsPanel:
 
     # ---- MP / 判定 / NEO
 
-    def _create_mp_display(self, mp: Any) -> Tuple[tk.Label, tk.Label, str]:
+    def _create_mp_display(self, mp: Any, fanatic: bool) -> None:
         frame = tk.Frame(self.container, bg=Colors.WHITE)
         frame.pack(pady=(0, 15))
-        title = tk.Label(frame, text=self.t("total_mp"), font=get_cjk_font(12), fg=Colors.TEXT_MUTED,
-                         bg=Colors.WHITE)
+        title_text = self.t("total_mp")
+        value_text, is_anomalous = format_mp_value_for_display(mp)
+        value_color = Colors.TEXT_WARNING_AQUA if is_anomalous else Colors.TEXT_INFO
+        title = tk.Label(frame, text=title_text, font=get_cjk_font(12), bg=Colors.WHITE,
+                         fg=FANATIC_TEXT_COLOR if fanatic else Colors.TEXT_MUTED)
         title.pack()
-        text, is_anomalous = format_mp_value_for_display(mp)
-        value = tk.Label(frame, text=text, font=get_cjk_font(32, "bold"),
-                         fg=Colors.TEXT_WARNING_AQUA if is_anomalous else Colors.TEXT_INFO, bg=Colors.WHITE)
+        value = tk.Label(frame, text=value_text, font=get_cjk_font(32, "bold"), bg=Colors.WHITE,
+                         fg=FANATIC_TEXT_COLOR if fanatic else value_color)
         value.pack()
-        return title, value, text
+        if fanatic:
+            self._gibberish_targets.append((lambda s: title.config(text=s), title_text))
+            self._gibberish_targets.append((lambda s: value.config(text=s), value_text))
 
-    def _create_judge_display(self, judge: Dict[str, int]) -> Tuple[Callable[..., None], List[str]]:
-        """返回 (重画函数, 三个数字的文本)；乱码效果会用重画函数替换文字"""
+    def _create_judge_display(self, judge: Dict[str, int], fanatic: bool) -> None:
         frame = tk.Frame(self.container, bg=Colors.WHITE)
         frame.pack(pady=(30, 0))
         texts = [f"{judge[key]:,}" for key in ("perfect", "good", "bad")]
@@ -405,13 +421,20 @@ class StatisticsPanel:
                                        font=get_cjk_font(10), fill=separator_color, anchor="center")
                     x += separator_width
 
-        draw(texts, list(JUDGE_COLORS.values()), Colors.TEXT_MUTED)
-        return draw, texts
+        if fanatic:
+            # 三个数字分别打乱后整行重画（分隔符保持不变）
+            def draw_gibberish(_: str) -> None:
+                draw([generate_gibberish_text(text) for text in texts], [FANATIC_TEXT_COLOR] * 3,
+                     FANATIC_TEXT_COLOR)
 
-    def _create_neo_display(self, fanatic: bool) -> Optional[tk.Label]:
+            self._gibberish_targets.append((draw_gibberish, ""))
+        else:
+            draw(texts, list(JUDGE_COLORS.values()), Colors.TEXT_MUTED)
+
+    def _create_neo_display(self, fanatic: bool) -> None:
         neo = load_neo_content(self.storage_dir)
         if neo is None:
-            return None
+            return
         text, color = neo
         if text is None:
             text = self.t("good_neo") if color == NEO_GOOD_COLOR else self.t("bad_neo")
@@ -420,37 +443,10 @@ class StatisticsPanel:
         label = tk.Label(frame, text=text, font=get_cjk_font(14), fg=FANATIC_TEXT_COLOR if fanatic else color,
                          bg=Colors.WHITE, wraplength=NEO_WRAPLENGTH)
         label.pack()
-        return label
+        if fanatic:
+            self._gibberish_targets.append((lambda s: label.config(text=s), text))
 
     # ---- 狂信徒路线的乱码效果
-
-    def _setup_gibberish(self, canvas: tk.Canvas, center: int, percent: float, collected: int,
-                         mp_title: tk.Label, mp_value: tk.Label, mp_text: str,
-                         draw_judge: Callable[..., None], judge_texts: List[str],
-                         neo_label: Optional[tk.Label]) -> None:
-        # 进度环中间的三行文字换成深红色乱码（位置比正常显示时更紧凑）
-        canvas.delete("title_text", "percent_text", "count_text")
-        ring_texts = [
-            (center - 20, get_cjk_font(12, "bold"), self.t("stickers_statistics")),
-            (center + 2, get_cjk_font(20, "bold"), f"{percent:.1f}%"),
-            (center + 22, get_cjk_font(11), f"{collected}/{TOTAL_STICKERS}"),
-        ]
-        for y, font, text in ring_texts:
-            item = canvas.create_text(center, y, text=text, font=font, fill=FANATIC_TEXT_COLOR, anchor="center")
-            self._gibberish_targets.append((lambda s, i=item: canvas.itemconfig(i, text=s), text))
-
-        labels = [(mp_title, self.t("total_mp")), (mp_value, mp_text)]
-        if neo_label is not None:
-            labels.append((neo_label, neo_label.cget("text")))
-        for label, text in labels:
-            self._gibberish_targets.append((lambda s, w=label: w.config(text=s, fg=FANATIC_TEXT_COLOR), text))
-
-        def redraw_judge(_: str) -> None:
-            texts = [generate_gibberish_text(text) for text in judge_texts]
-            draw_judge(texts, [FANATIC_TEXT_COLOR] * 3, FANATIC_TEXT_COLOR)
-
-        self._gibberish_targets.append((redraw_judge, ""))
-        self._update_gibberish()
 
     def _update_gibberish(self) -> None:
         self._gibberish_job = None
