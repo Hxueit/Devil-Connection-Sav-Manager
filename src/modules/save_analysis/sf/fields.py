@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from src.constants import SF_SAVE_FILENAME
 from src.constants import (
     STICKER_ID_RANGES,
     TOTAL_CHARACTERS,
@@ -24,7 +25,6 @@ from src.utils.sav_io import read_sav
 
 logger = logging.getLogger(__name__)
 
-SF_FILE_NAME = "DevilConnection_sf.sav"
 
 
 def load_save_file(storage_dir: str) -> Dict[str, Any]:
@@ -35,9 +35,9 @@ def load_save_file(storage_dir: str) -> Dict[str, Any]:
         OSError: 无法读取
         ValueError: 内容损坏（不是合法的 URL 编码 JSON 对象）
     """
-    data = read_sav(Path(storage_dir) / SF_FILE_NAME)
+    data = read_sav(Path(storage_dir) / SF_SAVE_FILENAME)
     if not isinstance(data, dict):
-        raise ValueError(f"{SF_FILE_NAME} 的内容不是 JSON 对象")
+        raise ValueError(f"{SF_SAVE_FILENAME} 的内容不是 JSON 对象")
     return data
 
 

@@ -14,7 +14,7 @@ import tkinter as tk
 from tkinter import filedialog, ttk
 from PIL import Image, ImageTk
 
-from src.modules.screenshot.image_processor import data_uri_to_bytes
+from src.utils.images import IMAGE_FILE_TYPES, ImageSource, open_image
 from src.utils.ui_utils import showerror_relative, showinfo_relative
 
 logger = logging.getLogger(__name__)
@@ -22,23 +22,12 @@ logger = logging.getLogger(__name__)
 EXPORT_QUALITY = 95
 REPLACE_PREVIEW_SIZE = (400, 300)
 
-IMAGE_FILE_TYPES = [
-    ("Image files", "*.png *.jpg *.jpeg *.gif *.apng"),
-    ("PNG files", "*.png"),
-    ("GIF files", "*.gif"),
-    ("APNG files", "*.apng"),
-    ("All files", "*.*"),
-]
-
 # 导出格式 -> (扩展名, Pillow 格式名, 文件类型过滤)
 EXPORT_FORMATS = {
     "png": (".png", "PNG", [("PNG files", "*.png"), ("All files", "*.*")]),
     "jpeg": (".jpg", "JPEG", [("JPEG files", "*.jpg"), ("All files", "*.*")]),
     "webp": (".webp", "WebP", [("WebP files", "*.webp"), ("All files", "*.*")]),
 }
-
-ImageSource = Union[str, Path, Image.Image, bytes]
-
 
 def convert_image(img: Image.Image, format_choice: str) -> bytes:
     """把图片转成指定导出格式（png/jpeg/webp）的字节"""
@@ -51,22 +40,6 @@ def convert_image(img: Image.Image, format_choice: str) -> bytes:
     else:
         img.save(buffer, save_format, quality=EXPORT_QUALITY)
     return buffer.getvalue()
-
-
-def open_image(source: ImageSource) -> Image.Image:
-    """从文件路径 / data URI / 字节 / PIL 图片得到一个已完整载入内存的 PIL 图片
-
-    读取完就关闭文件，Windows 上不会占着文件不放。
-    """
-    if isinstance(source, Image.Image):
-        return source
-    if isinstance(source, str) and source.startswith("data:"):
-        source = data_uri_to_bytes(source)
-    if isinstance(source, bytes):
-        source = BytesIO(source)
-    with Image.open(source) as img:
-        img.load()
-        return img.copy()
 
 
 def apply_modal_grab_safely(dialog: tk.Toplevel, retry_count: int = 12, delay_ms: int = 30) -> None:

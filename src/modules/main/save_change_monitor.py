@@ -11,12 +11,12 @@ import tkinter as tk
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
 
+from src.constants import SF_SAVE_FILENAME
 from src.utils.sav_io import read_sav
 from src.utils.toast import Toast
 
 logger = logging.getLogger(__name__)
 
-SF_SAVE_FILENAME = "DevilConnection_sf.sav"
 ARROW = "→"
 FLOAT_EPSILON = 1e-10
 

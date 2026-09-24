@@ -30,7 +30,7 @@ from src.modules.save_analysis.tyrano.image_utils import (
     create_status_circle_image,
     decode_image_data,
 )
-from src.modules.screenshot.image_processor import encode_image_to_base64
+from src.utils.images import image_to_data_uri, is_image_file
 from src.utils.styles import Colors, get_cjk_font
 from src.utils.ui_utils import set_window_icon, showerror_relative, showinfo_relative, showwarning_relative
 
@@ -340,13 +340,12 @@ class TyranoSaveSlot(SlotCard):
                 showwarning_relative(dialog, t("warning"), t("tyrano_imgdata_no_image"))
                 return
             helper = ImageReplaceHelper(self.root, t, get_cjk_font, Colors, set_window_icon)
-            valid_suffixes = {'.png', '.jpg', '.jpeg', '.gif', '.apng'}
-            helper.show_replace_flow(image_data, replace_image, lambda path: path.suffix.lower() in valid_suffixes)
+            helper.show_replace_flow(image_data, replace_image, is_image_file)
 
         def replace_image(new_image_path: Path) -> None:
             try:
                 with Image.open(new_image_path) as new_image:
-                    new_image_data = encode_image_to_base64(new_image)
+                    new_image_data = image_to_data_uri(new_image)
             except (OSError, ValueError) as e:
                 logger.error("Failed to read replacement image: %s", e, exc_info=True)
                 showerror_relative(dialog, t("error"), f"{t('error')}: {e}")

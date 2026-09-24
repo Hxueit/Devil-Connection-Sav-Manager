@@ -9,7 +9,7 @@ import tkinter as tk
 from src.modules.runtime_modify.dialogs import RuntimeDialog, create_standard_button
 from src.modules.runtime_modify.service import evaluate
 from src.modules.save_analysis.tyrano.analyzer import describe_slot
-from src.modules.save_analysis.tyrano.constants import TYRANO_QUICK_SAVE_FILENAME
+from src.constants import TYRANO_QUICK_SAVE_FILENAME
 from src.utils.background import run_in_background
 from src.utils.sav_io import read_sav
 from src.utils.styles import Colors, get_cjk_font

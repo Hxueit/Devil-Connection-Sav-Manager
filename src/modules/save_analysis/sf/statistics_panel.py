@@ -18,6 +18,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import customtkinter as ctk
 
+from src.constants import NEO_SAVE_FILENAME
 from src.constants import TOTAL_STICKERS
 from src.utils.styles import Colors, ease_out_cubic, get_cjk_font
 
@@ -54,7 +55,6 @@ JUDGE_TEXT_Y = 12
 MIN_JUDGE_CANVAS_WIDTH = 250
 
 # NEO.sav：游戏在两种结局下写入固定台词，其他情况下内容由玩家决定
-NEO_FILENAME = "NEO.sav"
 NEO_GOOD_MESSAGE = '"キミたちに永遠の祝福を"'
 NEO_BAD_MESSAGE = '"オマエに永遠の制裁を"'
 NEO_GOOD_COLOR = "#FFEB9E"
@@ -130,7 +130,7 @@ def load_neo_content(storage_dir: str) -> Optional[Tuple[Optional[str], str]]:
     """读取 NEO.sav，返回 (自定义文本, 颜色)；固定台词时文本为 None；文件不存在返回 None"""
     if not storage_dir:
         return None
-    neo_path = Path(storage_dir) / NEO_FILENAME
+    neo_path = Path(storage_dir) / NEO_SAVE_FILENAME
     try:
         content = urllib.parse.unquote(neo_path.read_text(encoding="utf-8").strip())
     except FileNotFoundError:

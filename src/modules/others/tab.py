@@ -12,6 +12,7 @@ from tkinter import filedialog
 
 import customtkinter as ctk
 
+from src.constants import TYRANO_SAVE_FILENAME
 from src.constants import VERSION
 from src.modules.main.update_checker import fetch_latest_release, format_release_date, is_newer
 from src.utils.background import run_in_background
@@ -21,7 +22,6 @@ from src.utils.ui_utils import askyesno_relative, showerror_relative, showinfo_r
 
 logger = logging.getLogger(__name__)
 
-TYRANO_SAV_FILENAME = "DevilConnection_tyrano_data.sav"
 TYRANO_JSON_FILENAME = "DevilConnection_tyrano_data.json"
 
 
@@ -37,7 +37,7 @@ class OthersTab:
 
     @property
     def tyrano_path(self) -> Path:
-        return Path(self.app.storage_dir) / TYRANO_SAV_FILENAME
+        return Path(self.app.storage_dir) / TYRANO_SAVE_FILENAME
 
     # ---------- 界面 ----------
 

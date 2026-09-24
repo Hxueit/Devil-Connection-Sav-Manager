@@ -3,18 +3,17 @@
 这里的函数和 ImageCache 都可以在后台线程中调用（不涉及 Tk）。
 """
 
-import base64
-import binascii
 import hashlib
 import logging
 import platform
 import threading
 from collections import OrderedDict
 from functools import lru_cache
-from io import BytesIO
 from typing import Optional, Tuple
 
-from PIL import Image, ImageDraw, ImageFont, UnidentifiedImageError
+from PIL import Image, ImageDraw, ImageFont
+
+from src.utils.images import decode_image_data
 
 logger = logging.getLogger(__name__)
 
@@ -22,21 +21,6 @@ Size = Tuple[int, int]
 
 DEFAULT_THUMBNAIL_SIZE: Size = (120, 90)
 _ASPECT_RATIO_4_3 = 4.0 / 3.0
-
-
-def decode_image_data(image_data: str) -> Optional[Image.Image]:
-    """解码 "data:image/...;base64,xxxx" 形式的图片，失败返回 None"""
-    if not isinstance(image_data, str):
-        return None
-    _, sep, b64 = image_data.partition(";base64,")
-    if not sep or not b64:
-        return None
-    try:
-        image_bytes = base64.b64decode(b64, validate=True)
-        with BytesIO(image_bytes) as buffer:
-            return Image.open(buffer).copy()
-    except (binascii.Error, ValueError, UnidentifiedImageError, OSError):
-        return None
 
 
 def thumbnail_size(slot_size: Size, image_size: Optional[Size] = None) -> Size:

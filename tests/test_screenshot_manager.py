@@ -6,7 +6,7 @@ import pytest
 from PIL import Image
 
 from src.modules.screenshot import screenshot_manager as sm
-from src.modules.screenshot.image_processor import data_uri_to_bytes, encode_image_to_base64
+from src.utils.images import data_uri_to_bytes, image_to_data_uri
 from src.utils.sav_io import read_sav, write_sav
 
 
@@ -45,7 +45,7 @@ def test_parse_filename():
 
 def test_data_uri_roundtrip():
     img = Image.new("RGB", (4, 3), "red")
-    data = data_uri_to_bytes(encode_image_to_base64(img))
+    data = data_uri_to_bytes(image_to_data_uri(img))
     assert Image.open(BytesIO(data)).size == (4, 3)
     with pytest.raises(ValueError):
         data_uri_to_bytes("not a uri")

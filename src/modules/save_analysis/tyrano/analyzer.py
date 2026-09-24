@@ -9,7 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from src.modules.save_analysis.tyrano.constants import TYRANO_SAV_FILENAME, TYRANO_SAVES_PER_PAGE
+from src.constants import TYRANO_SAVE_FILENAME
+from src.modules.save_analysis.tyrano.constants import TYRANO_SAVES_PER_PAGE
 from src.utils.sav_io import read_sav, write_sav
 
 logger = logging.getLogger(__name__)
@@ -128,7 +129,7 @@ class TyranoAnalyzer:
 
     @property
     def file_path(self) -> Path:
-        return self.storage_dir / TYRANO_SAV_FILENAME
+        return self.storage_dir / TYRANO_SAVE_FILENAME
 
     def load_save_file(self) -> bool:
         """加载存档文件，成功返回 True；失败时清空数据并返回 False"""

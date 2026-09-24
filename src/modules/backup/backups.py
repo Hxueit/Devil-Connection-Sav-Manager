@@ -14,13 +14,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional
 
+from src.constants import SF_SAVE_FILENAME, TYRANO_SAVE_FILENAME
 from src.constants import VERSION
 
 logger = logging.getLogger(__name__)
 
 BACKUP_DIR_NAME = "dcsm_backups"
 BACKUP_INFO_FILENAME = "dcsmINFO.txt"
-REQUIRED_SAVE_FILES = ["DevilConnection_sf.sav", "DevilConnection_tyrano_data.sav"]
+REQUIRED_SAVE_FILES = [SF_SAVE_FILENAME, TYRANO_SAVE_FILENAME]
 TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
 COMPRESSION_LEVEL = 7
 

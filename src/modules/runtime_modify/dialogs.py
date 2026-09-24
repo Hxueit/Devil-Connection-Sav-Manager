@@ -4,9 +4,8 @@ from typing import Callable
 import customtkinter as ctk
 import tkinter as tk
 
-from src.modules.others.utils import center_window
 from src.utils.styles import Colors, get_cjk_font
-from src.utils.ui_utils import set_window_icon
+from src.utils.ui_utils import center_window, set_window_icon
 
 
 def create_standard_button(parent: tk.Misc, text: str, command: Callable[[], None], **kwargs) -> ctk.CTkButton:

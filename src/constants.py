@@ -1,3 +1,9 @@
+# 游戏 _storage 文件夹里的存档文件名
+SF_SAVE_FILENAME = "DevilConnection_sf.sav"                        # 全局进度（结局、贴纸、统计等）
+TYRANO_SAVE_FILENAME = "DevilConnection_tyrano_data.sav"           # 游戏内的存档槽
+TYRANO_QUICK_SAVE_FILENAME = "DevilConnection_tyrano_quick_save.sav"
+NEO_SAVE_FILENAME = "NEO.sav"
+
 # 版本号
 VERSION = "v0.5.2"
 

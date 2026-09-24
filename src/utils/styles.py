@@ -187,6 +187,21 @@ def _configure_ttk_styles(style: ttk.Style) -> None:
                     lightcolor=Colors.WHITE, darkcolor=Colors.DARK_GRAY)
 
 
+def white_button(parent: tk.Misc, text: str, command, **options) -> ctk.CTkButton:
+    """程序里统一的白底灰边圆角按钮；options 可以覆盖默认样式（如 width、height、font）"""
+    style = dict(
+        corner_radius=8,
+        fg_color=Colors.WHITE,
+        hover_color=Colors.LIGHT_GRAY,
+        border_width=1,
+        border_color=Colors.GRAY,
+        text_color=Colors.TEXT_PRIMARY,
+        font=get_cjk_font(10),
+    )
+    style.update(options)
+    return ctk.CTkButton(parent, text=text, command=command, **style)
+
+
 def ease_out_cubic(t: float) -> float:
     """三次缓出：t ∈ [0, 1] -> [0, 1]"""
     return 1.0 - pow(1.0 - t, 3)

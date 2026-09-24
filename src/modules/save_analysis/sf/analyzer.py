@@ -17,12 +17,12 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import customtkinter as ctk
 
 from src.constants import LATEST_GAME_PATCH_AT_BUILD, STICKER_ID_RANGES, TOTAL_ENDINGS, TOTAL_NG_SCENE
+from src.constants import SF_SAVE_FILENAME
 from src.utils.styles import Colors, get_cjk_font
 
 from .fields import (
     FANATIC_SECTION_KEY,
     SECTIONS,
-    SF_FILE_NAME,
     Field,
     Section,
     compute_shared_data,
@@ -181,12 +181,12 @@ class SaveAnalyzer:
         try:
             save_data = load_save_file(self.storage_dir)
         except FileNotFoundError:
-            logger.info("%s not found in %s", SF_FILE_NAME, self.storage_dir)
+            logger.info("%s not found in %s", SF_SAVE_FILENAME, self.storage_dir)
             self._show_load_error(self.t("save_file_not_found"))
             return
         except (OSError, ValueError) as e:
-            logger.error("Failed to load %s: %s", SF_FILE_NAME, e, exc_info=True)
-            self._show_load_error(f"{self.t('error')}: {SF_FILE_NAME}\n{e}")
+            logger.error("Failed to load %s: %s", SF_SAVE_FILENAME, e, exc_info=True)
+            self._show_load_error(f"{self.t('error')}: {SF_SAVE_FILENAME}\n{e}")
             return
 
         self.save_data = save_data

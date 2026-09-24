@@ -18,6 +18,7 @@ from pathlib import Path
 from tkinter import Scrollbar, messagebox, ttk
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple
 
+from src.constants import SF_SAVE_FILENAME
 from src.utils.background import run_in_background
 from src.utils.hint_animation import HintAnimation
 from src.utils.sav_io import write_sav
@@ -31,7 +32,7 @@ from src.utils.ui_utils import (
     showwarning_relative,
 )
 
-from .fields import SF_FILE_NAME, load_save_file
+from .fields import load_save_file
 from .viewer_json import format_display_data, restore_collapsed_fields
 
 logger = logging.getLogger(__name__)
@@ -419,7 +420,7 @@ class SaveFileViewer:
             showerror_relative(self.viewer_window, self.t("error"), self.t("save_file_not_found"))
         except Exception as e:
             logger.error("Failed to load save data: %s", e, exc_info=True)
-            name = SF_FILE_NAME if load_func is None else ""
+            name = SF_SAVE_FILENAME if load_func is None else ""
             showerror_relative(self.viewer_window, self.t("error"), f"{name} {e}".strip())
         return None
 
@@ -455,7 +456,7 @@ class SaveFileViewer:
                                        self.t("save_file_failed").format(error="保存失败"))
                     return
             else:
-                write_sav(Path(self.storage_dir) / SF_FILE_NAME, edited_data)
+                write_sav(Path(self.storage_dir) / SF_SAVE_FILENAME, edited_data)
         except Exception as e:
             logger.error("Failed to save: %s", e, exc_info=True)
             showerror_relative(self.viewer_window, self.t("error"), self.t("save_file_failed").format(error=str(e)))

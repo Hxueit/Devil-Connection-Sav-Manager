@@ -11,13 +11,13 @@ from src.modules.save_analysis.tyrano.analyzer import (
     extract_save_info,
     is_empty_save,
 )
-from src.modules.save_analysis.tyrano.constants import TYRANO_SAV_FILENAME
+from src.constants import TYRANO_SAVE_FILENAME
 from src.modules.save_analysis.tyrano.image_utils import (
     ImageCache,
-    decode_image_data,
     slot_thumbnail,
     thumbnail_size,
 )
+from src.utils.images import decode_image_data
 from src.utils.sav_io import read_sav, write_sav
 
 EMPTY = {"title": "NO SAVE", "save_date": "", "img_data": "", "stat": {}}
@@ -79,12 +79,12 @@ def test_describe_slot():
 def storage(tmp_path):
     slots = [slot(day=i + 1) for i in range(8)]
     slots[3] = dict(EMPTY)
-    write_sav(tmp_path / TYRANO_SAV_FILENAME, {"data": slots, "other": 1})
+    write_sav(tmp_path / TYRANO_SAVE_FILENAME, {"data": slots, "other": 1})
     return tmp_path
 
 
 def disk_slots(storage):
-    return read_sav(storage / TYRANO_SAV_FILENAME)["data"]
+    return read_sav(storage / TYRANO_SAVE_FILENAME)["data"]
 
 
 def test_load_and_paging(storage):
@@ -103,7 +103,7 @@ def test_load_and_paging(storage):
 def test_load_missing_or_broken(tmp_path):
     an = TyranoAnalyzer(str(tmp_path))
     assert not an.load_save_file()
-    (tmp_path / TYRANO_SAV_FILENAME).write_text("%7Bbroken", encoding="utf-8")
+    (tmp_path / TYRANO_SAVE_FILENAME).write_text("%7Bbroken", encoding="utf-8")
     assert not an.load_save_file()
     assert an.save_slots == [] and an.total_pages == 0
 
@@ -134,7 +134,7 @@ def test_modifications_are_written(storage):
 
     assert an.remove_slots([0, 1, 2])
     assert len(disk_slots(storage)) == 6 and an.total_pages == 1
-    assert read_sav(storage / TYRANO_SAV_FILENAME)["other"] == 1
+    assert read_sav(storage / TYRANO_SAVE_FILENAME)["other"] == 1
 
 
 def test_failed_write_keeps_memory(storage, monkeypatch):
@@ -200,7 +200,7 @@ def test_modifications_keep_saves_made_by_the_game_meanwhile(storage):
     """游戏在本工具加载之后又存了档：修改其他槽位时不能把它覆盖掉"""
     an = TyranoAnalyzer(str(storage))
     assert an.load_save_file()
-    path = storage / TYRANO_SAV_FILENAME
+    path = storage / TYRANO_SAVE_FILENAME
     on_disk = read_sav(path)
     on_disk["data"][2] = slot(day=9, subtitle="saved in game")
     write_sav(path, on_disk)

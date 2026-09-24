@@ -11,24 +11,20 @@ from tkinter import filedialog, ttk
 from PIL import Image
 
 from src.modules.common.image_operations import (
-    IMAGE_FILE_TYPES, EXPORT_FORMATS, ImageExportHelper, ImageReplaceHelper, apply_modal_grab_safely,
+    EXPORT_FORMATS, ImageExportHelper, ImageReplaceHelper, apply_modal_grab_safely,
     convert_image,
 )
 from src.modules.screenshot.screenshot_manager import (
     ScreenshotManager, current_datetime, generate_id, is_valid_date, read_image_file,
 )
+from src.utils.images import IMAGE_FILE_TYPES, is_image_file
 from src.utils.background import run_in_background
 from src.utils.styles import Colors, get_cjk_font
 from src.utils.ui_utils import askyesno_relative, set_window_icon, showerror_relative, showinfo_relative
 
 logger = logging.getLogger(__name__)
 
-VALID_IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif', '.apng', '.tiff', '.tif', '.ico'}
 ASPECT_RATIO_TOLERANCE = 30  # 高度与 4:3 的偏差在这么多像素内都算 4:3
-
-
-def is_image_file(path: Path) -> bool:
-    return path.suffix.lower() in VALID_IMAGE_EXTENSIONS
 
 
 def is_4_3(path: Path) -> bool:

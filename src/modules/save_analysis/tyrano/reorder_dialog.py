@@ -11,8 +11,9 @@ from PIL import Image
 from src.modules.common.draggable_list import DraggableList
 from src.modules.save_analysis.tyrano.analyzer import describe_slot
 from src.modules.save_analysis.tyrano.constants import TYRANO_SAVES_PER_PAGE
-from src.modules.save_analysis.tyrano.image_utils import create_placeholder_image, decode_image_data
+from src.modules.save_analysis.tyrano.image_utils import create_placeholder_image
 from src.modules.save_analysis.tyrano.save_slot import button_style, create_dialog
+from src.utils.images import decode_image_data
 from src.utils.styles import Colors, get_cjk_font
 from src.utils.ui_utils import askyesno_relative, showinfo_relative, showwarning_relative
 

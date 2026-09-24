@@ -22,7 +22,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from PIL import Image
 
-from src.modules.screenshot.image_processor import bytes_to_data_uri, data_uri_to_bytes
+from src.utils.images import bytes_to_data_uri, data_uri_to_bytes
 from src.utils.sav_io import read_sav, write_sav
 
 logger = logging.getLogger(__name__)
