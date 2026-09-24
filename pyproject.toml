@@ -1,0 +1,16 @@
+[tool.ruff]
+line-length = 120
+target-version = "py38"
+extend-exclude = ["build", "dist"]
+
+[tool.ruff.lint]
+# E9/F: 语法错误、未定义变量、未使用的导入等真正的问题
+# B: 常见 bug 模式（如 lambda 捕获循环变量、finally 里 return）
+# PLW: return/break 在 finally 中、全局变量等
+select = ["E9", "F", "B", "PLW0120", "PLW0127", "PLW0711"]
+ignore = [
+    "B008",  # 默认参数里调用函数，Tk 代码中很常见
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
