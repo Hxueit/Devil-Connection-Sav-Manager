@@ -1,6 +1,3 @@
-import json
-import urllib.parse
-
 import pytest
 
 from src.utils.sav_io import decode_sav, encode_sav, read_sav, write_sav
@@ -13,9 +10,10 @@ def test_round_trip(tmp_path):
     assert read_sav(path) == data
 
 
-def test_matches_previous_encoding():
-    data = {"key": "値 with space"}
-    assert encode_sav(data) == urllib.parse.quote(json.dumps(data, ensure_ascii=False))
+def test_encoding_matches_the_game():
+    """游戏用 JSON.stringify + encodeURIComponent 写存档，编码结果要和它完全一致"""
+    data = {"a": "b/c d", "n": [1, 2.5], "jp": "で"}
+    assert encode_sav(data) == "%7B%22a%22%3A%22b%2Fc%20d%22%2C%22n%22%3A%5B1%2C2.5%5D%2C%22jp%22%3A%22%E3%81%A7%22%7D"
     assert decode_sav(encode_sav(data) + "\n") == data
 
 

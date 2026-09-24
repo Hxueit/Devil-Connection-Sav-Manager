@@ -25,8 +25,13 @@ def decode_sav(text: str) -> Any:
 
 
 def encode_sav(data: Any) -> str:
-    """把 Python 对象编码成 .sav 文件的文本"""
-    return urllib.parse.quote(json.dumps(data, ensure_ascii=False))
+    """把 Python 对象编码成 .sav 文件的文本
+
+    和游戏自己写入的格式完全一致：JSON.stringify（紧凑、不转义非 ASCII 字符）
+    再 encodeURIComponent（除 A-Z a-z 0-9 - _ . ! ~ * ' ( ) 外都转义）。
+    """
+    text = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
+    return urllib.parse.quote(text, safe="!~*'()")
 
 
 def read_sav(path: PathLike) -> Any:
