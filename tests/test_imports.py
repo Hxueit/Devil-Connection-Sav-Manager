@@ -9,7 +9,7 @@ pytest.importorskip("tkinter")
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MODULES = sorted(
-    ".".join(path.relative_to(ROOT).with_suffix("").parts).removesuffix(".__init__")
+    ".".join(part for part in path.relative_to(ROOT).with_suffix("").parts if part != "__init__")
     for path in (ROOT / "src").rglob("*.py")
 )
 
