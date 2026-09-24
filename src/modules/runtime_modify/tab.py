@@ -176,6 +176,10 @@ class RuntimeModifyTab:
     
     def _bind_hotkey(self) -> None:
         """注册全局热键 Alt+S（强制快进），不可用时回退到窗口级热键。"""
+        # 切换语言会重建 UI 并再次调用这里；全局热键只能注册一次，否则会叠加触发
+        if self._hotkey_registered:
+            return
+        
         def on_hotkey() -> None:
             if self._is_game_running() and self.state.hook_enabled:
                 self.root.after(0, self._on_force_fast_forward_clicked)
@@ -1040,8 +1044,12 @@ class RuntimeModifyTab:
             viewer_config=viewer_config
         )
     
-    def cleanup(self) -> None:
-        """关闭时停止状态检查、注销热键、停止游戏与线程池，并销毁杂项对话框。"""
+    def cleanup(self, stop_game: bool = True) -> None:
+        """关闭时停止状态检查、注销热键、停止游戏与线程池，并销毁杂项对话框。
+        
+        Args:
+            stop_game: 是否同时结束由本工具启动的游戏进程（切换目录时不应结束）
+        """
         self.state.is_closing = True
 
         if self.misc_dialog and self.misc_dialog.winfo_exists():
@@ -1063,7 +1071,7 @@ class RuntimeModifyTab:
             except Exception as e:
                 logger.debug(f"Error unregistering hotkey: {e}")
         
-        if self.service.game_process is not None:
+        if stop_game and self.service.game_process is not None:
             try:
                 self.service.stop_game()
                 logger.info("Game process stopped during cleanup")

@@ -3,6 +3,7 @@ import logging
 import threading
 import tkinter as tk
 import webbrowser
+from pathlib import Path
 from tkinter import filedialog, ttk
 from typing import List, Optional, Callable
 
@@ -593,6 +594,11 @@ class SavTool:
             self._tyrano_prewarm_in_progress = False
             return
         
+        # 预热期间用户可能已经换了目录，旧目录的结果直接丢弃
+        if not self.storage_dir or analyzer.storage_dir != Path(self.storage_dir):
+            self._tyrano_prewarm_in_progress = False
+            return
+        
         self._tyrano_prewarm_analyzer = analyzer
         self._tyrano_prewarm_in_progress = False
     
@@ -874,9 +880,6 @@ class SavTool:
         if self.runtime_modify_tab is not None:
             self.runtime_modify_tab.update_language(self.language_service.current_language)
         
-        if self.runtime_modify_tab is not None:
-            self.runtime_modify_tab.update_language(self.language_service.current_language)
-        
         if self.others_tab is not None:
             self.others_tab.update_language(self.language_service.current_language)
         
@@ -937,78 +940,91 @@ class SavTool:
         if dir_path:
             if not (dir_path.endswith('/_storage') or dir_path.endswith('\\_storage')):
                 showwarning_relative(self.root, self.t("warning"), self.t("dir_warning"))
-            self.storage_dir = dir_path
-            # 设置加载状态
-            self._is_loading = True
-            self._cancel_loading = False
-            
-            # 在开始加载前，更新所有提示标签为"加载中..."
-            self._update_all_hint_labels_loading()
-            self._update_version_info_visibility()
-            
-            # 只初始化截图管理器和SF分析器（当前页面）
-            self.screenshot_hint_label.pack_forget()
-            if self.screenshot_manager_ui is None:
-                self.screenshot_manager_ui = ScreenshotManagerUI(
-                    self.screenshot_frame, 
-                    self.root, 
-                    self.storage_dir,
-                    self.translations, 
-                    self.language_service.current_language, 
-                    self.t
-                )
-            else:
-                self.screenshot_manager_ui.set_storage_dir(self.storage_dir)
-                self.screenshot_manager_ui.load_screenshots()
-            
-            self.init_save_analyzer()
-            
-            # 标记其他标签页需要懒加载
-            self._lazy_load_pending = {
-                'tyrano': True,
-                'backup': True,
-                'runtime': True,
-                'others': True
-            }
-            self._start_file_monitor()
-            self._finish_loading()
+            self._load_storage_dir(dir_path)
     
     def auto_detect_steam(self) -> None:
         """自动检测Steam游戏目录并设置"""
         storage_path = self.steam_detector.auto_detect_storage()
         
         if storage_path:
-            self.storage_dir = storage_path
-            # 设置加载状态
-            self._is_loading = True
-            self._cancel_loading = False
-            # 在开始加载前，更新所有提示标签为"加载中..."
-            self._update_all_hint_labels_loading()
-            self._update_version_info_visibility()
-            
-            # 只初始化截图管理器和SF分析器（当前页面），其他标签页懒加载
-            self.screenshot_hint_label.pack_forget()
-            if self.screenshot_manager_ui is None:
-                self.screenshot_manager_ui = ScreenshotManagerUI(
-                    self.screenshot_frame, self.root, self.storage_dir,
-                    self.translations, self.language_service.current_language, self.t
-                )
-            else:
-                self.screenshot_manager_ui.set_storage_dir(self.storage_dir)
-                self.screenshot_manager_ui.load_screenshots()
-            self.init_save_analyzer()
-            
-            # 标记其他标签页需要懒加载
-            self._lazy_load_pending = {
-                'tyrano': True,
-                'backup': True,
-                'runtime': True,
-                'others': True
-            }
-            self._start_file_monitor()
-            self._finish_loading()
+            self._load_storage_dir(storage_path)
         else:
             showinfo_relative(self.root, self.t("warning"), self.t("steam_detect_not_found"))
+    
+    def _load_storage_dir(self, storage_dir: str) -> None:
+        """切换到新的存档目录并重新加载各标签页"""
+        self.storage_dir = storage_dir
+        # 设置加载状态
+        self._is_loading = True
+        self._cancel_loading = False
+        
+        self._teardown_lazy_tabs()
+        
+        # 在开始加载前，更新所有提示标签为"加载中..."
+        self._update_all_hint_labels_loading()
+        self._update_version_info_visibility()
+        
+        # 只初始化截图管理器和SF分析器（当前页面），其他标签页懒加载
+        self.screenshot_hint_label.pack_forget()
+        if self.screenshot_manager_ui is None:
+            self.screenshot_manager_ui = ScreenshotManagerUI(
+                self.screenshot_frame,
+                self.root,
+                self.storage_dir,
+                self.translations,
+                self.language_service.current_language,
+                self.t
+            )
+        else:
+            self.screenshot_manager_ui.set_storage_dir(self.storage_dir)
+            self.screenshot_manager_ui.load_screenshots()
+        
+        self.init_save_analyzer()
+        
+        # 标记其他标签页需要懒加载
+        self._lazy_load_pending = {
+            'tyrano': True,
+            'backup': True,
+            'runtime': True,
+            'others': True
+        }
+        self._start_file_monitor()
+        self._finish_loading()
+    
+    def _teardown_lazy_tabs(self) -> None:
+        """销毁已创建的懒加载标签页，之后切到该标签页时会按新目录重新创建
+        
+        否则再次选择目录后，Tyrano 页仍显示旧目录，其他页会在同一个 frame
+        里再叠一份 UI，旧的运行时修改页的状态轮询和热键也不会停止。
+        """
+        tabs = [
+            ("tyrano_tab", self.tyrano_frame, self.tyrano_hint_label),
+            ("backup_restore_tab", self.backup_restore_frame, self.backup_restore_hint_label),
+            ("runtime_modify_tab", self.runtime_modify_frame, self.runtime_modify_hint_label),
+            ("others_tab", self.others_frame, self.others_hint_label),
+        ]
+        for attr, frame, hint_label in tabs:
+            tab = getattr(self, attr)
+            if tab is None:
+                continue
+            cleanup = getattr(tab, "cleanup", None)
+            if cleanup is not None:
+                try:
+                    if attr == "runtime_modify_tab":
+                        cleanup(stop_game=False)
+                    else:
+                        cleanup()
+                except Exception as e:
+                    logger.debug(f"Failed to clean up {attr}: {e}")
+            # 保留提示标签和 CTkFrame 自己用来画背景的 canvas
+            keep = (hint_label, getattr(frame, "_canvas", None))
+            for widget in frame.winfo_children():
+                if not any(widget is k for k in keep):
+                    widget.destroy()
+            setattr(self, attr, None)
+        
+        self._tyrano_prewarm_analyzer = None
+        self._tyrano_prewarm_consumed = False
     
     def _finish_loading(self) -> None:
         """完成加载流程，停止动画并触发预热"""
