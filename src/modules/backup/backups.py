@@ -14,8 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, List, Optional
 
-from src.constants import SF_SAVE_FILENAME, TYRANO_SAVE_FILENAME
-from src.constants import VERSION
+from src.constants import SF_SAVE_FILENAME, TYRANO_SAVE_FILENAME, VERSION
 
 logger = logging.getLogger(__name__)
 

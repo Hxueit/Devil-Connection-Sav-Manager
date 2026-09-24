@@ -7,13 +7,13 @@ import logging
 import re
 import tkinter as tk
 from pathlib import Path
-from tkinter import Entry, Scrollbar, Toplevel, ttk
-from typing import Callable, Optional
+from tkinter import Entry, Scrollbar, ttk
+from typing import Callable, List, Optional
 
 from src.modules.backup import backups
 from src.utils.background import run_in_background
 from src.utils.styles import Colors, get_cjk_font
-from src.utils.ui_utils import set_window_icon, showerror_relative, showinfo_relative
+from src.utils.ui_utils import create_dialog, dialog_label, showerror_relative, showinfo_relative, widget_alive
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +46,7 @@ class BackupRestoreTab:
         self.selected_backup_path: Optional[Path] = None
         self._busy = False
         self._progress = (0, 1)  # 后台线程写入 (current, total)，主线程定时读取
+        self._scan_count = 0  # 每次刷新列表加一，用来丢弃过时的扫描结果
 
         # 所有控件都放在自己的容器里，销毁时不影响父容器中的其他控件
         self.frame = tk.Frame(parent, bg=Colors.LIGHT_GRAY)
@@ -94,6 +95,7 @@ class BackupRestoreTab:
         """让 Text 的高度等于自动换行后的实际行数"""
         lines = self.hint_text.count("1.0", "end", "displaylines")
         if lines:
+            # Python 3.13 之前 count() 返回元组，之后返回 int
             self.hint_text.config(height=max(1, lines[0] if isinstance(lines, tuple) else lines))
 
     def _create_restore_section(self) -> None:
@@ -125,7 +127,7 @@ class BackupRestoreTab:
         self._update_tree_headings()
         scrollbar.config(command=self.backup_tree.yview)
         self.backup_tree.pack(side="left", fill="both", expand=True)
-        self.backup_tree.bind("<<TreeviewSelect>>", self.on_backup_select)
+        self.backup_tree.bind("<<TreeviewSelect>>", lambda e: self.on_backup_select())
 
         # 选中备份后才显示的操作按钮
         button_area = tk.Frame(restore_frame, bg=Colors.LIGHT_GRAY)
@@ -157,42 +159,27 @@ class BackupRestoreTab:
 
     def _ask_yesno(self, title: str, message: str) -> bool:
         """确认对话框（按钮文字使用当前语言）"""
-        popup = self._make_popup(title, "400x250")
-        tk.Label(
-            popup, text=message, wraplength=350, justify="left", font=get_cjk_font(10),
-            fg=Colors.TEXT_PRIMARY, bg=Colors.WHITE,
-        ).pack(pady=20, padx=20)
-        confirmed = self._add_dialog_buttons(popup)
-        self.root.wait_window(popup)
-        return confirmed()
+        dialog = create_dialog(self.root, title, "400x250")
+        dialog_label(dialog, message, wraplength=350, justify="left").pack(pady=20, padx=20)
+        return self._wait_for_yes(dialog)
 
-    def _make_popup(self, title: str, geometry: str) -> Toplevel:
-        popup = Toplevel(self.root)
-        popup.title(title)
-        popup.geometry(geometry)
-        popup.configure(bg=Colors.WHITE)
-        popup.transient(self.root)
-        popup.grab_set()
-        set_window_icon(popup)
-        return popup
+    def _wait_for_yes(self, dialog: tk.Toplevel) -> bool:
+        """在弹窗底部加「是/否」按钮（回车/Esc 同效），等弹窗关闭后返回是否点了「是」"""
+        answer = tk.BooleanVar(self.root, value=False)
 
-    def _add_dialog_buttons(self, popup: Toplevel, on_yes: Optional[Callable[[], None]] = None):
-        """添加 是/否 按钮（回车/Esc 同效），返回一个查询是否点了「是」的函数"""
-        result = {"yes": False}
+        def yes() -> None:
+            answer.set(True)
+            dialog.destroy()
 
-        def yes():
-            if on_yes:
-                on_yes()
-            result["yes"] = True
-            popup.destroy()
-
-        button_frame = tk.Frame(popup, bg=Colors.WHITE)
+        button_frame = tk.Frame(dialog, bg=Colors.WHITE)
         button_frame.pack(pady=10)
         ttk.Button(button_frame, text=self.t("yes_button"), command=yes).pack(side="left", padx=10)
-        ttk.Button(button_frame, text=self.t("no_button"), command=popup.destroy).pack(side="right", padx=10)
-        popup.bind("<Return>", lambda e: yes())
-        popup.bind("<Escape>", lambda e: popup.destroy())
-        return lambda: result["yes"]
+        ttk.Button(button_frame, text=self.t("no_button"), command=dialog.destroy).pack(side="right", padx=10)
+        dialog.bind("<Return>", lambda e: yes())
+        dialog.bind("<Escape>", lambda e: dialog.destroy())
+        self.root.wait_window(dialog)
+        # 等待期间主窗口可能被关掉了，这时变量已经不能读取
+        return widget_alive(self.root) and answer.get()
 
     def _show_error(self, key: str, error: Optional[BaseException] = None) -> None:
         message = self.t(key)
@@ -214,7 +201,10 @@ class BackupRestoreTab:
             self._show_error("backup_estimate_failed")
             return
         size_text = backups.format_size(estimated_size)
-        if not self._ask_yesno(self.t("backup_confirm_title"), self.t("backup_confirm_text", size=size_text)):
+        confirmed = self._ask_yesno(self.t("backup_confirm_title"), self.t("backup_confirm_text", size=size_text))
+        if not widget_alive(self.frame):
+            return  # 等待确认时主窗口被关闭或换了目录，本页已经销毁
+        if not confirmed:
             self._set_busy(False)
             return
 
@@ -233,7 +223,8 @@ class BackupRestoreTab:
         self._poll_progress()
 
     def _poll_progress(self) -> None:
-        if not self._busy:
+        # 备份期间换了目录时本页会被销毁，此时停止轮询（后台的打包仍会完成）
+        if not self._busy or not widget_alive(self.frame):
             return
         current, total = self._progress
         percent = int(current / total * 100)
@@ -263,20 +254,31 @@ class BackupRestoreTab:
     # ---------- 备份列表 ----------
 
     def refresh_backup_list(self) -> None:
+        """在后台扫描备份文件夹（要打开每个 zip 读时间戳），完成后更新列表"""
+        self._scan_count += 1
+        scan_id = self._scan_count
+        backup_dir = backups.get_backup_dir(self.storage_dir)
+
+        def done(found: Optional[List[backups.BackupInfo]], error: Optional[BaseException]) -> None:
+            if scan_id != self._scan_count:
+                return  # 之后又发起了新的扫描，这次的结果已经过时
+            self._show_backups(found or [])
+
+        run_in_background(self.frame, lambda: backups.scan_backups(backup_dir), done)
+
+    def _show_backups(self, found: List[backups.BackupInfo]) -> None:
         self.backup_tree.delete(*self.backup_tree.get_children())
-        for info in backups.scan_backups(backups.get_backup_dir(self.storage_dir)):
+        for info in found:
             timestamp = info.timestamp.strftime(backups.TIMESTAMP_FORMAT) if info.timestamp else ""
             status = "" if info.has_info else self.t("no_info_file")
             self.backup_tree.insert(
                 "", tk.END, values=(timestamp, info.zip_path.name, backups.format_size(info.file_size), status),
                 tags=(str(info.zip_path),),
             )
-        self._sync_selection()
+        self.on_backup_select()
 
-    def on_backup_select(self, event=None) -> None:
-        self._sync_selection()
-
-    def _sync_selection(self) -> None:
+    def on_backup_select(self) -> None:
+        """记下选中的备份，有选中时才显示还原/删除/重命名按钮"""
         selected = self.backup_tree.selection()
         tags = self.backup_tree.item(selected[0], "tags") if selected else ()
         self.selected_backup_path = Path(tags[0]) if tags else None
@@ -330,23 +332,19 @@ class BackupRestoreTab:
 
     def _ask_new_name(self, path: Path) -> Optional[str]:
         """弹出重命名输入框，取消时返回 None"""
-        popup = self._make_popup(self.t("rename_backup_title"), "450x250")
-        tk.Label(
-            popup, text=self.t("rename_backup_prompt", filename=path.name), wraplength=400, justify="left",
-            font=get_cjk_font(10), fg=Colors.TEXT_PRIMARY, bg=Colors.WHITE,
+        dialog = create_dialog(self.root, self.t("rename_backup_title"), "450x250")
+        dialog_label(
+            dialog, self.t("rename_backup_prompt", filename=path.name), wraplength=400, justify="left"
         ).pack(pady=10, padx=20)
-        entry_frame = tk.Frame(popup, bg=Colors.WHITE)
+        entry_frame = tk.Frame(dialog, bg=Colors.WHITE)
         entry_frame.pack(pady=10, padx=20, fill="x")
-        entry = Entry(entry_frame, width=40)
+        name = tk.StringVar(self.root, value=path.stem)
+        entry = Entry(entry_frame, width=40, textvariable=name)
         entry.pack(side="left", fill="x", expand=True)
-        entry.insert(0, path.stem)
         entry.select_range(0, tk.END)
+        entry.icursor(tk.END)
         entry.focus()
-
-        typed = {}
-        confirmed = self._add_dialog_buttons(popup, on_yes=lambda: typed.setdefault("name", entry.get()))
-        self.root.wait_window(popup)
-        return typed.get("name") if confirmed() else None
+        return name.get() if self._wait_for_yes(dialog) else None
 
     # ---------- 还原 ----------
 

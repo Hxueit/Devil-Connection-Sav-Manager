@@ -40,7 +40,7 @@ def detect_windows_theme() -> str:
 class MenuBar:
     """顶部菜单：目录 / Language / Help，颜色跟随 Windows 深浅色主题"""
 
-    MIN_SCALING = 1.25
+    MENU_FONT_SCALE = 1.25  # 菜单文字比 Tk 默认菜单字体再大一些
     MIN_FONT_SIZE = 11
 
     def __init__(
@@ -56,13 +56,6 @@ class MenuBar:
         self.root = root
         self.t = t
         self.theme = detect_windows_theme()
-
-        # 高 DPI 屏幕上 Tk 默认的缩放偏小
-        try:
-            if float(root.tk.call("tk", "scaling")) < self.MIN_SCALING:
-                root.tk.call("tk", "scaling", self.MIN_SCALING)
-        except (tk.TclError, ValueError) as e:
-            logger.debug(f"Error setting window scaling: {e}")
         self._apply_menu_options()
 
         self.menubar = Menu(root)
@@ -93,7 +86,7 @@ class MenuBar:
             base_size = tkfont.nametofont("TkMenuFont").cget("size")
         except tk.TclError:
             pass
-        size = max(self.MIN_FONT_SIZE, int(round(base_size * self.MIN_SCALING)))
+        size = max(self.MIN_FONT_SIZE, int(round(base_size * self.MENU_FONT_SCALE)))
         family = "Microsoft YaHei UI" if platform.system() == "Windows" else "Arial"
         colors = MENU_COLORS[self.theme]
         options = {
