@@ -1,14 +1,8 @@
-"""Tyrano存档分析模块常量定义"""
+"""Tyrano 存档相关常量"""
 
-from typing import Final
+TYRANO_SAV_FILENAME = "DevilConnection_tyrano_data.sav"
+TYRANO_QUICK_SAVE_FILENAME = "DevilConnection_tyrano_quick_save.sav"
 
-TYRANO_ROWS_PER_PAGE: Final[int] = 3
-TYRANO_COLS_PER_PAGE: Final[int] = 2
-TYRANO_SAVES_PER_PAGE: Final[int] = TYRANO_ROWS_PER_PAGE * TYRANO_COLS_PER_PAGE
-
-SAVE_SLOT_WIDTH: Final[int] = 300
-SAVE_SLOT_HEIGHT: Final[int] = 150
-
-TYRANO_SAV_FILENAME: Final[str] = "DevilConnection_tyrano_data.sav"
-TYRANO_QUICK_SAVE_FILENAME: Final[str] = "DevilConnection_tyrano_quick_save.sav"
-
+# 游戏的存档界面每页 6 个存档：左右两列，每列 3 个（先排满左列再排右列）
+TYRANO_ROWS_PER_PAGE = 3
+TYRANO_SAVES_PER_PAGE = TYRANO_ROWS_PER_PAGE * 2
