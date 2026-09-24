@@ -140,6 +140,7 @@ MIT License
 - 本ツールは個人用途として、ゲームの調査や差分確認のために作成したものです。自分の環境でのテストでは問題は見つかりませんでしたが、見落としがある可能性があります
 - 開発では AI の補助も利用しています。機能は特定ゲーム向けに作られており、一部は汎用化していますが、長期的な汎用メンテナンスを目的とした設計ではありません。そのため、コアロジックへの大規模な改造は推奨しません
 - ツール内の翻訳文を修正したい場合は、`/src/utils/translations.py` を直接編集してください。ツール内テキストはすべてこのファイルにあります
+- コードの構成は [ARCHITECTURE.md](ARCHITECTURE.md)（中国語）を参照してください
 
 
 </details>
@@ -277,6 +278,7 @@ MIT License
 - 本项目本质上是个人用来调试游戏/查差分制出的，经个人测试未发现使用问题，但难免会有疏漏，请多多包涵。
 - 本项目在开发过程中使用了 AI 辅助编写代码，功能实现主要针对该特定游戏。虽然部分功能有做通用化接口，但整体逻辑并非以长期通用维护为目标，因此不建议对核心逻辑代码进行大规模修改。
 - 如果想对程序内的翻译进行修改与纠正，请直接查看`/src/utils/translations.py`，工具内所有文本均在该文件中
+- 代码结构说明见 [ARCHITECTURE.md](ARCHITECTURE.md)
 
 </details>
 
@@ -414,5 +416,6 @@ MIT License
 - This project was mainly made for personal debugging and diff checking. It works fine in my own testing, but there may be oversights.
 - AI assistance was used during development. The implementation mainly targets this specific game. Some parts are generalized, but overall it is not designed for long-term general maintenance, thus large-scale commits to the core logic are not recommended.
 - If you want to modify or correct translations in the app, check `/src/utils/translations.py`, all UI text is in that file.
+- See [ARCHITECTURE.md](ARCHITECTURE.md) (in Chinese) for an overview of the code structure.
 
 </details>
