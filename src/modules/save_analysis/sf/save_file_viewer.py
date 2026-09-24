@@ -451,10 +451,7 @@ class SaveFileViewer:
                 self.t("unsaved_changes_warning")
             )
         
-        def check_unsaved_changes(force_check: bool = False) -> bool:
-            should_check = force_check or enable_edit_var.get()
-            if not should_check:
-                return True
+        def check_unsaved_changes() -> bool:
             if not _has_unsaved_changes():
                 return True
             return _confirm_discard_changes()
@@ -478,10 +475,12 @@ class SaveFileViewer:
         
         def toggle_edit_mode() -> None:
             nonlocal original_content
-            is_enabling_edit = not enable_edit_var.get()
+            # Checkbutton 的 command 在变量已经切换之后才调用，此时 False 表示正在关闭编辑。
+            # 不能用 _has_unsaved_changes()：它在编辑关闭时总是返回 False。
+            is_disabling_edit = not enable_edit_var.get()
             
-            if is_enabling_edit:
-                if not check_unsaved_changes(force_check=True):
+            if is_disabling_edit and _get_current_text_content() != original_content:
+                if not _confirm_discard_changes():
                     enable_edit_var.set(True)
                     return
             
@@ -579,14 +578,6 @@ class SaveFileViewer:
                 self._save_to_runtime(edited_data, content, enable_edit_var, text_widget, update_display, _get_current_text_content)
             else:
                 self._save_to_file(edited_data, content, enable_edit_var, text_widget, update_display, _get_current_text_content)
-            
-            def update_original_content_ref():
-                nonlocal original_content
-                if hasattr(self, '_original_content_wrapper') and self._original_content_wrapper:
-                    original_content = self._original_content_wrapper[0]
-            
-            if self.mode == "runtime":
-                self.viewer_window.after(100, update_original_content_ref)
         
         save_button_text_key = self.viewer_config.save_button_text
         initial_button_state = ("normal" if self.viewer_config.enable_edit_by_default else "disabled")
@@ -795,27 +786,25 @@ class SaveFileViewer:
         update_display: Callable,
         get_current_text_content: Callable[[], str]
     ) -> None:
-        """保存到运行时内存（使用 RuntimeInjectorService）"""
-        original_content_wrapper = [content]
-        self._original_content_wrapper = original_content_wrapper
+        """保存到运行时内存（使用 RuntimeInjectorService）
         
+        成功后由 update_display() 重新渲染并同步"未保存修改"的基准内容；
+        取消或失败时保持用户的编辑内容和基准不变。
+        """
         def on_success(saved_data: Dict[str, Any]) -> None:
             """保存成功回调"""
             self.save_data = saved_data
             self.original_save_data = JSONFormatter._deep_copy_data(saved_data)
             self._data_was_saved = True
-            original_content_wrapper[0] = get_current_text_content()
             
             # 如果是运行时模式，刷新数据
             if self.mode == "runtime" and self.runtime_injector.is_available():
                 def on_refresh_complete(refreshed_data: Optional[Dict[str, Any]], error: Optional[str]) -> None:
                     if error:
                         logger.warning(f"Failed to refresh after inject: {error}")
-                        return
-                    if refreshed_data:
+                    elif refreshed_data:
                         self.save_data = refreshed_data
                         self.original_save_data = JSONFormatter._deep_copy_data(refreshed_data)
-                        original_content_wrapper[0] = get_current_text_content()
                     update_display()
                     text_widget.config(state="normal" if enable_edit_var.get() else "disabled")
                 
