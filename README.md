@@ -89,8 +89,7 @@ python main.py
 
 2. ゲームディレクトリを選択
 
-- 「参照」ボタンをクリック
-- 手動選択、または自動検出でゲームの `_storage` フォルダを指定します
+- 左上のメニュー「ディレクトリ選択」から「参照」または「自動検出（Steam）」を選び、ゲームの `_storage` フォルダを指定します
   例：`C:\Program Files (x86)\Steam\steamapps\common\でびるコネクショん\_storage`
 
 3. `_storage` 配下のファイルを自動取得して解析し、各機能が使用できるようになります
@@ -119,14 +118,10 @@ python main.py
 
 - 選択した画像は ZIP にまとめて一括エクスポートされます
 
-### Q：このツールは何の役に立つの？
-
-- A：大きな実用性はそこまでありません。個人的にはステッカーの埋め作業で抜けをすぐ確認できる点や、セーブ数値を弄りながら様々な差分を探りたい場合に重宝すると思います。
-
 ## 注意事項
 
 - セーブデータを変更する前に、必ず `_storage` フォルダ全体のバックアップを取ることを強く推奨します（ツール内にバックアップ機能があります）
-- 本ツールは Windows および Linux（EndeavourOS, Linux 6.12.73-1-lts）で動作確認しています。
+- 本ツールは Windows および Linux で動作確認しています。
   - Linuxでは基本機能は動作しますが、「実行時変更」は現在 Steam版のみ対応しています。
   - macOSは未検証です。
 - 本ツールは《でびるコネクショん》公式および開発者とは一切関係ありません。完全に有志による非公式ツールです。ゲーム本体のファイルは変更せず、ローカルに保存されているスクリーンショット保存ファイルおよびセーブデータのみを操作します。もし開発者様にとって不都合がございましたら、GitHub Issues にてご連絡ください。直ちに公開停止など対応いたします。
@@ -138,7 +133,7 @@ MIT License
 ## 貢献
 
 - 本ツールは個人用途として、ゲームの調査や差分確認のために作成したものです。自分の環境でのテストでは問題は見つかりませんでしたが、見落としがある可能性があります
-- 開発では AI の補助も利用しています。機能は特定ゲーム向けに作られており、一部は汎用化していますが、長期的な汎用メンテナンスを目的とした設計ではありません。そのため、コアロジックへの大規模な改造は推奨しません
+- 開発では AI の補助も利用しています。機能は特定ゲーム向けに作られています
 - ツール内の翻訳文を修正したい場合は、`/src/utils/translations.py` を直接編集してください。ツール内テキストはすべてこのファイルにあります
 - コードの構成は [ARCHITECTURE.md](ARCHITECTURE.md)（中国語）を参照してください
 
@@ -229,8 +224,7 @@ pip install -r requirements.txt
     ```
 
 2. 选择游戏目录：
-   - 点击"浏览目录"按钮
-   - 手动选择或者自动检测游戏的 `_storage` 目录（例如：`C:\Program Files (x86)\Steam\steamapps\common\でびるコネクショん\_storage`）
+   - 在左上角菜单「目录选择」中选择「浏览目录」或「自动检测(Steam)」，指定游戏的 `_storage` 目录（例如：`C:\Program Files (x86)\Steam\steamapps\common\でびるコネクショん\_storage`）
 
 3. 程序会自动获取所有该目录下的文件并解析他们，使用功能。
 
@@ -257,15 +251,11 @@ pip install -r requirements.txt
 
 - 批量导出会将所有选中的图片打包成一个 ZIP 文件。
 
-### Q：这个项目有什么用？
-
-- A：没什么很大的实际用途。我个人认为最实用的大概就是快速的查漏补缺贴纸，以及如果想要通过改存档数值来探寻不同差分大概会比较趁手，可以玩玩。
-
 ## 注意事项
 
 - 修改存档文件前，强烈建议先**备份**你的存档文件夹（工具内提供此功能）。
-- 当前版本仅在 Windows 和 Linux（EndeavourOS, Linux 6.12.73-1-lts）测试过。
-  - Linux 下大部分功能应当可用，“运行时修改”目前仅支持 Steam 版本。
+- 当前版本仅在 Windows 和 Linux 测试过。
+  - Linux 下大部分功能可用，“运行时修改”目前仅支持 Steam 版本。
   - macOS 尚未测试。
 - 本工具与游戏《でびるコネクショん》官方及开发者完全无关，仅为玩家自制工具。工具不涉及修改游戏核心文件，仅操作本地存储的截图保存文件以及存档文件。
 
@@ -276,7 +266,7 @@ MIT License
 ## 贡献
 
 - 本项目本质上是个人用来调试游戏/查差分制出的，经个人测试未发现使用问题，但难免会有疏漏，请多多包涵。
-- 本项目在开发过程中使用了 AI 辅助编写代码，功能实现主要针对该特定游戏。虽然部分功能有做通用化接口，但整体逻辑并非以长期通用维护为目标，因此不建议对核心逻辑代码进行大规模修改。
+- 本项目在开发过程中使用了 AI 辅助编写代码，功能实现主要针对该特定游戏。
 - 如果想对程序内的翻译进行修改与纠正，请直接查看`/src/utils/translations.py`，工具内所有文本均在该文件中
 - 代码结构说明见 [ARCHITECTURE.md](ARCHITECTURE.md)
 
@@ -359,18 +349,17 @@ pip install -r requirements.txt
 
 ## How to Use
 
-1.Launch the program:
+1. Launch the program:
 
 ```bash
 python main.py
 ```
 
-2.Select the game folder:
+2. Select the game folder:
 
-  - Click the “Browse Directory” button
-  - Choose or autodetect the game’s `_storage` folder (example: `C:\Program Files (x86)\Steam\steamapps\common\でびるコネクショん\_storage`)
+  - In the “Directory” menu at the top left, choose “Browse Directory” or “Auto Detect (Steam)” to pick the game’s `_storage` folder (example: `C:\Program Files (x86)\Steam\steamapps\common\でびるコネクショん\_storage`)
 
-3.The tool will automatically load and parse files under that directory, then you can use the features.
+3. The tool will automatically load and parse files under that directory, then you can use the features.
 
 ## Additional Notes
 
@@ -395,15 +384,11 @@ python main.py
 
 - Batch export packs all selected images into a single ZIP file.
 
-### Q: What is this tool actually useful for?
-
-- A: It does not have huge practical value. The most useful part IMO is probably checking missing stickers, and if you want to tweak save values to explore different dialog variations it may come in handy. Feel free to try it out.
-
 ## Important Notes
 
 - Before modifying save files, it is strongly recommended to **backup** your save folder (the tool provides this feature).
-- This tool has only been tested on Windows and Linux (EndeavourOS, Linux 6.12.73-1-lts).
-  - On Linux, most features should work fine. Runtime modification currently only works with the Steam version.
+- This tool has only been tested on Windows and Linux.
+  - On Linux, most features work. Runtime modification currently only works with the Steam version.
   - macOS has not been tested.
 - This tool is completely unofficial and has no affiliation with the developers of でびるコネクショん. It does not modify core game files, it only operates on locally stored screenshot save files and save files. If the developers have any issues with it, please let me know via GitHub Issues, and I will handle it immediately.
 
@@ -414,7 +399,7 @@ MIT License
 ## Contributions
 
 - This project was mainly made for personal debugging and diff checking. It works fine in my own testing, but there may be oversights.
-- AI assistance was used during development. The implementation mainly targets this specific game. Some parts are generalized, but overall it is not designed for long-term general maintenance, thus large-scale commits to the core logic are not recommended.
+- AI assistance was used during development. The implementation mainly targets this specific game.
 - If you want to modify or correct translations in the app, check `/src/utils/translations.py`, all UI text is in that file.
 - See [ARCHITECTURE.md](ARCHITECTURE.md) (in Chinese) for an overview of the code structure.
 
