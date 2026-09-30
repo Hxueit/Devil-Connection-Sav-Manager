@@ -1,7 +1,7 @@
 """缓存清理窗口：选择清理项后在游戏页面里执行对应的清理脚本"""
 import tkinter as tk
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import customtkinter as ctk
@@ -22,29 +22,15 @@ from src.utils.styles import Colors, get_cjk_font, white_button
 
 
 @dataclass
-class CleanupJob:
-    """一个要执行的清理项"""
-    name: str
-    script: str
-    requires_photo_closed: bool = False
-
-
-@dataclass
 class CleanupItemResult:
     """一个清理项的结果；count 为 None 表示失败
 
-    script_failed 为 True 表示脚本本身出错或返回值不对（除了逐项显示，还会列在「警告」里）。
+    script_failed 为 True 表示脚本没能执行完（除了逐项显示，还会列在「警告」里）。
     """
     name: str
     count: int | None
     error: str | None = None
     script_failed: bool = False
-
-
-@dataclass
-class CleanupResult:
-    items: list[CleanupItemResult] = field(default_factory=list)
-    skipped: list[str] = field(default_factory=list)    # 因照片界面打开而跳过的项
 
 
 class CannotCleanNowError(Exception):
@@ -55,43 +41,37 @@ class CannotCleanNowError(Exception):
         self.reason = reason
 
 
-def run_cleanup(ws_url: str, jobs: list[CleanupJob]) -> CleanupResult:
-    """依次执行清理脚本（在后台线程调用）
+def run_cleanup(ws_url: str, jobs: list[tuple[str, str, bool]]) -> tuple[list[CleanupItemResult], list[str]]:
+    """依次执行清理项 (名称, 脚本, 是否要求照片界面关闭)，返回 (各项结果, 因照片界面打开而跳过的项)
 
-    Raises:
-        CdpError: 无法检查游戏状态
-        CannotCleanNowError: 游戏现在不能清理
+    在后台线程调用。游戏现在不能清理时抛出 CannotCleanNowError，无法检查状态时抛出 CdpError。
     """
     state = evaluate(ws_url, JS_CHECK_STATE)
-    if not isinstance(state, dict) or not state.get("canClean"):
-        raise CannotCleanNowError(state.get("reason") if isinstance(state, dict) else None)
+    if not state["canClean"]:
+        raise CannotCleanNowError(state.get("reason"))
 
     photo_open = False
-    if any(job.requires_photo_closed for job in jobs):
+    if any(requires_photo_closed for _name, _script, requires_photo_closed in jobs):
         try:
-            photo = evaluate(ws_url, JS_CHECK_PHOTO_OPEN)
-            photo_open = isinstance(photo, dict) and bool(photo.get("isOpen"))
+            photo_open = evaluate(ws_url, JS_CHECK_PHOTO_OPEN)["isOpen"]
         except CdpError:
-            pass
+            pass   # 检查不了就当作没打开
 
-    result = CleanupResult()
-    for job in jobs:
-        if job.requires_photo_closed and photo_open:
-            result.skipped.append(job.name)
+    items, skipped = [], []
+    for name, script, requires_photo_closed in jobs:
+        if requires_photo_closed and photo_open:
+            skipped.append(name)
             continue
         try:
-            outcome = evaluate(ws_url, job.script)
+            outcome = evaluate(ws_url, script)
         except CdpError as e:
-            result.items.append(CleanupItemResult(job.name, None, str(e), script_failed=True))
+            items.append(CleanupItemResult(name, None, str(e), script_failed=True))
             continue
-        if not isinstance(outcome, dict):
-            # 返回值不是预期的 {success, count}，由界面显示翻译后的提示
-            result.items.append(CleanupItemResult(job.name, None, script_failed=True))
-        elif outcome.get("success"):
-            result.items.append(CleanupItemResult(job.name, int(outcome.get("count") or 0)))
+        if outcome["success"]:
+            items.append(CleanupItemResult(name, outcome["count"]))
         else:
-            result.items.append(CleanupItemResult(job.name, None, outcome.get("error")))
-    return result
+            items.append(CleanupItemResult(name, None, outcome["error"]))
+    return items, skipped
 
 
 class CacheCleanDialog(RuntimeDialog):
@@ -241,11 +221,9 @@ class CacheCleanDialog(RuntimeDialog):
             checkbox.destroy()
         self._dynamic_items.clear()
 
-        for item in found if isinstance(found, list) else []:
+        for item in found:
+            name = item["name"]
             script = generate_cleanup_script(item)
-            if not script:
-                continue
-            name = item.get("name") or self.t("cache_clean_unknown_item")
             var = tk.BooleanVar(value=False)
             checkbox = self._checkbox(self.dangerous_frame, name, var)
             checkbox.pack(anchor="w", padx=(20, 0), pady=(0, 3))
@@ -256,21 +234,17 @@ class CacheCleanDialog(RuntimeDialog):
 
     # ------------------------------------------------------------ 执行
 
-    def _selected_jobs(self) -> list[CleanupJob]:
-        jobs = []
-        for key, var in self._item_vars.items():
-            if var.get():
-                script = SAFE_CLEANUP_SCRIPTS.get(key) or RISKY_CLEANUP_SCRIPTS[key]
-                jobs.append(CleanupJob(self.t(f"cache_clean_item_{key}"), script, key in REQUIRES_PHOTO_CLOSED))
-        for name, script, var, _checkbox in self._dynamic_items:
-            if var.get():
-                jobs.append(CleanupJob(name, script))
-        return jobs
-
     def _on_execute_clicked(self) -> None:
         if self._is_executing:
             return
-        jobs = self._selected_jobs()
+        jobs = []   # (名称, 脚本, 是否要求照片界面关闭)
+        for key, var in self._item_vars.items():
+            if var.get():
+                script = SAFE_CLEANUP_SCRIPTS.get(key) or RISKY_CLEANUP_SCRIPTS[key]
+                jobs.append((self.t(f"cache_clean_item_{key}"), script, key in REQUIRES_PHOTO_CLOSED))
+        for name, script, var, _checkbox in self._dynamic_items:
+            if var.get():
+                jobs.append((name, script, False))
         if not jobs:
             self._show_status_key("cache_clean_no_item_selected")
             return
@@ -284,12 +258,14 @@ class CacheCleanDialog(RuntimeDialog):
         self._show_status_key("cache_clean_checking_state")
         run_in_background(self.window, lambda: run_cleanup(ws_url, jobs), self._on_cleanup_done)
 
-    def _on_cleanup_done(self, result: CleanupResult | None, error: BaseException | None) -> None:
+    def _on_cleanup_done(self, result: tuple[list[CleanupItemResult], list[str]] | None,
+                         error: BaseException | None) -> None:
         self._is_executing = False
         self.execute_button.configure(state="normal", text=self.t("cache_clean_execute"))
         self._show_status(self._format_result(result, error))
 
-    def _format_result(self, result: CleanupResult | None, error: BaseException | None) -> str:
+    def _format_result(self, result: tuple[list[CleanupItemResult], list[str]] | None,
+                       error: BaseException | None) -> str:
         error_prefix = self.t("cache_clean_error")
         if isinstance(error, CannotCleanNowError):
             reason = error.reason or self.t("cache_clean_unknown_reason")
@@ -299,20 +275,19 @@ class CacheCleanDialog(RuntimeDialog):
         if error is not None:
             return f"{error_prefix}: {error}"
 
-        unexpected = self.t("cache_clean_error_unexpected_result")
-        total = sum(item.count for item in result.items if item.count)
+        items, skipped = result
+        total = sum(item.count for item in items if item.count)
         lines = [self.t("cache_clean_completed"), ""]
         if total > 0:
             lines += [self.t("cache_clean_total_cleaned", count=total), ""]
-        for item in result.items:
+        for item in items:
             if item.count is not None:
                 lines.append(f"  {item.name}: {item.count}")
             else:
-                fallback = unexpected if item.script_failed else self.t("cache_clean_error_unknown_error")
-                lines.append(f"  {item.name}: {error_prefix} - {item.error or fallback}")
+                lines.append(f"  {item.name}: {error_prefix} - {item.error}")
 
-        warnings = [self.t("cache_clean_error_photo_open", item=name) for name in result.skipped]
-        warnings += [f"{item.name}: {item.error or unexpected}" for item in result.items if item.script_failed]
+        warnings = [self.t("cache_clean_error_photo_open", item=name) for name in skipped]
+        warnings += [f"{item.name}: {item.error}" for item in items if item.script_failed]
         if warnings:
             lines += ["", self.t("cache_clean_warnings")]
             lines += [f"  - {warning}" for warning in warnings]

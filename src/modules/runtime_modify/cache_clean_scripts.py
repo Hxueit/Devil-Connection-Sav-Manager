@@ -358,8 +358,8 @@ JS_SCAN_DANGEROUS_ITEMS = """(function() {
 
 
 def generate_cleanup_script(item: dict[str, Any]) -> str:
-    """为扫描结果中的一项生成清理脚本；无法处理时返回空字符串"""
-    item_type = item.get("type")
+    """为 JS_SCAN_DANGEROUS_ITEMS 找到的一项生成清理脚本"""
+    item_type = item["type"]
     # 用 json.dumps 把 Python 值变成 JS 字面量，自动处理引号转义
     if item_type == "selector":
         return """(function() {
@@ -371,12 +371,9 @@ def generate_cleanup_script(item: dict[str, Any]) -> str:
     } catch (e) {
         return { success: false, error: e.toString() };
     }
-})()""" % json.dumps(item.get("selector", ""))
+})()""" % json.dumps(item["selector"])
 
     if item_type == "property":
-        path = item.get("path", "")
-        if "." not in path:
-            return ""
         # 对象清空为 {}，其它值置为 null
         return """(function() {
     try {
@@ -398,7 +395,7 @@ def generate_cleanup_script(item: dict[str, Any]) -> str:
     } catch (e) {
         return { success: false, error: e.toString() };
     }
-})()""" % json.dumps(path)
+})()""" % json.dumps(item["path"])
 
     if item_type == "function":
         # 调用函数拿到元素：能清空内容就清空，否则移除
@@ -421,10 +418,10 @@ def generate_cleanup_script(item: dict[str, Any]) -> str:
     } catch (e) {
         return { success: false, error: e.toString() };
     }
-})()""" % (json.dumps(item.get("func", "")), json.dumps(item.get("args", [])))
+})()""" % (json.dumps(item["func"]), json.dumps(item["args"]))
 
-    if item_type == "jquery":
-        return """(function() {
+    # item_type == "jquery"
+    return """(function() {
     try {
         if (typeof $ === 'undefined') {
             return { success: false, error: 'jQuery not available' };
@@ -436,6 +433,4 @@ def generate_cleanup_script(item: dict[str, Any]) -> str:
     } catch (e) {
         return { success: false, error: e.toString() };
     }
-})()""" % json.dumps(item.get("selector", ""))
-
-    return ""
+})()""" % json.dumps(item["selector"])

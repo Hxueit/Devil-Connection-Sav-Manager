@@ -29,27 +29,14 @@ SHORTCUT_COMMANDS = [
 ]
 
 
-def _load_quick_save_slot(storage_dir: str | None) -> dict[str, Any] | None:
-    """读取快速存档，返回其中的存档槽数据；没有或无法读取时返回 None"""
-    if not storage_dir:
-        return None
+def describe_quick_save(storage_dir: str, t: Callable[..., str]) -> str:
+    """把快速存档（本身就是一个存档槽）概括成一行：第几天 · ●●○ · 保存时间 · 副标题"""
     try:
-        save = read_sav(Path(storage_dir) / TYRANO_QUICK_SAVE_FILENAME)
-    except (OSError, ValueError):
-        return None
-    if not isinstance(save, dict):
-        return None
-    slots = save.get("data")
-    if isinstance(slots, list) and slots and isinstance(slots[0], dict):
-        return slots[0]
-    if "stat" in save or "save_date" in save:
-        return save
-    return None
-
-
-def describe_quick_save(slot: dict[str, Any] | None, t: Callable[..., str]) -> str:
-    """把快速存档槽概括成一行：第几天 · ●●○ · 保存时间 · 副标题"""
-    return describe_slot(slot, t) or t("runtime_modify_console_no_quick_save")
+        slot = read_sav(Path(storage_dir) / TYRANO_QUICK_SAVE_FILENAME)
+    except (OSError, ValueError):   # 还没有快速存档，或文件损坏
+        slot = None
+    text = describe_slot(slot, t) if isinstance(slot, dict) else ""
+    return text or t("runtime_modify_console_no_quick_save")
 
 
 def format_result(result: Any) -> str:
@@ -71,13 +58,11 @@ class DevToolsConsoleWindow(RuntimeDialog):
         parent: tk.Misc,
         t: Callable[..., str],
         get_ws_url: Callable[[], str | None],
-        storage_dir: str | None,
-        on_close: Callable[[], None],
+        storage_dir: str,
     ) -> None:
         super().__init__(parent, t, "runtime_modify_console_title", "800x600", (600, 400))
         self.get_ws_url = get_ws_url
         self.storage_dir = storage_dir
-        self.on_close = on_close
 
         self._history: list[str] = []
         self._history_index = -1        # -1 表示没有在翻历史
@@ -86,7 +71,6 @@ class DevToolsConsoleWindow(RuntimeDialog):
         self._shortcut_popup: ctk.CTkToplevel | None = None
 
         self._build_ui()
-        self.window.protocol("WM_DELETE_WINDOW", self._on_window_close)
 
     def _build_ui(self) -> None:
         container = ctk.CTkFrame(self.window, fg_color=Colors.WHITE)
@@ -160,13 +144,12 @@ class DevToolsConsoleWindow(RuntimeDialog):
         return None
 
     def _focus_input(self) -> None:
-        try:
-            self.window.focus_force()
-            self._tk_input.focus_force()
-            self._tk_input.mark_set(tk.INSERT, "end-1c")
-            self._tk_input.see(tk.INSERT)
-        except tk.TclError:
-            pass
+        if not self.is_open():   # 也会在延时回调里调用
+            return
+        self.window.focus_force()
+        self._tk_input.focus_force()
+        self._tk_input.mark_set(tk.INSERT, "end-1c")
+        self._tk_input.see(tk.INSERT)
 
     def _get_input(self) -> str:
         return self.input_entry.get("1.0", "end-1c")
@@ -262,11 +245,6 @@ class DevToolsConsoleWindow(RuntimeDialog):
         self.output_textbox.configure(state="disabled")
         self.output_textbox.see("end")
 
-    def _on_window_close(self) -> None:
-        self._destroy_shortcut_popup()
-        self.on_close()
-        self.window.destroy()
-
     def set_enabled(self, enabled: bool) -> None:
         """游戏未连接时禁用输入并显示提示"""
         state = "normal" if enabled else "disabled"
@@ -295,12 +273,9 @@ class DevToolsConsoleWindow(RuntimeDialog):
             self._create_shortcut_popup()
 
     def _destroy_shortcut_popup(self) -> None:
-        popup, self._shortcut_popup = self._shortcut_popup, None
-        if popup is not None:
-            try:
-                popup.destroy()
-            except tk.TclError:
-                pass
+        if self._shortcut_popup is not None:
+            self._shortcut_popup.destroy()   # 已被销毁的窗口再 destroy 也不会出错
+            self._shortcut_popup = None
 
     def _create_shortcut_popup(self) -> None:
         popup = ctk.CTkToplevel(self.window)
@@ -331,9 +306,8 @@ class DevToolsConsoleWindow(RuntimeDialog):
 
             if key == "runtime_modify_console_cmd_set_quick_save":
                 # 在「快速存档」下面显示当前快速存档的内容，方便判断是否要覆盖
-                info = describe_quick_save(_load_quick_save_slot(self.storage_dir), self.t)
                 ctk.CTkLabel(
-                    panel, text=info, anchor="w", justify="left",
+                    panel, text=describe_quick_save(self.storage_dir, self.t), anchor="w", justify="left",
                     font=get_cjk_font(9), text_color=Colors.TEXT_SECONDARY,
                 ).pack(fill="x", padx=12, pady=(4, 2))
                 ctk.CTkFrame(panel, fg_color=Colors.GRAY, height=1, corner_radius=0).pack(fill="x", padx=8, pady=(2, 0))

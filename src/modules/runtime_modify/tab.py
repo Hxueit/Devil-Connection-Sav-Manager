@@ -85,7 +85,7 @@ class RuntimeModifyTab:
         self,
         parent: ctk.CTkFrame,
         root: ctk.CTk,
-        storage_dir: str | None,
+        storage_dir: str,
         t: Callable[..., str],
     ) -> None:
         self.parent = parent
@@ -323,10 +323,7 @@ class RuntimeModifyTab:
 
     def _parse_port(self) -> tuple[int | None, str | None]:
         """读取端口输入，返回 (端口, 错误提示)"""
-        try:
-            text = self.port_entry.get().strip()
-        except tk.TclError:
-            return None, self.t("runtime_modify_port_required")
+        text = self.port_entry.get().strip()
         if not text:
             return None, self.t("runtime_modify_port_required")
         try:
@@ -408,12 +405,8 @@ class RuntimeModifyTab:
     def _format_launch_details(self, info: dict[str, Any]) -> str:
         """启动详情（启动方式、页面标题、地址、TYRANO 类型）；没有时返回空字符串"""
         lines = []
-        mode = info.get("launch_mode")
-        if mode:
-            mode_text = {
-                "steam": self.t("runtime_modify_launch_mode_steam"),
-                "direct": self.t("runtime_modify_launch_mode_direct"),
-            }.get(mode, mode)
+        if "launch_mode" in info:   # "steam" 或 "direct"
+            mode_text = self.t(f"runtime_modify_launch_mode_{info['launch_mode']}")
             lines.append(f"{self.t('runtime_modify_status_detail_launch_mode')}: {mode_text}")
         if "target_title" in info:
             lines.append(f"{self.t('runtime_modify_status_detail_title')}: {info['target_title']}")
@@ -429,13 +422,13 @@ class RuntimeModifyTab:
         self.stop_button.configure(state="disabled")
         run_in_background(self.parent, lambda: self.service.stop_game(port), self._on_stop_done)
 
-    def _on_stop_done(self, _result: None, exc: BaseException | None) -> None:
+    def _on_stop_done(self, _result: None, error: BaseException | None) -> None:
         if self._closed:
             return
-        if exc is not None:
+        if error is not None:
             self._update_status_widgets()
             showerror_relative(
-                self.root, self.t("error"), self.t("runtime_modify_error_stop_game_failed", error=str(exc)))
+                self.root, self.t("error"), self.t("runtime_modify_error_stop_game_failed", error=str(error)))
             return
         set_textbox_text(self.status_text, self.t("runtime_modify_game_stopped"))
         self._status_generation += 1
@@ -513,12 +506,8 @@ class RuntimeModifyTab:
         if self.console_window is not None and self.console_window.is_open():
             self.console_window.show()
             return
-        self.console_window = DevToolsConsoleWindow(
-            self.root, self.t, lambda: self._ws_url, self.storage_dir, on_close=self._on_console_closed)
+        self.console_window = DevToolsConsoleWindow(self.root, self.t, lambda: self._ws_url, self.storage_dir)
         self.console_window.set_enabled(self._hook_enabled)
-
-    def _on_console_closed(self) -> None:
-        self.console_window = None
 
     def _open_misc_dialog(self) -> None:
         if self.misc_dialog is not None and self.misc_dialog.is_open():
@@ -542,13 +531,13 @@ class RuntimeModifyTab:
             try:
                 # keyboard 在它自己的线程里调用回调，那里不能碰 Tk：只做标记，由 _check_hotkey 在主线程处理
                 self._hotkey_handle = keyboard.add_hotkey("alt+s", self._hotkey_pressed.set)
-                self._check_hotkey()
-                logger.info("Global hotkey Alt+S registered")
-                return
-            except Exception as e:
+            except Exception as e:   # 例如 Linux 上需要 root 权限
                 logger.warning(f"Failed to register global hotkey: {e}, falling back to window-level hotkey")
-        self.root.bind("<Alt-s>", self._on_window_hotkey)
-        self.root.bind("<Alt-S>", self._on_window_hotkey)
+        if self._hotkey_handle is not None:
+            self._check_hotkey()
+        else:
+            self.root.bind("<Alt-s>", self._on_window_hotkey)
+            self.root.bind("<Alt-S>", self._on_window_hotkey)
 
     def _check_hotkey(self) -> None:
         if self._closed:
@@ -566,10 +555,7 @@ class RuntimeModifyTab:
 
     def _unregister_hotkey(self) -> None:
         if self._hotkey_handle is not None:
-            try:
-                keyboard.remove_hotkey(self._hotkey_handle)
-            except (KeyError, ValueError) as e:
-                logger.debug(f"Error unregistering hotkey: {e}")
+            keyboard.remove_hotkey(self._hotkey_handle)
             self._hotkey_handle = None
         else:
             self.root.unbind("<Alt-s>")
@@ -586,7 +572,6 @@ class RuntimeModifyTab:
     def _on_fast_forward_done(self, _result: None, error: BaseException | None) -> None:
         if error is None:
             return
-        logger.error(f"Failed to mark as read: {error}")
         if isinstance(error, MarkReadRefusedError) and error.code in MARK_READ_REFUSED_MESSAGES:
             message = self.t(MARK_READ_REFUSED_MESSAGES[error.code])
         else:
@@ -600,21 +585,14 @@ class RuntimeModifyTab:
         self._closed = True
         for job in (self._poll_job, self._hotkey_job):
             if job is not None:
-                try:
-                    self.parent.after_cancel(job)
-                except tk.TclError:
-                    pass
+                self.parent.after_cancel(job)
         self._unregister_hotkey()
 
         for dialog in self._open_dialogs():
             dialog.close()
 
         if stop_game and self.service.game_process is not None:
-            try:
-                self.service.stop_game(self._parse_port()[0])
-                logger.info("Game process stopped during cleanup")
-            except OSError as e:
-                logger.debug(f"Error stopping game during cleanup: {e}")
+            self.service.stop_game(self._parse_port()[0])
 
     def update_language(self) -> None:
         """切换语言：重建本页界面（保留端口输入），并刷新已打开弹窗的文字"""

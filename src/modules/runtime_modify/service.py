@@ -47,8 +47,6 @@ _WS_CONNECT_OPTIONS: dict[str, Any] = (
     {"proxy": None} if "proxy" in inspect.signature(connect).parameters else {}
 )
 
-_INJECTED_TITLE_SUFFIX = " - DCSM Injected"
-
 # 游戏里保存变量的 JS 对象
 SF_JS_PATH = "TYRANO.kag.variable.sf"       # 系统变量（对应 DevilConnection_sf.sav）
 KAG_STAT_JS_PATH = "TYRANO.kag.stat"        # 当前游戏状态（不会自动保存）
@@ -120,15 +118,12 @@ def check_port_available(port: int) -> bool:
             sock.settimeout(0.1)
             # connect_ex 返回 0 表示连上了，即端口已被占用
             return sock.connect_ex(("127.0.0.1", port)) != 0
-    except OSError as e:
-        logger.debug(f"Port check error: {e}")
+    except OSError:
         return False
 
 
-def get_game_exe_path(storage_dir: str | None) -> Path | None:
+def get_game_exe_path(storage_dir: str) -> Path | None:
     """游戏 exe 位于 _storage 目录的上一级；找不到时返回 None"""
-    if not storage_dir:
-        return None
     exe_path = Path(storage_dir).parent / GAME_EXE_NAME
     return exe_path if exe_path.is_file() else None
 
@@ -162,16 +157,12 @@ def fetch_target(port: int, timeout: float = 5.0) -> dict[str, Any] | None:
     try:
         with _http_opener.open(f"http://127.0.0.1:{port}/json/list", timeout=timeout) as response:
             targets = json.load(response)
-    except (OSError, ValueError) as e:
-        logger.debug(f"CDP list request failed on port {port}: {e}")
+    except (OSError, ValueError):
         return None
-
+    # 端口上也可能是别的程序，回复不一定是 CDP 的页面列表
     if not isinstance(targets, list):
         return None
-    pages = [
-        t for t in targets
-        if isinstance(t, dict) and t.get("type") in ("page", "webview") and t.get("webSocketDebuggerUrl")
-    ]
+    pages = [t for t in targets if t.get("type") in ("page", "webview") and t.get("webSocketDebuggerUrl")]
     return max(pages, key=_target_score, default=None)
 
 
@@ -181,10 +172,9 @@ def fetch_ws_url(port: int, timeout: float = 5.0) -> str | None:
 
 
 def evaluate(ws_url: str, expression: str, timeout: float = EVAL_TIMEOUT) -> Any:
-    """在游戏页面执行 JS 表达式并返回结果（按值返回：对象会变成 dict/list，undefined 变成 None）
+    """在游戏页面执行 JS 表达式并按值返回结果（对象变成 dict/list，undefined 变成 None）
 
-    Raises:
-        CdpError: 连接失败、超时，或 JS 抛出了异常（消息即 JS 的错误描述）
+    连接失败、超时或 JS 抛出异常时抛出 CdpError（消息即 JS 的错误描述）。
     """
     request = {
         "id": 1,
@@ -204,7 +194,6 @@ def evaluate(ws_url: str, expression: str, timeout: float = EVAL_TIMEOUT) -> Any
     except TimeoutError:
         raise CdpError("Timed out waiting for the game to respond") from None
     except (OSError, WebSocketException, ValueError) as e:
-        logger.debug(f"CDP evaluate failed: {e}")
         raise CdpError(f"WebSocket connection failed: {e}") from e
 
     if "error" in message:
@@ -217,30 +206,19 @@ def evaluate(ws_url: str, expression: str, timeout: float = EVAL_TIMEOUT) -> Any
 
 
 def read_json_variable(ws_url: str, js_path: str) -> dict[str, Any]:
-    """读取游戏里的一个对象变量（如 SF_JS_PATH）
-
-    Raises:
-        CdpError: 通信失败，或读到的不是对象
-    """
+    """读取游戏里的一个对象变量（如 SF_JS_PATH）；读到的不是对象时抛出 CdpError"""
     # 先在游戏里 JSON.stringify，避免 CDP 按值返回时丢掉复杂结构
     text = evaluate(ws_url, f"JSON.stringify({js_path})")
-    if not isinstance(text, str):
+    if text is None:   # 变量是 undefined
         raise CdpError("Read data is empty")
-    try:
-        data = json.loads(text)
-    except ValueError as e:
-        raise CdpError(f"JSON parsing failed: {e}") from e
+    data = json.loads(text)
     if not isinstance(data, dict):
         raise CdpError(f"Parsed data is not a dictionary type: {type(data).__name__}")
     return data
 
 
 def assign_json_variable(ws_url: str, js_path: str, data: dict[str, Any], save_system_variable: bool = False) -> None:
-    """用 Object.assign 把 data 写入游戏里的对象变量（如 KAG_STAT_JS_PATH）
-
-    Raises:
-        CdpError: 通信失败或写入时 JS 出错
-    """
+    """用 Object.assign 把 data 写入游戏里的对象变量（如 KAG_STAT_JS_PATH）"""
     if not data:
         raise CdpError("Cannot inject empty data")
     # JSON 本身就是合法的 JS 字面量，直接嵌入即可，不需要再转义
@@ -251,15 +229,11 @@ def assign_json_variable(ws_url: str, js_path: str, data: dict[str, Any], save_s
     )
     result = evaluate(ws_url, expression)
     if result is not True:
-        raise CdpError(result if isinstance(result, str) else f"Unknown return result: {result}")
+        raise CdpError(result)   # JS 的错误描述
 
 
 def inject_and_save_sf(ws_url: str, edited_data: dict[str, Any]) -> None:
-    """把编辑后的 sf 深度合并到游戏当前的 sf 上，再调用 saveSystemVariable 写入存档
-
-    Raises:
-        CdpError: 通信失败或写入时 JS 出错
-    """
+    """把编辑后的 sf 深度合并到游戏当前的 sf 上，再调用 saveSystemVariable 写入存档"""
     if not edited_data:
         raise CdpError("Cannot inject empty data")
     current = read_json_variable(ws_url, SF_JS_PATH)
@@ -267,18 +241,11 @@ def inject_and_save_sf(ws_url: str, edited_data: dict[str, Any]) -> None:
 
 
 def mark_current_label_read(ws_url: str) -> None:
-    """强制快进：把当前 label 标记为已读
-
-    Raises:
-        MarkReadRefusedError: 游戏拒绝（如不在任何 label 中）
-        CdpError: 通信失败
-    """
+    """强制快进：把当前 label 标记为已读；游戏拒绝时（如不在任何 label 中）抛出 MarkReadRefusedError"""
     result = evaluate(ws_url, _JS_MARK_CURRENT_LABEL_READ)
-    if not isinstance(result, dict):
-        raise CdpError(f"Unexpected result type: {type(result).__name__}")
-    if not result.get("success"):
-        raise MarkReadRefusedError(result.get("message", ""))
-    logger.info(f"Label marked as read: {result.get('label', '')}")
+    if not result["success"]:
+        raise MarkReadRefusedError(result["message"])
+    logger.info(f"Label marked as read: {result['label']}")
 
 
 def deep_merge(target: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
@@ -313,21 +280,21 @@ def describe_changes(original: dict[str, Any], current: dict[str, Any]) -> list[
 # ---------------------------------------------------------------- 游戏进程
 
 def _steam_launch_commands(exe_path: Path, port: int) -> list[list[str]]:
-    """Steam 版必须经由 Steam 启动（直接运行 exe 会被 Steam 重新拉起而丢失参数）"""
-    args = ["-applaunch", GAME_STEAM_APP_ID, f"--remote-debugging-port={port}"]
-    commands: list[list[str]] = []
-
-    # Steam 根目录 = steamapps 的上一级
+    """Steam 版必须经由 Steam 启动（直接运行 exe 会被 Steam 重新拉起而丢失参数）；不是 Steam 版时返回空列表"""
     parts = exe_path.resolve().parts
     lower_parts = [p.lower() for p in parts]
-    if "steamapps" in lower_parts:
-        steam_root = Path(*parts[:lower_parts.index("steamapps")])
-        names = ["steam.exe"] if platform.system() == "Windows" else ["steam.sh", "steam"]
-        for name in names:
-            if (steam_root / name).is_file():
-                commands.append([str(steam_root / name), *args])
-                break
+    if "steamapps" not in lower_parts or "common" not in lower_parts:
+        return []
 
+    args = ["-applaunch", GAME_STEAM_APP_ID, f"--remote-debugging-port={port}"]
+    commands = []
+    # Steam 根目录 = steamapps 的上一级
+    steam_root = Path(*parts[:lower_parts.index("steamapps")])
+    names = ["steam.exe"] if platform.system() == "Windows" else ["steam.sh", "steam"]
+    for name in names:
+        if (steam_root / name).is_file():
+            commands.append([str(steam_root / name), *args])
+            break
     if shutil.which("steam"):
         commands.append(["steam", *args])
     if platform.system() != "Windows" and shutil.which("flatpak"):
@@ -335,12 +302,13 @@ def _steam_launch_commands(exe_path: Path, port: int) -> list[list[str]]:
     return commands
 
 
-def _is_steam_install(exe_path: Path) -> bool:
+def _mark_window_title(ws_url: str) -> None:
+    """在游戏窗口标题后加上标记，方便用户确认已被注入（失败不影响使用）"""
+    suffix = json.dumps(" - DCSM Injected")
     try:
-        lower_parts = [p.lower() for p in exe_path.resolve().parts]
-    except OSError:
-        return False
-    return "steamapps" in lower_parts and "common" in lower_parts
+        evaluate(ws_url, f"if (!document.title.includes({suffix})) {{ document.title += {suffix}; }} true")
+    except CdpError:
+        pass
 
 
 def _is_exe_running(exe_name: str) -> bool:
@@ -361,21 +329,15 @@ def _is_exe_running(exe_name: str) -> bool:
 class RuntimeModifyService:
     """管理由本工具启动的游戏进程（启动、等待就绪、检查状态、结束）"""
 
-    def __init__(self, game_exe_path: Path | None = None) -> None:
+    def __init__(self, game_exe_path: Path | None) -> None:
         self.game_exe_path = game_exe_path
         self.game_process: subprocess.Popen[bytes] | None = None
         self.launch_mode = "unknown"   # "steam" 或 "direct"
 
     def launch_game(self, exe_path: Path, port: int) -> None:
-        """依次尝试 Steam 启动命令和直接启动 exe，第一个能启动的即成功
-
-        Raises:
-            OSError: 所有方式都启动失败
-        """
+        """依次尝试 Steam 启动命令和直接启动 exe，第一个能启动的即成功；全部失败时抛出 OSError"""
         self.game_exe_path = exe_path
-        attempts = []
-        if _is_steam_install(exe_path):
-            attempts = [("steam", cmd) for cmd in _steam_launch_commands(exe_path, port)]
+        attempts = [("steam", cmd) for cmd in _steam_launch_commands(exe_path, port)]
         attempts.append(("direct", [str(exe_path), f"--remote-debugging-port={port}"]))
 
         errors = []
@@ -395,12 +357,9 @@ class RuntimeModifyService:
         raise OSError(" | ".join(errors))
 
     def launch_and_test(self, exe_path: Path, port: int) -> dict[str, Any]:
-        """启动游戏并等待 TYRANO 就绪，返回启动详情
+        """启动游戏并等待 TYRANO 就绪，返回启动详情；启动失败或等待超时时抛出 LaunchError
 
         详情可能包含 launch_mode、target_title、target_url、tyrano_type、ws_url、inspector_url。
-
-        Raises:
-            LaunchError: 启动失败，或等待超时
         """
         info: dict[str, Any] = {}
         try:
@@ -426,7 +385,7 @@ class RuntimeModifyService:
                 else:
                     info["tyrano_type"] = tyrano_type
                     if tyrano_type == "object":
-                        self._mark_window_title(ws_url)
+                        _mark_window_title(ws_url)
                         info["ws_url"] = ws_url
                         ws_path = ws_url[len("ws://"):] if ws_url.startswith("ws://") else ws_url
                         info["inspector_url"] = f"http://127.0.0.1:{port}/devtools/inspector.html?ws={ws_path}"
@@ -439,14 +398,6 @@ class RuntimeModifyService:
         if self.is_process_running():
             raise LaunchError("Game may not be fully started yet, retrying...", info, still_starting=True)
         raise LaunchError(last_error or "Cannot connect to CDP debug port", info)
-
-    def _mark_window_title(self, ws_url: str) -> None:
-        """在游戏窗口标题后加上标记，方便用户确认已被注入（失败不影响使用）"""
-        suffix = json.dumps(_INJECTED_TITLE_SUFFIX)
-        try:
-            evaluate(ws_url, f"if (!document.title.includes({suffix})) {{ document.title += {suffix}; }} true")
-        except CdpError as e:
-            logger.debug(f"Failed to mark window title: {e}")
 
     def is_process_running(self) -> bool:
         """本工具启动的进程还活着，或（Windows）系统里有游戏进程"""
@@ -479,5 +430,5 @@ class RuntimeModifyService:
         if ws_url:
             try:
                 evaluate(ws_url, "window.close(); true", timeout=2)
-            except CdpError as e:
-                logger.debug(f"Failed to close game window: {e}")
+            except CdpError:
+                pass   # 窗口关闭时连接常常来不及回复
