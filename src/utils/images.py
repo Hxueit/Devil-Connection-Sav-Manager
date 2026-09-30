@@ -21,7 +21,7 @@ IMAGE_FILE_TYPES = [
     ("All files", "*.*"),
 ]
 
-ImageSource = str, Path, Image.Image, bytes
+ImageSource = str | Path | Image.Image | bytes
 
 
 def is_image_file(path: Path) -> bool:
