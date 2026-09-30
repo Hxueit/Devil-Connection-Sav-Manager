@@ -1,6 +1,6 @@
 # Devil Connection .sav Manager
 
-[![CTk](https://img.shields.io/badge/GUI-CTk-blue?logo=python&logoColor=white)](https://github.com/TomSchimansky/CustomTkinter) [![GitHub release (latest by date)](https://img.shields.io/github/v/release/Hxueit/Devil-Connection-Sav-Manager)](https://github.com/Hxueit/Devil-Connection-Sav-Manager/releases) ![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white) [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE) ![Contains Spoilers](https://img.shields.io/badge/⚠-Contains_Spoilers-yellow) <img src="https://cdn.fastly.steamstatic.com/steamcommunity/public/images/apps/3054820/0cf0cb63d65311ed0b0f6f3cb5a2af88593b7361.jpg" alt="DC" width="20" height="20" style="border-radius: 20%;" />
+[![CTk](https://img.shields.io/badge/GUI-CTk-blue?logo=python&logoColor=white)](https://github.com/TomSchimansky/CustomTkinter) [![GitHub release (latest by date)](https://img.shields.io/github/v/release/Hxueit/Devil-Connection-Sav-Manager)](https://github.com/Hxueit/Devil-Connection-Sav-Manager/releases) ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white) [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE) ![Contains Spoilers](https://img.shields.io/badge/⚠-Contains_Spoilers-yellow) <img src="https://cdn.fastly.steamstatic.com/steamcommunity/public/images/apps/3054820/0cf0cb63d65311ed0b0f6f3cb5a2af88593b7361.jpg" alt="DC" width="20" height="20" style="border-radius: 20%;" />
 
 <p align="center">
   <img src="docs/images/demo.gif" alt="demo" width="480">
@@ -70,7 +70,7 @@
 
 ### 必要環境
 
-- Python 3.8 以上
+- Python 3.10 以上
 
 ### インストール手順
 
@@ -189,7 +189,7 @@ MIT License
 
 ### 前置要求
 
-- Python 3.8 或更高版本
+- Python 3.10 或更高版本
 
 ### 安装步骤
 
@@ -306,7 +306,7 @@ The tool consists of multiple tabs:
 
 ### Requirements
 
-- Python 3.8 or higher
+- Python 3.10 or higher
 
 ### Installation steps
 

@@ -1,6 +1,6 @@
 [tool.ruff]
 line-length = 120
-target-version = "py38"
+target-version = "py310"
 extend-exclude = ["build", "dist"]
 
 [tool.ruff.lint]
@@ -10,6 +10,7 @@ extend-exclude = ["build", "dist"]
 select = ["E9", "F", "B", "PLW0120", "PLW0127", "PLW0711"]
 ignore = [
     "B008",  # 默认参数里调用函数，Tk 代码中很常见
+    "B905",  # zip() 不强制要求 strict=
 ]
 
 [tool.pytest.ini_options]
