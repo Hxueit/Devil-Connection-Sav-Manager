@@ -7,7 +7,6 @@ import locale
 import logging
 import os
 import webbrowser
-from collections.abc import Callable
 from tkinter import filedialog, ttk
 
 import customtkinter as ctk
@@ -57,12 +56,8 @@ def detect_system_language() -> str:
     except ValueError:
         pass
     if os.name == "nt":
-        try:
-            import ctypes
-            lang_id = ctypes.windll.kernel32.GetUserDefaultUILanguage()
-            candidates.append(locale.windows_locale.get(lang_id))
-        except (AttributeError, OSError):
-            pass
+        import ctypes
+        candidates.append(locale.windows_locale.get(ctypes.windll.kernel32.GetUserDefaultUILanguage()))
     for candidate in candidates:
         code = (candidate or "").lower()
         # Windows 上 getlocale() 返回的是 "Chinese (Simplified)_China" 这种名字
@@ -103,7 +98,6 @@ class SavTool:
         root.minsize(750, 600)
         set_window_icon(root)
         init_styles(root)
-        root.configure(bg=Colors.LIGHT_GRAY)
 
         self.menubar = MenuBar(
             root, self.t, self.language,
@@ -134,20 +128,7 @@ class SavTool:
     def t(self, key: str, **kwargs) -> str:
         """翻译函数：返回当前语言的文字，找不到时返回 key 本身。各标签页共用这一个函数"""
         text = TRANSLATIONS[self.language].get(key, key)
-        if kwargs:
-            try:
-                return text.format(**kwargs)
-            except (KeyError, ValueError):
-                return text
-        return text
-
-    @staticmethod
-    def _run_safely(what: str, action: Callable[[], object]) -> None:
-        """执行某个标签页的操作；出错只记日志，不影响其他标签页和后续步骤"""
-        try:
-            action()
-        except Exception:
-            logger.exception(f"{what} failed")
+        return text.format(**kwargs) if kwargs else text
 
     def _create_hint_label(self, frame: ctk.CTkFrame) -> ctk.CTkLabel:
         """「请先选择目录」提示"""
@@ -173,10 +154,7 @@ class SavTool:
             self.version_info.create_update_label(release["html_url"])
 
     def _check_theme(self) -> None:
-        try:
-            self.menubar.update_theme()
-        except Exception as e:
-            logger.debug(f"检查主题变化失败: {e}")
+        self.menubar.update_theme()
         self.root.after(THEME_CHECK_INTERVAL_MS, self._check_theme)
 
     def _current_tab(self) -> int:
@@ -208,32 +186,25 @@ class SavTool:
 
         self.hint_labels[SCREENSHOT_TAB].pack_forget()
         if self.screenshot_manager_ui is None:
-            self._run_safely("Create screenshot tab", self._create_screenshot_tab)
+            self.screenshot_manager_ui = ScreenshotManagerUI(
+                self.tab_frames[SCREENSHOT_TAB], self.root, storage_dir, self.t
+            )
         else:
             self.screenshot_manager_ui.set_storage_dir(storage_dir)
-            self._run_safely("Reload screenshots", self.screenshot_manager_ui.load_screenshots)
+            self.screenshot_manager_ui.load_screenshots()
 
         self._clear_frame(SF_TAB)
         self.hint_labels[SF_TAB].pack_forget()
-        self.save_analyzer = None
-        self._run_safely("Create SF analyzer tab", self._create_sf_tab)
+        self.save_analyzer = SaveAnalyzer(self.tab_frames[SF_TAB], storage_dir, self.t)
 
         self._pending_tabs = set(LAZY_TABS)
         self._restart_save_monitor()
         self._create_tab_if_pending(self._current_tab())
 
-    def _create_screenshot_tab(self) -> None:
-        self.screenshot_manager_ui = ScreenshotManagerUI(
-            self.tab_frames[SCREENSHOT_TAB], self.root, self.storage_dir, self.t
-        )
-
-    def _create_sf_tab(self) -> None:
-        self.save_analyzer = SaveAnalyzer(self.tab_frames[SF_TAB], self.storage_dir, self.t)
-
     def _clear_frame(self, index: int) -> None:
         """销毁标签页里的内容，保留提示标签和 CTkFrame 自己用来画背景的 canvas"""
         frame = self.tab_frames[index]
-        keep = (self.hint_labels[index], getattr(frame, "_canvas", None))
+        keep = (self.hint_labels[index], frame._canvas)
         for widget in frame.winfo_children():
             if not any(widget is k for k in keep):
                 widget.destroy()
@@ -247,14 +218,11 @@ class SavTool:
             self.backup_restore_tab = None
         elif index == TYRANO_TAB:
             if self.tyrano_tab is not None:
-                self._run_safely("Clean up Tyrano tab", self.tyrano_tab.cleanup)
+                self.tyrano_tab.cleanup()
             self.tyrano_tab = None
         elif index == RUNTIME_TAB:
             if self.runtime_modify_tab is not None:
-                # 换目录不应该关掉正在运行的游戏
-                self._run_safely(
-                    "Clean up runtime modify tab", lambda: self.runtime_modify_tab.cleanup(stop_game=False)
-                )
+                self.runtime_modify_tab.cleanup(stop_game=False)  # 换目录不应该关掉正在运行的游戏
             self.runtime_modify_tab = None
         elif index == OTHERS_TAB:
             self.others_tab = None
@@ -266,12 +234,11 @@ class SavTool:
 
     def on_tab_changed(self, event=None) -> None:
         index = self._current_tab()
-        logger.debug(f"切换到标签页索引: {index}")
         created = self._create_tab_if_pending(index)
         if index == SF_TAB and self.save_analyzer is not None:
-            self._run_safely("Refresh SF analyzer tab", self.save_analyzer.refresh)
+            self.save_analyzer.refresh()
         elif index == BACKUP_TAB and self.backup_restore_tab is not None and not created:
-            self._run_safely("Refresh backup list", self.backup_restore_tab.refresh_backup_list)
+            self.backup_restore_tab.refresh_backup_list()
         self._update_version_info_visibility()
 
     def _create_tab_if_pending(self, index: int) -> bool:
@@ -280,38 +247,26 @@ class SavTool:
             return False
         self._pending_tabs.discard(index)
         self.hint_labels[index].pack_forget()
-        create = {
-            BACKUP_TAB: self._create_backup_tab,
-            TYRANO_TAB: self._create_tyrano_tab,
-            RUNTIME_TAB: self._create_runtime_tab,
-            OTHERS_TAB: self._create_others_tab,
-        }[index]
-        self._run_safely(f"Create {TAB_TITLE_KEYS[index]}", create)
+        frame = self.tab_frames[index]
+        if index == BACKUP_TAB:
+            self.backup_restore_tab = BackupRestoreTab(
+                frame, self.root, self.storage_dir, self.t,
+                on_restore_start=self._on_restore_start, on_restore_done=self._on_restore_done,
+            )
+        elif index == TYRANO_TAB:
+            # 存档文件较大（含缩略图），由标签页自己在后台读取
+            self.tyrano_tab = TyranoSaveViewer(frame, self.root, TyranoAnalyzer(self.storage_dir), self.t)
+        elif index == RUNTIME_TAB:
+            self.runtime_modify_tab = RuntimeModifyTab(frame, self.root, self.storage_dir, self.t)
+        else:
+            self.others_tab = OthersTab(
+                frame, self.storage_dir, self.t,
+                toast_enabled=self.toast_enabled,
+                toast_ignore_record=self.toast_ignore_record,
+                on_toast_enabled_changed=self.set_toast_enabled,
+                on_toast_ignore_record_changed=self.set_toast_ignore_record,
+            )
         return True
-
-    def _create_backup_tab(self) -> None:
-        self.backup_restore_tab = BackupRestoreTab(
-            self.tab_frames[BACKUP_TAB], self.root, self.storage_dir, self.t,
-            on_restore_start=self._on_restore_start, on_restore_done=self._on_restore_done,
-        )
-
-    def _create_tyrano_tab(self) -> None:
-        # 存档文件较大（含缩略图），由标签页自己在后台读取
-        self.tyrano_tab = TyranoSaveViewer(
-            self.tab_frames[TYRANO_TAB], self.root, TyranoAnalyzer(self.storage_dir), self.t
-        )
-
-    def _create_runtime_tab(self) -> None:
-        self.runtime_modify_tab = RuntimeModifyTab(self.tab_frames[RUNTIME_TAB], self.root, self.storage_dir, self.t)
-
-    def _create_others_tab(self) -> None:
-        self.others_tab = OthersTab(
-            self.tab_frames[OTHERS_TAB], self.storage_dir, self.t,
-            toast_enabled=self.toast_enabled,
-            toast_ignore_record=self.toast_ignore_record,
-            on_toast_enabled_changed=self.set_toast_enabled,
-            on_toast_ignore_record_changed=self.set_toast_ignore_record,
-        )
 
     # ---------- 还原备份 ----------
 
@@ -325,10 +280,8 @@ class SavTool:
         if not success:
             return
         # 存档文件已被替换：刷新已打开的页面，Tyrano 页丢弃旧数据重新创建
-        if self.screenshot_manager_ui is not None:
-            self._run_safely("Reload screenshots", self.screenshot_manager_ui.load_screenshots)
-        if self.save_analyzer is not None:
-            self._run_safely("Refresh SF analyzer tab", lambda: self.save_analyzer.refresh(force=True))
+        self.screenshot_manager_ui.load_screenshots()
+        self.save_analyzer.refresh(force=True)
         if self.tyrano_tab is not None:
             self._teardown_lazy_tab(TYRANO_TAB)
 
@@ -357,7 +310,7 @@ class SavTool:
 
     def _show_ab_initio(self) -> None:
         """_storage 被整个删除时（游戏的「AB INITIO」）显示蓝色提示"""
-        toast = Toast(self.root, "AB INITIO", duration=30000, fade_in=200, fade_out=200)
+        toast = Toast(self.root, "AB INITIO", duration=30000)
         # message_text 是底层的 tk.Text（CTkTextbox 的 tag 不能设置字体）
         text = toast.message_text
         text.config(state="normal")
@@ -369,8 +322,6 @@ class SavTool:
     # ---------- 语言 ----------
 
     def change_language(self, lang: str) -> None:
-        if lang not in TRANSLATIONS:
-            return
         self.language = lang
         self.menubar.update_language(lang)
         self.root.title(self.t("window_title"))
@@ -380,19 +331,10 @@ class SavTool:
         for label in self.hint_labels:
             label.configure(text=self.t("select_dir_hint"))
 
-        # 每个标签页单独更新：某一页出错不影响其他页
-        if self.screenshot_manager_ui is not None:
-            self._run_safely("Update screenshot tab texts", self.screenshot_manager_ui.update_language)
-        if self.backup_restore_tab is not None:
-            self._run_safely("Update backup tab texts", self.backup_restore_tab.update_language)
-        if self.runtime_modify_tab is not None:
-            self._run_safely("Update runtime modify tab texts", self.runtime_modify_tab.update_language)
-        if self.others_tab is not None:
-            self._run_safely("Update others tab texts", self.others_tab.update_language)
-        if self.save_analyzer is not None:
-            self._run_safely("Update SF analyzer tab texts", self.save_analyzer.update_language)
-        if self.tyrano_tab is not None:
-            self._run_safely("Update Tyrano tab texts", self.tyrano_tab.update_language)
+        for tab in (self.screenshot_manager_ui, self.backup_restore_tab, self.runtime_modify_tab,
+                    self.others_tab, self.save_analyzer, self.tyrano_tab):
+            if tab is not None:
+                tab.update_language()
 
     # ---------- 其他 ----------
 
@@ -404,10 +346,13 @@ class SavTool:
             self.version_info.hide()
 
     def on_closing(self) -> None:
-        if self.save_monitor:
-            self.save_monitor.stop()
-        if self.tyrano_tab is not None:
-            self._run_safely("Clean up Tyrano tab", self.tyrano_tab.cleanup)
-        if self.runtime_modify_tab is not None:
-            self._run_safely("Clean up runtime modify tab", self.runtime_modify_tab.cleanup)
-        self.root.destroy()
+        # 清理出错也要关掉窗口，否则程序关不掉
+        try:
+            if self.save_monitor:
+                self.save_monitor.stop()
+            if self.tyrano_tab is not None:
+                self.tyrano_tab.cleanup()
+            if self.runtime_modify_tab is not None:
+                self.runtime_modify_tab.cleanup()
+        finally:
+            self.root.destroy()

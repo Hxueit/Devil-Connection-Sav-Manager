@@ -3,7 +3,6 @@
 创建备份、显示备份列表，以及还原、删除、重命名备份。
 耗时的估算、打包和还原都在后台线程执行，期间禁用按钮，避免重复点击。
 """
-import logging
 import re
 import tkinter as tk
 from collections.abc import Callable
@@ -14,8 +13,6 @@ from src.modules.backup import backups
 from src.utils.background import run_in_background
 from src.utils.styles import Colors, get_cjk_font
 from src.utils.ui_utils import create_dialog, dialog_label, showerror_relative, showinfo_relative, widget_alive
-
-logger = logging.getLogger(__name__)
 
 PROGRESS_POLL_MS = 100
 INVALID_FILENAME_CHARS = '<>:"/\\|?*'
@@ -34,8 +31,8 @@ class BackupRestoreTab:
         root: tk.Tk,
         storage_dir: str,
         t: Callable[..., str],
-        on_restore_start: Callable[[], None] | None = None,
-        on_restore_done: Callable[[bool], None] | None = None,
+        on_restore_start: Callable[[], None],
+        on_restore_done: Callable[[bool], None],
     ) -> None:
         self.root = root
         self.storage_dir = Path(storage_dir)
@@ -297,7 +294,6 @@ class BackupRestoreTab:
         try:
             backups.delete_backup(path)
         except OSError as e:
-            logger.error(f"删除备份失败: {path}, 错误: {e}")
             self._show_error("delete_backup_failed", e)
             return
         showinfo_relative(self.root, self.t("success"), self.t("delete_backup_success"))
@@ -320,7 +316,6 @@ class BackupRestoreTab:
         try:
             new_path = backups.rename_backup(path, new_name)
         except OSError as e:
-            logger.error(f"重命名备份失败: {path}, 错误: {e}")
             self._show_error("rename_backup_failed", e)
             return
         showinfo_relative(
@@ -361,8 +356,7 @@ class BackupRestoreTab:
             return
 
         self._set_busy(True)
-        if self.on_restore_start:
-            self.on_restore_start()
+        self.on_restore_start()
         run_in_background(self.frame, lambda: backups.restore_backup(path, self.storage_dir), self._on_restore_done)
 
     def _on_restore_done(self, _result, error: BaseException | None) -> None:
@@ -371,8 +365,7 @@ class BackupRestoreTab:
             self._show_error("restore_failed", error)
         else:
             showinfo_relative(self.root, self.t("success"), self.t("restore_success"))
-        if self.on_restore_done:
-            self.on_restore_done(error is None)
+        self.on_restore_done(error is None)
 
     # ---------- 语言 ----------
 

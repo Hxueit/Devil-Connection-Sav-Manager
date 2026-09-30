@@ -1,15 +1,12 @@
 """字体、颜色与 ttk/customtkinter 样式"""
 
 import ctypes
-import logging
 import platform
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
 
 import customtkinter as ctk
-
-logger = logging.getLogger(__name__)
 
 # 字体整体放大倍率（影响 get_cjk_font / get_mono_font 与 Tk 系统默认字体）
 _FONT_SCALE = 1.25
@@ -79,46 +76,24 @@ class Colors:
     MODAL_BG = "#f5f5f7"
 
 
-_style: ttk.Style | None = None
+def init_styles(root: tk.Tk) -> None:
+    """初始化 customtkinter 主题、Tk 缩放/系统字体和全部 ttk 样式（启动时调用一次）"""
+    # 关闭 CTk 自带的 DPI 感知，保持与系统缩放一致（尤其是 Canvas 绘制）
+    ctk.deactivate_automatic_dpi_awareness()
+    ctk.set_appearance_mode("system")
+    ctk.set_default_color_theme("blue")
+    # 关掉自动 DPI 感知后 CTk 控件按 1 倍绘制，会比放大过的 Tk 字体和 ttk 控件小一圈，
+    # 所以固定放大 1.5 倍，让 CTk 和 ttk 控件看起来大小一致
+    ctk.set_widget_scaling(1.5)
+    ctk.set_window_scaling(1.5)
 
-
-def init_styles(root: tk.Tk | None = None) -> ttk.Style:
-    """初始化 customtkinter 主题和全部 ttk 样式（只执行一次）"""
-    global _style
-    if _style is not None:
-        return _style
-
-    _init_ctk_theme()
-    _style = ttk.Style()
-    if root is not None:
-        _configure_root_window(root)
-        _scale_system_fonts()
-    _configure_ttk_styles(_style)
-    return _style
-
-
-def _init_ctk_theme() -> None:
-    try:
-        # 关闭 CTk 自带的 DPI 感知，保持与系统缩放一致（尤其是 Canvas 绘制）
-        if hasattr(ctk, "deactivate_automatic_dpi_awareness"):
-            ctk.deactivate_automatic_dpi_awareness()
-        ctk.set_appearance_mode("system")
-        ctk.set_default_color_theme("blue")
-        # 关掉自动 DPI 感知后 CTk 控件按 1 倍绘制，会比放大过的 Tk 字体和 ttk 控件小一圈，
-        # 所以固定放大 1.5 倍，让 CTk 和 ttk 控件看起来大小一致
-        ctk.set_widget_scaling(1.5)
-        ctk.set_window_scaling(1.5)
-    except (AttributeError, TypeError, ImportError, RuntimeError) as e:
-        # 即便 CTk 初始化失败也不阻塞后续 ttk 样式
-        logger.warning(f"Failed to initialize CTk theme: {e}")
-
-
-def _configure_root_window(root: tk.Tk) -> None:
-    try:
-        root.configure(bg=Colors.LIGHT_GRAY)
-    except (tk.TclError, AttributeError) as e:
-        logger.debug(f"Failed to configure root background: {e}")
+    root.configure(bg=Colors.LIGHT_GRAY)
     _set_tk_scaling(root)
+    # 同步放大 Tk 系统字体，让未显式设置字体的控件也变大
+    for font_name in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont", "TkTooltipFont"):
+        font_obj = tkfont.nametofont(font_name)
+        font_obj.configure(size=_scaled(font_obj.cget("size")))
+    _configure_ttk_styles(ttk.Style())
 
 
 def _set_tk_scaling(root: tk.Tk) -> None:
@@ -127,32 +102,15 @@ def _set_tk_scaling(root: tk.Tk) -> None:
     Windows 上按窗口 DPI 计算（96dpi 为 1.0）。结果小于 _MIN_TK_SCALING 时用下限，
     否则在普通 DPI 的屏幕上 Tk 控件和菜单的文字显得太小。
     """
-    try:
-        scaling = float(root.tk.call("tk", "scaling"))
-    except (tk.TclError, ValueError) as e:
-        logger.debug(f"Failed to read tk scaling: {e}")
-        return
+    scaling = float(root.tk.call("tk", "scaling"))
     if _SYSTEM == "Windows":
         try:
             dpi = ctypes.windll.user32.GetDpiForWindow(root.winfo_id())
-            if dpi and dpi > 0:
+            if dpi > 0:
                 scaling = dpi / 96.0
-        except (OSError, AttributeError, ctypes.ArgumentError) as e:
-            logger.debug(f"Failed to get window DPI: {e}")
-    try:
-        root.tk.call("tk", "scaling", max(scaling, _MIN_TK_SCALING))
-    except tk.TclError as e:
-        logger.debug(f"Failed to set tk scaling: {e}")
-
-
-def _scale_system_fonts() -> None:
-    """同步放大 Tk 系统字体，让未显式设置字体的控件也变大"""
-    for font_name in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont", "TkTooltipFont"):
-        try:
-            font_obj = tkfont.nametofont(font_name)
-            font_obj.configure(size=_scaled(font_obj.cget("size")))
-        except (tk.TclError, ValueError) as e:
-            logger.debug(f"Failed to configure font {font_name}: {e}")
+        except (OSError, AttributeError):
+            pass  # GetDpiForWindow 从 Windows 10 1607 起才有
+    root.tk.call("tk", "scaling", max(scaling, _MIN_TK_SCALING))
 
 
 def _configure_ttk_styles(style: ttk.Style) -> None:

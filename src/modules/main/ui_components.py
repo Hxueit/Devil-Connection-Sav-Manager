@@ -1,5 +1,4 @@
 """主窗口的菜单栏和右下角的版本信息"""
-import logging
 import platform
 import tkinter as tk
 import tkinter.font as tkfont
@@ -9,8 +8,6 @@ from tkinter import Menu, ttk
 
 from src.constants import LATEST_GAME_PATCH_AT_BUILD, VERSION
 from src.utils.styles import Colors, get_cjk_font
-
-logger = logging.getLogger(__name__)
 
 LANGUAGE_OPTIONS = [("日本語", "ja_JP"), ("中文", "zh_CN"), ("English", "en_US")]
 
@@ -25,16 +22,15 @@ def detect_windows_theme() -> str:
     """读取 Windows 的深色/浅色模式设置，其他系统一律返回 'light'"""
     if platform.system() != "Windows":
         return "light"
+    import winreg
     try:
-        import winreg
         with winreg.OpenKey(
             winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize"
         ) as key:
             value, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
-        return "light" if value == 1 else "dark"
-    except (OSError, ImportError) as e:
-        logger.debug(f"检测Windows主题失败: {e}")
+    except OSError:  # 旧版 Windows 没有这个设置
         return "light"
+    return "light" if value == 1 else "dark"
 
 
 class MenuBar:
@@ -81,11 +77,7 @@ class MenuBar:
 
     def _apply_menu_options(self) -> None:
         """通过 option 数据库设置菜单的字体和颜色（对之后创建的菜单生效）"""
-        base_size = 10
-        try:
-            base_size = tkfont.nametofont("TkMenuFont").cget("size")
-        except tk.TclError:
-            pass
+        base_size = tkfont.nametofont("TkMenuFont").cget("size")
         size = max(self.MIN_FONT_SIZE, int(round(base_size * self.MENU_FONT_SCALE)))
         family = "Microsoft YaHei UI" if platform.system() == "Windows" else "Arial"
         colors = MENU_COLORS[self.theme]
@@ -119,13 +111,10 @@ class MenuBar:
         self._apply_menu_options()
         colors = MENU_COLORS[theme]
         for menu in (self.menubar, self.directory_menu, self.language_menu, self.help_menu):
-            try:
-                menu.configure(
-                    bg=colors["bg"], fg=colors["fg"],
-                    activebackground=colors["active_bg"], activeforeground=colors["active_fg"],
-                )
-            except tk.TclError:
-                logger.debug(f"更新菜单主题失败: {menu}")
+            menu.configure(
+                bg=colors["bg"], fg=colors["fg"],
+                activebackground=colors["active_bg"], activeforeground=colors["active_fg"],
+            )
 
 
 class VersionInfo:
@@ -196,12 +185,8 @@ class VersionInfo:
 
     def _shake_step(self) -> None:
         offset = self.SHAKE_OFFSETS[self._shake_index]
-        try:
-            self.update_label_wrapper.pack_configure(padx=max(0, offset))
-            self.update_label.configure(foreground=self.COLOR_BRIGHT if abs(offset) >= 2 else self.COLOR_NORMAL)
-        except tk.TclError:
-            self._shake_job = None
-            return
+        self.update_label_wrapper.pack_configure(padx=max(0, offset))
+        self.update_label.configure(foreground=self.COLOR_BRIGHT if abs(offset) >= 2 else self.COLOR_NORMAL)
         self._shake_index = (self._shake_index + 1) % len(self.SHAKE_OFFSETS)
         self._shake_job = self.root.after(self.SHAKE_STEP_MS, self._shake_step)
 
@@ -210,8 +195,5 @@ class VersionInfo:
             self.root.after_cancel(self._shake_job)
             self._shake_job = None
         if self.update_label is not None:
-            try:
-                self.update_label_wrapper.pack_configure(padx=0)
-                self.update_label.configure(foreground=self.COLOR_NORMAL)
-            except tk.TclError:
-                pass
+            self.update_label_wrapper.pack_configure(padx=0)
+            self.update_label.configure(foreground=self.COLOR_NORMAL)
