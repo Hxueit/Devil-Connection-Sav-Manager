@@ -5,7 +5,6 @@
 - 手动检查更新
 """
 import json
-import logging
 import webbrowser
 from collections.abc import Callable
 from pathlib import Path
@@ -19,8 +18,6 @@ from src.utils.background import run_in_background
 from src.utils.sav_io import read_sav, write_sav, write_text_atomic
 from src.utils.styles import Colors, get_cjk_font, white_button
 from src.utils.ui_utils import askyesno_relative, showerror_relative, showinfo_relative
-
-logger = logging.getLogger(__name__)
 
 TYRANO_JSON_FILENAME = "DevilConnection_tyrano_data.json"
 
@@ -148,7 +145,6 @@ class OthersTab:
         try:
             save_data = read_sav(self.tyrano_path)
         except (OSError, ValueError) as e:
-            logger.exception("读取tyrano文件失败")
             self._show_error("export_tyrano_failed", error=str(e))
             return
 
@@ -163,7 +159,6 @@ class OthersTab:
         try:
             write_text_atomic(file_path, json.dumps(save_data, ensure_ascii=False, indent=2))
         except OSError as e:
-            logger.exception("写入导出文件失败")
             self._show_error("export_tyrano_failed", error=str(e))
             return
         showinfo_relative(self.parent, self.t("success"), self.t("export_tyrano_success", path=file_path))
@@ -183,7 +178,6 @@ class OthersTab:
             self._show_error("json_format_error_detail", error=str(e))
             return
         except (OSError, ValueError) as e:
-            logger.exception("读取JSON文件失败")
             self._show_error("import_tyrano_failed", error=str(e))
             return
         if not isinstance(new_data, dict) or not new_data:
@@ -205,7 +199,6 @@ class OthersTab:
         try:
             write_sav(self.tyrano_path, new_data)
         except OSError as e:
-            logger.exception("保存tyrano数据失败")
             self._show_error("import_tyrano_failed", error=str(e))
             return
         showinfo_relative(self.parent, self.t("success"), self.t("import_tyrano_success"))

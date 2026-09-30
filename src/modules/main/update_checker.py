@@ -28,7 +28,7 @@ def fetch_latest_release() -> dict[str, Any]:
 
 def parse_version(version: str) -> tuple[int, ...]:
     """'v1.2.3' -> (1, 2, 3)；无法解析时返回 (0,)"""
-    match = re.match(r"v?(\d+(?:\.\d+)*)", (version or "").strip())
+    match = re.match(r"v?(\d+(?:\.\d+)*)", version.strip())
     return tuple(int(part) for part in match.group(1).split(".")) if match else (0,)
 
 

@@ -4,6 +4,7 @@ import os
 import tempfile
 import tkinter as tk
 from collections.abc import Callable
+from pathlib import Path
 from tkinter import messagebox
 
 import customtkinter as ctk
@@ -16,49 +17,36 @@ ICON_BASE64 = "AAABAAEAAAAAAAEAIAAEbAAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAEAAAABAAgGA
 _icon_file: str | None = None
 
 
-def _read_bytes(path: str) -> bytes | None:
-    try:
-        with open(path, "rb") as f:
-            return f.read()
-    except OSError:
-        return None
-
-
 def _icon_path() -> str | None:
     """把内嵌图标写到固定的临时文件（已存在且内容相同则直接复用），返回其路径。
 
     iconbitmap 只接受文件路径；用固定文件名，避免每次启动都在临时目录留下一个新文件。
     """
     global _icon_file
-    if _icon_file is not None:
-        return _icon_file
-
-    data = base64.b64decode(ICON_BASE64)
-    path = os.path.join(tempfile.gettempdir(), "dcsm_icon.ico")
-    if _read_bytes(path) != data:
-        # 先写临时文件再替换，避免同时启动的多个实例读到半个文件
-        tmp = None
+    if _icon_file is None:
+        data = base64.b64decode(ICON_BASE64)
+        path = os.path.join(tempfile.gettempdir(), "dcsm_icon.ico")
         try:
-            fd, tmp = tempfile.mkstemp(suffix=".ico", dir=os.path.dirname(path))
-            with os.fdopen(fd, "wb") as f:
-                f.write(data)
-            os.replace(tmp, path)
+            if not os.path.exists(path) or Path(path).read_bytes() != data:
+                # 先写临时文件再替换，避免同时启动的多个实例读到半个文件
+                fd, tmp = tempfile.mkstemp(suffix=".ico", dir=os.path.dirname(path))
+                with os.fdopen(fd, "wb") as f:
+                    f.write(data)
+                os.replace(tmp, path)
         except OSError:
-            if tmp and os.path.exists(tmp):
-                os.remove(tmp)
             return None
-    _icon_file = path
-    return path
+        _icon_file = path
+    return _icon_file
 
 
 def set_window_icon(window) -> None:
     """设置窗口图标（非 Windows 平台不支持 .ico 时静默忽略）"""
-    try:
-        path = _icon_path()
-        if path:
+    path = _icon_path()
+    if path:
+        try:
             window.iconbitmap(path)
-    except (tk.TclError, OSError):
-        pass
+        except tk.TclError:
+            pass
 
 
 def _show_relative(func, parent, title, message, **options):
@@ -86,22 +74,6 @@ def askyesno_relative(parent, title, message, icon="question"):
     return _show_relative(messagebox.askyesno, parent, title, message, icon=icon)
 
 
-def restore_and_activate_window(window) -> bool:
-    """把窗口从最小化恢复并提到最前；窗口不存在时返回 False"""
-    if window is None:
-        return False
-    try:
-        if not window.winfo_exists():
-            return False
-        window.deiconify()
-        window.lift()
-        window.focus_force()
-        window.update_idletasks()
-        return True
-    except tk.TclError:
-        return False
-
-
 def widget_alive(widget: tk.Misc | None) -> bool:
     """控件（或窗口）是否还存在；已销毁或为 None 时返回 False"""
     try:
@@ -110,18 +82,26 @@ def widget_alive(widget: tk.Misc | None) -> bool:
         return False
 
 
+def restore_and_activate_window(window) -> bool:
+    """把窗口从最小化恢复并提到最前；窗口不存在时返回 False"""
+    if not widget_alive(window):
+        return False
+    window.deiconify()
+    window.lift()
+    window.focus_force()
+    window.update_idletasks()
+    return True
+
+
 def center_window(window: tk.Misc) -> None:
     """把窗口移到屏幕中央（窗口尺寸需已确定）"""
     window.update_idletasks()
-    width, height = window.winfo_width(), window.winfo_height()
-    if width <= 0 or height <= 0:
-        return
-    x = max(0, (window.winfo_screenwidth() - width) // 2)
-    y = max(0, (window.winfo_screenheight() - height) // 2)
+    x = max(0, (window.winfo_screenwidth() - window.winfo_width()) // 2)
+    y = max(0, (window.winfo_screenheight() - window.winfo_height()) // 2)
     window.geometry(f"+{x}+{y}")
 
 
-def grab_when_visible(dialog: tk.Toplevel, retries: int = 12, delay_ms: int = 30) -> None:
+def grab_when_visible(dialog: tk.Toplevel) -> None:
     """让对话框成为模态（grab_set）；窗口还没显示出来时 grab_set 会报错，所以稍后重试"""
     def try_grab(remaining: int) -> None:
         if remaining <= 0 or not widget_alive(dialog):
@@ -129,17 +109,14 @@ def grab_when_visible(dialog: tk.Toplevel, retries: int = 12, delay_ms: int = 30
         try:
             dialog.grab_set()
         except tk.TclError:
-            dialog.after(delay_ms, lambda: try_grab(remaining - 1))
+            dialog.after(30, try_grab, remaining - 1)
 
-    try:
-        dialog.deiconify()
-        dialog.update_idletasks()
-    except tk.TclError:
-        pass
-    try_grab(retries)
+    dialog.deiconify()
+    dialog.update_idletasks()
+    try_grab(12)
 
 
-def create_dialog(parent: tk.Misc, title: str, geometry: str | None = None, *,
+def create_dialog(parent: tk.Misc, title: str, geometry: str, *,
                   modal: bool = True, use_ctk: bool = False) -> tk.Toplevel:
     """创建一个附属于 parent 的弹窗（所有弹窗都用这个函数创建）
 
@@ -150,8 +127,7 @@ def create_dialog(parent: tk.Misc, title: str, geometry: str | None = None, *,
     if not use_ctk:
         dialog.configure(bg=Colors.WHITE)
     dialog.title(title)
-    if geometry:
-        dialog.geometry(geometry)
+    dialog.geometry(geometry)
     dialog.transient(parent)
     # 窗口显示后 Tk / CTk 会把图标重置成默认的，所以显示前后多设几次
     set_window_icon(dialog)
@@ -176,7 +152,7 @@ def bind_mousewheel(widget: tk.Misc, on_scroll: Callable[[int], None]) -> None:
     Windows/macOS 用 <MouseWheel>，Linux 用 <Button-4>/<Button-5>。
     """
     def handler(event: tk.Event) -> str:
-        if getattr(event, "num", None) == 4 or getattr(event, "delta", 0) > 0:
+        if event.num == 4 or event.delta > 0:
             on_scroll(-1)
         else:
             on_scroll(1)

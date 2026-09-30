@@ -4,6 +4,7 @@
 压缩包内额外有一个 dcsmINFO.txt，第一行是创建时间，用于在列表中排序和显示。
 这里的函数都不碰界面，可以在后台线程中调用；失败时抛出异常。
 """
+import contextlib
 import io
 import logging
 import os
@@ -39,7 +40,7 @@ def get_backup_dir(storage_dir: Path) -> Path:
 
 def format_size(size_bytes: int) -> str:
     if size_bytes < 1024:
-        return f"{max(size_bytes, 0)} B"
+        return f"{size_bytes} B"
     for unit in ("KB", "MB", "GB"):
         size_bytes /= 1024
         if size_bytes < 1024 or unit == "GB":
@@ -109,10 +110,8 @@ def create_backup(storage_dir: Path, progress: Callable[[int, int], None] | None
                     progress(index, total)
         os.replace(partial_path, backup_path)
     except BaseException:
-        try:
+        with contextlib.suppress(OSError):
             partial_path.unlink()
-        except OSError:
-            pass
         raise
     return backup_path
 
@@ -154,9 +153,8 @@ def missing_required_files(zip_path: Path) -> list[str]:
     try:
         with zipfile.ZipFile(zip_path) as zf:
             names = set(zf.namelist())
-    except (zipfile.BadZipFile, OSError) as e:
-        logger.error(f"无法打开zip文件: {zip_path}, 错误: {e}")
-        return list(REQUIRED_SAVE_FILES)
+    except (zipfile.BadZipFile, OSError):
+        return list(REQUIRED_SAVE_FILES)  # 打不开的备份当作全都缺，让用户确认
     return [name for name in REQUIRED_SAVE_FILES if name not in names]
 
 
@@ -227,10 +225,8 @@ def delete_backup(zip_path: Path) -> None:
     """删除备份；备份文件夹空了就一并删除"""
     zip_path = Path(zip_path)
     zip_path.unlink()
-    try:
+    with contextlib.suppress(OSError):
         zip_path.parent.rmdir()  # 只有空文件夹才会删除成功
-    except OSError:
-        pass
 
 
 def rename_backup(zip_path: Path, new_name: str) -> Path:

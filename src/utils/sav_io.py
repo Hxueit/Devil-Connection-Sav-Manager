@@ -8,6 +8,7 @@
 避免写到一半崩溃/断电时留下被截断的存档。
 """
 
+import contextlib
 import json
 import os
 import stat
@@ -58,10 +59,8 @@ def write_text_atomic(path: PathLike, text: str) -> None:
             os.chmod(tmp_path, stat.S_IMODE(path.stat().st_mode))
         os.replace(tmp_path, path)
     except BaseException:
-        try:
+        with contextlib.suppress(OSError):
             os.unlink(tmp_path)
-        except OSError:
-            pass
         raise
 
 

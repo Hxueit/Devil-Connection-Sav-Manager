@@ -5,15 +5,13 @@
 """
 
 import ctypes
-import logging
 import platform
 import tkinter as tk
 
 import customtkinter as ctk
 
 from src.utils.styles import Colors, get_cjk_font
-
-logger = logging.getLogger(__name__)
+from src.utils.ui_utils import widget_alive
 
 _USE_ALPHA = platform.system() == "Windows"
 
@@ -35,6 +33,7 @@ TOP_BAR_HEIGHT = 19
 BOTTOM_PADDING = 8
 
 ALPHA = 0.85
+FADE_MS = 200
 FLASH_ALPHA = 0.95
 FLASH_MS = 200
 FRAME_MS = 16
@@ -49,14 +48,11 @@ RED = "#f87171"
 def _work_area(widget: tk.Misc) -> tuple[int, int, int, int]:
     """可用工作区 (left, top, right, bottom)；Windows 上排除任务栏"""
     if _USE_ALPHA:
-        try:
-            from ctypes import wintypes
-            rect = wintypes.RECT()
-            SPI_GETWORKAREA = 0x0030
-            if ctypes.windll.user32.SystemParametersInfoW(SPI_GETWORKAREA, 0, ctypes.byref(rect), 0):
-                return rect.left, rect.top, rect.right, rect.bottom
-        except (OSError, AttributeError, ImportError) as e:
-            logger.debug(f"Failed to get Windows work area: {e}")
+        from ctypes import wintypes
+        rect = wintypes.RECT()
+        SPI_GETWORKAREA = 0x0030
+        if ctypes.windll.user32.SystemParametersInfoW(SPI_GETWORKAREA, 0, ctypes.byref(rect), 0):
+            return rect.left, rect.top, rect.right, rect.bottom
     return 0, 0, widget.winfo_screenwidth(), widget.winfo_screenheight()
 
 
@@ -65,13 +61,11 @@ class Toast:
 
     _active_toasts: list["Toast"] = []
 
-    def __init__(self, root: ctk.CTk, message: str, duration: int = 10000,
-                 fade_in: int = 200, fade_out: int = 200):
-        """duration: 淡入完成后停留的毫秒数；fade_in / fade_out: 动画时长（毫秒）"""
+    def __init__(self, root: ctk.CTk, message: str, duration: int):
+        """duration: 淡入完成后停留的毫秒数"""
         self.root = root
         self.message = message
         self.duration = duration
-        self.fade_out = fade_out
         self.window_width = WIDTH
         self.window_height = 0
         self._pinned = False
@@ -85,7 +79,7 @@ class Toast:
         Toast._active_toasts.append(self)
         self._update_size()
         Toast._reposition_toasts()
-        self._fade(0.0, ALPHA, fade_in, self._schedule_fade_out)
+        self._fade(0.0, ALPHA, self._schedule_fade_out)
 
     # ---------- 界面 ----------
 
@@ -161,12 +155,6 @@ class Toast:
                 text.insert("end", after, "default")
         text.configure(state="disabled")
 
-    def _window_exists(self) -> bool:
-        try:
-            return bool(self.window.winfo_exists())
-        except tk.TclError:
-            return False
-
     # ---------- 尺寸与位置 ----------
 
     def _update_size(self) -> None:
@@ -185,52 +173,40 @@ class Toast:
     @staticmethod
     def _reposition_toasts() -> None:
         """移除已关闭的 Toast，其余从工作区右下角开始向上依次堆叠"""
-        Toast._active_toasts = [t for t in Toast._active_toasts if t._window_exists()]
+        Toast._active_toasts = [t for t in Toast._active_toasts if widget_alive(t.window)]
         y_offset = 0
         for toast in Toast._active_toasts:
             left, top, right, bottom = _work_area(toast.window)
             w, h = toast.window_width, toast.window_height
             x = max(left, min(right - w - MARGIN_RIGHT, right - w))
             y = max(top, min(bottom - h - y_offset - MARGIN_BOTTOM, bottom - h))
-            try:
-                toast.window.geometry(f"{w}x{h}+{x}+{y}")
-            except tk.TclError as e:
-                logger.debug(f"Failed to reposition toast: {e}")
+            toast.window.geometry(f"{w}x{h}+{x}+{y}")
             y_offset += h + SPACING
 
-    # ---------- 外部接口 ----------
+    # ---------- 外部接口（调用方先确认窗口还在） ----------
 
-    def update_message(self, new_message: str) -> bool:
+    def update_message(self, new_message: str) -> None:
         """替换消息内容（用于合并同一变量的连续变化）"""
-        if not self._window_exists():
-            return False
         self.message = new_message
         self._show_text(new_message)
         self._update_size()
         Toast._reposition_toasts()
-        return True
 
-    def reset_timer(self) -> bool:
+    def reset_timer(self) -> None:
         """重新开始停留计时；正在淡出时恢复显示"""
-        if not self._window_exists():
-            return False
         if self._pinned:
-            return True
+            return
         if self._fading_out:
             self._cancel(fade=True)
             self._fading_out = False
             self._set_alpha(ALPHA)
         self._schedule_fade_out()
-        return True
 
     # ---------- 动画与关闭 ----------
 
     def _set_alpha(self, alpha: float) -> None:
         if _USE_ALPHA:
-            try:
-                self.window.attributes("-alpha", alpha)
-            except tk.TclError as e:
-                logger.debug(f"Failed to set alpha: {e}")
+            self.window.attributes("-alpha", alpha)
 
     def _cancel(self, close: bool = False, fade: bool = False) -> None:
         if close and self._close_job:
@@ -240,37 +216,32 @@ class Toast:
             self.window.after_cancel(self._fade_job)
             self._fade_job = None
 
-    def _fade(self, start: float, end: float, duration: int, on_done, step: int = 0) -> None:
-        """每 FRAME_MS 毫秒把透明度从 start 线性过渡到 end，结束后调用 on_done"""
+    def _fade(self, start: float, end: float, on_done, step: int = 0) -> None:
+        """每 FRAME_MS 毫秒把透明度从 start 线性过渡到 end（共 FADE_MS 毫秒），结束后调用 on_done"""
         self._fade_job = None
-        if not self._window_exists():
+        if not widget_alive(self.window):
             return
-        steps = max(1, duration // FRAME_MS)
+        steps = FADE_MS // FRAME_MS
         if step >= steps:
             self._set_alpha(end)
             on_done()
             return
         self._set_alpha(start + (end - start) * step / steps)
-        self._fade_job = self.window.after(FRAME_MS, self._fade, start, end, duration, on_done, step + 1)
+        self._fade_job = self.window.after(FRAME_MS, self._fade, start, end, on_done, step + 1)
 
     def _schedule_fade_out(self) -> None:
-        if self._pinned or not self._window_exists():
+        if self._pinned:
             return
         self._cancel(close=True)
         self._close_job = self.window.after(self.duration, self._start_fade_out)
 
     def _start_fade_out(self) -> None:
         self._close_job = None
-        if self._pinned or not self._window_exists():
+        if self._pinned or not widget_alive(self.window):
             return
-        current = ALPHA
-        if _USE_ALPHA:
-            try:
-                current = float(self.window.attributes("-alpha"))
-            except tk.TclError:
-                pass
+        current = float(self.window.attributes("-alpha")) if _USE_ALPHA else ALPHA
         self._fading_out = True
-        self._fade(current, 0.0, self.fade_out, self._close)
+        self._fade(current, 0.0, self._close)
 
     def _pin(self, event=None) -> None:
         """点击 Toast：固定显示并闪一下作为反馈"""
@@ -285,7 +256,7 @@ class Toast:
             self._fade_job = self.window.after(FLASH_MS, self._set_alpha, ALPHA)
 
     def _close(self) -> None:
-        if not self._window_exists():
+        if not widget_alive(self.window):
             return
         self._cancel(close=True, fade=True)
         self.window.destroy()

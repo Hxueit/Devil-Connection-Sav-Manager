@@ -24,6 +24,8 @@ import tkinter as tk
 from collections.abc import Callable
 from typing import Any
 
+from src.utils.ui_utils import widget_alive
+
 logger = logging.getLogger(__name__)
 
 POLL_INTERVAL_MS = 30
@@ -48,14 +50,11 @@ for _ in range(WORKER_COUNT):
 def run_in_background(
     widget: tk.Misc,
     work: Callable[[], Any],
-    on_done: Callable[[Any, BaseException | None], None] | None = None,
+    on_done: Callable[[Any, BaseException | None], None],
 ) -> None:
     """在后台线程执行 work()，完成后在主线程调用 on_done(result, error)
 
-    Args:
-        widget: 任意一个 Tk 控件，用来在主线程上定时检查结果
-        work: 在后台线程执行的函数，不能操作界面
-        on_done: 完成后在主线程调用；如果 widget 已经被销毁则不会调用
+    widget 用来在主线程上定时检查结果；widget 已经被销毁时不会调用 on_done。
     """
     outcome: dict = {}
     finished = threading.Event()
@@ -69,16 +68,12 @@ def run_in_background(
         finished.set()
 
     def poll() -> None:
-        try:
-            if not widget.winfo_exists():
-                return
-        except tk.TclError:
+        if not widget_alive(widget):
             return
         if not finished.is_set():
             widget.after(POLL_INTERVAL_MS, poll)
             return
-        if on_done is not None:
-            on_done(outcome.get("result"), outcome.get("error"))
+        on_done(outcome.get("result"), outcome.get("error"))
 
     _jobs.put(job)
     widget.after(POLL_INTERVAL_MS, poll)

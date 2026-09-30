@@ -5,7 +5,6 @@
 - ChangeNotifier：用 toast 显示变更；同一个变量连续变化时合并成一行「a→b→c」
 """
 import json
-import logging
 import os
 import tkinter as tk
 from collections.abc import Callable, Iterable
@@ -17,8 +16,6 @@ from src.utils.sav_io import read_sav
 from src.utils.toast import Toast
 from src.utils.ui_utils import widget_alive
 
-logger = logging.getLogger(__name__)
-
 ARROW = "→"
 FLOAT_EPSILON = 1e-10
 
@@ -27,7 +24,7 @@ FLOAT_EPSILON = 1e-10
 
 def parse_ignored_vars(text: str) -> set[str]:
     """'record, initialVars' -> {'record', 'initialVars'}"""
-    return {name.strip() for name in (text or "").split(",") if name.strip()}
+    return {name.strip() for name in text.split(",") if name.strip()}
 
 
 def _format_value(value: Any) -> str:
@@ -154,18 +151,12 @@ class SaveChangeMonitor:
 
     def stop(self) -> None:
         if self._job is not None:
-            try:
-                self.widget.after_cancel(self._job)
-            except tk.TclError:
-                pass
+            self.widget.after_cancel(self._job)
             self._job = None
 
     def _poll(self) -> None:
         self._job = self.widget.after(self.POLL_INTERVAL_MS, self._poll)
-        try:
-            self._check(notify=True)
-        except Exception:
-            logger.exception("检查存档变化失败")
+        self._check(notify=True)
 
     def _check(self, notify: bool) -> None:
         try:
@@ -210,10 +201,6 @@ def _parse_arrow_change(change: str) -> tuple[str, str, str] | None:
     return prefix[:last_space].strip(), prefix[last_space + 1:].strip(), new_value.strip()
 
 
-def _toast_alive(toast: Toast | None) -> bool:
-    return toast is not None and widget_alive(toast.window)
-
-
 class ChangeNotifier:
     """用 toast 显示存档变更；变量的后续变化合并到仍在显示的那条 toast 里"""
 
@@ -223,40 +210,38 @@ class ChangeNotifier:
         self.root = root
         self.t = t
         # 变量名 -> (依次出现过的值, 显示它的 toast)
-        self._chains: dict[str, tuple[list[str], Toast | None]] = {}
+        self._chains: dict[str, tuple[list[str], Toast]] = {}
 
     def show(self, changes: list[str]) -> None:
+        # 忘掉已经关闭的 toast
+        self._chains = {var: chain for var, chain in self._chains.items() if widget_alive(chain[1].window)}
         new_lines: list[str] = []
-        new_vars: list[str] = []
+        new_chains: dict[str, list[str]] = {}
         for change in changes:
             parsed = _parse_arrow_change(change)
             if parsed is None:
                 new_lines.append(change)
                 continue
             var, old_value, new_value = parsed
-            values, toast = self._chains.get(var, ([], None))
-            if _toast_alive(toast):
+            if var in self._chains:
+                values, toast = self._chains[var]
                 values.append(new_value)
                 toast.reset_timer()
                 toast.update_message(_replace_line(toast.message, var, f"{var} {ARROW.join(values)}"))
             else:
-                self._chains[var] = ([old_value, new_value], None)
-                new_vars.append(var)
+                new_chains[var] = [old_value, new_value]
                 new_lines.append(f"{var} {old_value}{ARROW}{new_value}")
 
         if new_lines:
             message = "\n".join([self.t("sf_sav_changes_notification")] + new_lines)
-            toast = Toast(self.root, message, duration=self.TOAST_DURATION_MS, fade_in=200, fade_out=200)
-            for var in new_vars:
-                self._chains[var] = (self._chains[var][0], toast)
-
-        # 忘掉已经关闭的 toast
-        self._chains = {var: chain for var, chain in self._chains.items() if _toast_alive(chain[1])}
+            toast = Toast(self.root, message, duration=self.TOAST_DURATION_MS)
+            for var, values in new_chains.items():
+                self._chains[var] = (values, toast)
 
 
 def _replace_line(message: str, var: str, new_line: str) -> str:
     """把消息中该变量的那一行换成 new_line（找不到就追加）"""
-    lines = message.split("\n") if message else []
+    lines = message.split("\n")
     for i, line in enumerate(lines):
         if line.startswith(f"{var} ") and ARROW in line:
             lines[i] = new_line
