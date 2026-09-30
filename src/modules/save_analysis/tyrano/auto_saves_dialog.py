@@ -1,8 +1,7 @@
 """自动存档对话框：列出游戏的几个自动存档文件，可以用 JSON 编辑器打开并修改"""
 
-import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import customtkinter as ctk
 
@@ -14,8 +13,6 @@ from src.utils.ui_utils import create_dialog, showerror_relative, showinfo_relat
 
 if TYPE_CHECKING:
     from src.modules.save_analysis.tyrano.save_viewer import TyranoSaveViewer
-
-logger = logging.getLogger(__name__)
 
 # (文件名, 名称的翻译键, 说明的翻译键)
 AUTO_SAVE_FILES = [
@@ -31,7 +28,6 @@ class TyranoAutoSavesDialog:
 
     def __init__(self, viewer: "TyranoSaveViewer") -> None:
         self.t = t = viewer.t
-        self.storage_dir = Path(viewer.analyzer.storage_dir)
 
         self.dialog = create_dialog(viewer.root_window, t("tyrano_auto_saves_dialog_title"), "500x280",
                                     modal=False, use_ctk=True)
@@ -39,7 +35,7 @@ class TyranoAutoSavesDialog:
         main_frame.pack(fill="both", expand=True, padx=10, pady=10)
 
         for filename, name_key, desc_key in AUTO_SAVE_FILES:
-            file_path = self.storage_dir / filename
+            file_path = viewer.analyzer.storage_dir / filename
             exists = file_path.is_file()
 
             row_container = ctk.CTkFrame(main_frame, fg_color=Colors.WHITE)
@@ -69,7 +65,6 @@ class TyranoAutoSavesDialog:
         except PermissionError:
             error = t("tyrano_auto_save_error_no_permission")
         except (OSError, ValueError) as e:
-            logger.error("Failed to load auto save file %s: %s", file_path, e, exc_info=True)
             error = str(e)
         else:
             error = None
@@ -77,25 +72,14 @@ class TyranoAutoSavesDialog:
             showerror_relative(self.dialog, t("error"), t("tyrano_auto_save_load_failed", error=error))
             return
 
-        def load() -> dict[str, Any] | None:
-            try:
-                return read_sav(file_path)
-            except (OSError, ValueError) as e:
-                logger.error("Failed to reload auto save file %s: %s", file_path, e, exc_info=True)
-                return None
-
-        def save(edited_data: dict[str, Any]) -> bool:
-            write_sav(file_path, edited_data)
-            return True
-
         SaveFileViewer.open_or_focus(
             viewer_id=str(file_path.resolve()),   # 用绝对路径区分不同文件的编辑器窗口
             parent=self.dialog,
             t=t,
             data=save_data,
             title=f"{t('tyrano_auto_saves_dialog_title')} - {t(name_key)}",
-            load=load,
-            save=save,
+            load=lambda: read_sav(file_path),   # 出错时由编辑器显示错误
+            save=lambda edited: write_sav(file_path, edited),
             collapsed_fields=TYRANO_COLLAPSED_FIELDS,
             show_collapse_toggle=True,
             on_saved=lambda edited: showinfo_relative(self.dialog, t("success"), t("tyrano_auto_save_save_success")),

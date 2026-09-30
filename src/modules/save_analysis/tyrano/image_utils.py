@@ -4,7 +4,6 @@
 """
 
 import hashlib
-import logging
 import platform
 import threading
 from collections import OrderedDict
@@ -14,26 +13,19 @@ from PIL import Image, ImageDraw, ImageFont
 
 from src.utils.images import decode_image_data
 
-logger = logging.getLogger(__name__)
-
 Size = tuple[int, int]
 
-DEFAULT_THUMBNAIL_SIZE: Size = (120, 90)
-_ASPECT_RATIO_4_3 = 4.0 / 3.0
+MAX_CACHED_ORIGINALS = 12
+MAX_CACHED_THUMBNAILS = 120
 
 
 def thumbnail_size(slot_size: Size, image_size: Size | None = None) -> Size:
     """存档槽卡片中缩略图的尺寸：保持图片宽高比，最多占卡片宽度的 35%、高度的 85%"""
     slot_w, slot_h = slot_size
-    if slot_w <= 0 or slot_h <= 0:
-        return DEFAULT_THUMBNAIL_SIZE
     # 20 = 卡片内容区左右（或上下）各 10px 的内边距
     max_w = max(int(slot_w * 0.35) - 20, 80)
     max_h = max(int(slot_h * 0.85) - 20, 80)
-    if image_size and image_size[1] > 0:
-        ratio = image_size[0] / image_size[1]
-    else:
-        ratio = _ASPECT_RATIO_4_3
+    ratio = image_size[0] / image_size[1] if image_size else 4 / 3   # 占位图用 4:3
     width_by_height = int(max_h * ratio)
     if width_by_height <= max_w:
         return (width_by_height, max_h)
@@ -46,12 +38,10 @@ class ImageCache:
     翻页时主界面、删除对话框和邻页预取可能同时在不同线程里读写，所以所有操作都加锁。
     """
 
-    def __init__(self, max_originals: int = 12, max_thumbnails: int = 120) -> None:
+    def __init__(self) -> None:
         self._lock = threading.Lock()
         self._originals: OrderedDict[str, Image.Image] = OrderedDict()
         self._thumbnails: OrderedDict[tuple[str, Size], Image.Image] = OrderedDict()
-        self._max_originals = max_originals
-        self._max_thumbnails = max_thumbnails
 
     def _get(self, store: OrderedDict, key) -> Image.Image | None:
         with self._lock:
@@ -70,7 +60,7 @@ class ImageCache:
     def get_thumbnail(self, image_data: str, slot_size: Size) -> Image.Image | None:
         """返回适合放进 slot_size 大小的存档槽卡片的缩略图；图片无法解码时返回 None"""
         if not isinstance(image_data, str):
-            return None
+            return None   # 游戏数据里的 img_data 不是字符串
         # 用 md5 而不是 base64 字符串本身作键：缓存就不会一直引用几百 KB 的字符串
         # （重新读文件后旧字符串可以被释放）；算 md5 比解码图片快得多
         key = hashlib.md5(image_data.encode("utf-8")).hexdigest()
@@ -79,13 +69,13 @@ class ImageCache:
             original = decode_image_data(image_data)
             if original is None:
                 return None
-            self._put(self._originals, key, original, self._max_originals)
+            self._put(self._originals, key, original, MAX_CACHED_ORIGINALS)
 
         size = thumbnail_size(slot_size, original.size)
         thumbnail = self._get(self._thumbnails, (key, size))
         if thumbnail is None:
             thumbnail = original.resize(size, Image.Resampling.BILINEAR)
-            self._put(self._thumbnails, (key, size), thumbnail, self._max_thumbnails)
+            self._put(self._thumbnails, (key, size), thumbnail, MAX_CACHED_THUMBNAILS)
         return thumbnail
 
     def clear(self) -> None:
@@ -134,9 +124,6 @@ def _has_cjk(text: str) -> bool:
 @lru_cache(maxsize=64)
 def create_placeholder_image(size: Size, text: str) -> Image.Image:
     """浅灰底、居中灰字的占位图（结果会被缓存，调用方不要修改返回的图片）"""
-    if size[0] <= 0 or size[1] <= 0:
-        raise ValueError(f"Invalid size: {size}")
-    text = text or ""
     image = Image.new('RGB', size, color='lightgray')
     draw = ImageDraw.Draw(image)
     font_size = max(10, min(size[0] // len(text) if text else 12, size[1] // 4))
@@ -149,8 +136,6 @@ def create_placeholder_image(size: Size, text: str) -> Image.Image:
 @lru_cache(maxsize=16)
 def create_status_circle_image(diameter: int, is_active: bool) -> Image.Image:
     """事件完成状态的圆点：已完成为青到粉的竖向渐变，未完成为深色，都带金色描边"""
-    if diameter <= 0:
-        raise ValueError(f"Diameter must be positive, got {diameter}")
     padding = 2
     size = diameter + padding * 2
     image = Image.new('RGBA', (size, size), (0, 0, 0, 0))
@@ -163,7 +148,7 @@ def create_status_circle_image(diameter: int, is_active: bool) -> Image.Image:
         start, end = (107, 176, 168), (226, 80, 141)
         top, bottom = center - radius, center + radius
         for y in range(top, bottom + 1):
-            progress = (y - top) / (bottom - top) if bottom > top else 0.0
+            progress = (y - top) / (bottom - top)
             color = tuple(int(s + (e - s) * progress) for s, e in zip(start, end)) + (255,)
             dx = int((radius ** 2 - (y - center) ** 2) ** 0.5)
             draw.line([(center - dx, y), (center + dx, y)], fill=color, width=1)

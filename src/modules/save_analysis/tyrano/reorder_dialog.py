@@ -1,6 +1,5 @@
 """存档重排序对话框（拖拽排序），以及保存前查看各页变化的预览窗口"""
 
-import logging
 import tkinter as tk
 from collections.abc import Callable
 from tkinter import ttk
@@ -25,8 +24,6 @@ from src.utils.ui_utils import (
 
 if TYPE_CHECKING:
     from src.modules.save_analysis.tyrano.save_viewer import TyranoSaveViewer
-
-logger = logging.getLogger(__name__)
 
 PREVIEW_THUMB_SIZE = (80, 60)
 
