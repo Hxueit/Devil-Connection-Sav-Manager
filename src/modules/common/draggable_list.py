@@ -14,6 +14,7 @@ from src.utils.ui_utils import widget_alive
 
 DRAG_THRESHOLD = 5  # 鼠标移动超过这么多像素才算开始拖拽
 HIGHLIGHT_MS = 3000
+ITEMS_PER_PAGE = 6
 
 
 class TreeDragReorder:
@@ -42,7 +43,7 @@ class TreeDragReorder:
         tree.bind('<ButtonRelease-1>', self._on_release, add="+")
 
     def _is_row(self, item: str) -> bool:
-        return bool(item) and self.tree.exists(item) and self.is_data_row(item)
+        return bool(item) and self.is_data_row(item)
 
     def _on_press(self, event: tk.Event) -> None:
         item = self.tree.identify_row(event.y)
@@ -77,7 +78,8 @@ class TreeDragReorder:
     def _on_release(self, event: tk.Event) -> None:
         start, was_dragging = self._start_item, self._dragging
         self._finish()
-        if not was_dragging or start is None or not self.tree.exists(start) or not self.can_drag():
+        # 拖拽期间列表可能被重新载入（例如检测到存档变化），起点行就不在了
+        if not was_dragging or not self.tree.exists(start) or not self.can_drag():
             return
         target = self.tree.identify_row(event.y)
         if target != start and self._is_row(target):
@@ -110,7 +112,7 @@ class TreeDragReorder:
 
 
 class DraggableList:
-    """可拖拽排序的列表，每 items_per_page 项插入一行页码
+    """可拖拽排序的列表，每 ITEMS_PER_PAGE 项插入一行页码
 
     format_item(数据, 原始索引) 返回每一行显示的文字。
     顺序用「原始索引列表」表示，改变后调用 on_order_changed(新顺序)。
@@ -124,14 +126,12 @@ class DraggableList:
         format_item: Callable[[Any, int], str],
         on_order_changed: Callable[[list[int]], None],
         t: Callable[..., str],
-        items_per_page: int = 6,
     ) -> None:
         self.root = root
         self.data_items = data_items
         self.format_item = format_item
         self.on_order_changed = on_order_changed
         self.t = t
-        self.items_per_page = items_per_page
         self._current_order: list[int] = list(range(len(data_items)))
         self._highlight_timer: str | None = None
 
@@ -151,7 +151,7 @@ class DraggableList:
         self.tree.pack(side="left", fill="both", expand=True)
         scrollbar.config(command=self.tree.yview)
 
-        self._drag = TreeDragReorder(self.tree, self._is_data_row, self._move)
+        TreeDragReorder(self.tree, self._is_data_row, self._move)
         self._populate_list()
 
     def _is_data_row(self, item: str) -> bool:
@@ -160,8 +160,8 @@ class DraggableList:
     def _populate_list(self) -> None:
         self.tree.delete(*self.tree.get_children())
         for count, idx in enumerate(self._current_order):
-            if count % self.items_per_page == 0:
-                page_text = f"{self.t('page')} {count // self.items_per_page + 1}"
+            if count % ITEMS_PER_PAGE == 0:
+                page_text = f"{self.t('page')} {count // ITEMS_PER_PAGE + 1}"
                 self.tree.insert("", "end", values=(page_text,), tags=("PageHeader",))
             text = self.format_item(self.data_items[idx], idx)
             self.tree.insert("", "end", values=(text,))
@@ -183,7 +183,7 @@ class DraggableList:
 
         def clear() -> None:
             self._highlight_timer = None
-            if widget_alive(self.tree) and self.tree.exists(item):
+            if widget_alive(self.tree):  # 对话框可能已经关了
                 tags = [tag for tag in self.tree.item(item, "tags") if tag != "Highlighted"]
                 self.tree.item(item, tags=tags)
 

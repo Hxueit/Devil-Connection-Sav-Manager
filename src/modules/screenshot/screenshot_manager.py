@@ -113,31 +113,10 @@ class ScreenshotManager:
         # {截图ID: [主文件名, 缩略图文件名]}，缺失的文件为 None
         self.sav_pairs: dict[str, list[str | None]] = {}
 
-    def set_storage_dir(self, storage_dir: str | None) -> None:
-        self.storage_dir = Path(storage_dir) if storage_dir else None
-
     # ---------- 读取 ----------
-
-    def _scan_files(self) -> None:
-        """扫描存储目录，重建 sav_pairs"""
-        self.sav_pairs = {}
-        if not self.storage_dir or not self.storage_dir.is_dir():
-            return
-        try:
-            for file_path in self.storage_dir.iterdir():
-                parsed = parse_screenshot_filename(file_path.name)
-                if parsed and file_path.is_file():
-                    screenshot_id, is_thumb = parsed
-                    pair = self.sav_pairs.setdefault(screenshot_id, [None, None])
-                    pair[1 if is_thumb else 0] = file_path.name
-        except OSError as e:
-            logger.error(f"Failed to scan directory {self.storage_dir}: {e}")
-            self.sav_pairs = {}
 
     def load_screenshots(self) -> bool:
         """读取两个索引文件并扫描图片文件，缺少索引文件或读取失败时返回 False"""
-        if not self.storage_dir:
-            return False
         ids_path = self.storage_dir / IDS_FILENAME
         all_ids_path = self.storage_dir / ALL_IDS_FILENAME
         if not (ids_path.exists() and all_ids_path.exists()):
@@ -145,6 +124,7 @@ class ScreenshotManager:
         try:
             ids_data = read_sav(ids_path)
             all_ids_data = read_sav(all_ids_path)
+            file_names = [path.name for path in self.storage_dir.iterdir() if path.is_file()]
         except (OSError, ValueError) as e:
             logger.error(f"Failed to load screenshots: {e}", exc_info=True)
             return False
@@ -155,16 +135,19 @@ class ScreenshotManager:
             return False
         self.ids_data = ids_data
         self.all_ids_data = all_ids_data
-        self._scan_files()
+        self.sav_pairs = {}
+        for name in file_names:
+            parsed = parse_screenshot_filename(name)
+            if parsed:
+                screenshot_id, is_thumb = parsed
+                self.sav_pairs.setdefault(screenshot_id, [None, None])[1 if is_thumb else 0] = name
         return True
 
     def file_path(self, screenshot_id: str, thumb: bool = False) -> Path | None:
         """截图文件的路径；文件不存在时返回 None"""
         pair = self.sav_pairs.get(screenshot_id)
         name = pair and pair[1 if thumb else 0]
-        if not name or not self.storage_dir:
-            return None
-        return self.storage_dir / name
+        return self.storage_dir / name if name else None
 
     def get_image_data(self, screenshot_id: str) -> bytes | None:
         """读取主图的图片字节，失败时返回 None"""
@@ -173,24 +156,16 @@ class ScreenshotManager:
 
     # ---------- 写入 ----------
 
-    def _save_index(self) -> None:
-        """写入两个索引文件（失败时抛出 OSError）"""
-        write_sav(self.storage_dir / IDS_FILENAME, self.ids_data)
-        write_sav(self.storage_dir / ALL_IDS_FILENAME, self.all_ids_data)
-
     def _replace_index(self, ids_data: list[dict[str, str]], all_ids_data: list[str] | None = None) -> None:
         """保存新的索引内容；写入失败时内存中的索引保持不变并抛出 OSError
 
         all_ids_data 省略时按 ids_data 的顺序重建。
         """
-        old = self.ids_data, self.all_ids_data
-        self.ids_data = ids_data
-        self.all_ids_data = [item['id'] for item in ids_data] if all_ids_data is None else all_ids_data
-        try:
-            self._save_index()
-        except OSError:
-            self.ids_data, self.all_ids_data = old
-            raise
+        if all_ids_data is None:
+            all_ids_data = [item['id'] for item in ids_data]
+        write_sav(self.storage_dir / IDS_FILENAME, ids_data)
+        write_sav(self.storage_dir / ALL_IDS_FILENAME, all_ids_data)
+        self.ids_data, self.all_ids_data = ids_data, all_ids_data
 
     def sort_by_date(self, ascending: bool = True) -> None:
         """按日期排序并保存
@@ -207,11 +182,6 @@ class ScreenshotManager:
 
     def move_item(self, from_index: int, to_index: int) -> None:
         """把一张截图移动到新位置并保存（保存失败时抛出 OSError）"""
-        if from_index == to_index:
-            return
-        if not (0 <= from_index < len(self.ids_data) and 0 <= to_index < len(self.ids_data)):
-            logger.warning(f"Invalid indices: from={from_index}, to={to_index}, total={len(self.ids_data)}")
-            return
         new_order = list(self.ids_data)
         new_order.insert(to_index, new_order.pop(from_index))
         self._replace_index(new_order)
@@ -236,44 +206,28 @@ class ScreenshotManager:
             raise ScreenshotError("id_exists")
         if not self.storage_dir:
             raise ScreenshotError("storage_dir_not_set")
-        image_path_obj = Path(image_path)
-        if not image_path_obj.exists():
-            raise ScreenshotError("file_not_exist")
-
         try:
-            written = self._write_image_files(screenshot_id, image_path_obj, self._existing_thumb_size())
+            written = self._write_image_files(screenshot_id, Path(image_path), self._existing_thumb_size())
         except (OSError, ValueError) as e:  # PIL 的 UnidentifiedImageError 是 OSError 的子类
-            logger.error(f"Failed to add screenshot: {e}", exc_info=True)
             raise ScreenshotError("file_operation_failed", str(e)) from e
 
-        self.ids_data.append({"id": screenshot_id, "date": date_string})
-        self.all_ids_data.append(screenshot_id)
         try:
-            self._save_index()
+            self._replace_index(self.ids_data + [{"id": screenshot_id, "date": date_string}],
+                                self.all_ids_data + [screenshot_id])
         except OSError as e:
-            logger.error(f"Failed to save screenshot index: {e}", exc_info=True)
-            self.ids_data.pop()
-            self.all_ids_data.pop()
-            self.sav_pairs.pop(screenshot_id, None)
+            del self.sav_pairs[screenshot_id]
             for path in written:
                 path.unlink(missing_ok=True)
             raise ScreenshotError("save_failed", str(e)) from e
 
     def replace_screenshot(self, screenshot_id: str, new_image_path: str) -> None:
         """用新图片替换已有截图（沿用原缩略图的尺寸），失败时抛出 ScreenshotError"""
-        if screenshot_id not in self.sav_pairs:
-            raise ScreenshotError("screenshot_not_exist")
         thumb_path = self.file_path(screenshot_id, thumb=True)
         if not self.file_path(screenshot_id) or not thumb_path:
             raise ScreenshotError("file_missing")
-        new_path = Path(new_image_path)
-        if not new_path.exists():
-            raise ScreenshotError("file_not_exist")
-
         try:
-            self._write_image_files(screenshot_id, new_path, thumb_image_size(thumb_path) or DEFAULT_THUMB_SIZE)
+            self._write_image_files(screenshot_id, Path(new_image_path), thumb_image_size(thumb_path) or DEFAULT_THUMB_SIZE)
         except (OSError, ValueError) as e:
-            logger.error(f"Failed to replace screenshot: {e}", exc_info=True)
             raise ScreenshotError("file_operation_failed", str(e)) from e
 
     def delete_screenshots(self, screenshot_ids: list[str]) -> list[str]:
@@ -297,8 +251,7 @@ class ScreenshotManager:
                     continue
                 try:
                     (self.storage_dir / name).unlink(missing_ok=True)
-                except OSError as e:
-                    logger.warning(f"Failed to delete {name}: {e}")
+                except OSError:
                     failed.append(name)
         return failed
 
@@ -312,36 +265,33 @@ class ScreenshotManager:
         return DEFAULT_THUMB_SIZE
 
 
+def open_sav_image(sav_path: Path) -> Image.Image:
+    """打开截图 .sav 文件里的图片（未解码像素，用 with 关闭）；读不出来时抛出 OSError/ValueError"""
+    return Image.open(BytesIO(data_uri_to_bytes(read_sav(sav_path))))
+
+
 def read_image_file(sav_path: Path) -> bytes | None:
     """读取截图 .sav 文件里的图片字节，失败时返回 None"""
     try:
         return data_uri_to_bytes(read_sav(sav_path))
-    except (OSError, ValueError) as e:
-        logger.debug(f"Failed to read image from {sav_path}: {e}")
+    except (OSError, ValueError):
         return None
 
 
 def load_resized_image(sav_path: Path, size: tuple[int, int],
-                      resample: Image.Resampling = Image.Resampling.BILINEAR) -> Image.Image | None:
+                       resample: Image.Resampling = Image.Resampling.BILINEAR) -> Image.Image | None:
     """读取截图文件并缩放到 size，读不出来时返回 None（给后台线程用，不碰界面）"""
-    data = read_image_file(sav_path)
-    if data is None:
-        return None
     try:
-        with Image.open(BytesIO(data)) as img:
+        with open_sav_image(sav_path) as img:
             return img.resize(size, resample)
-    except (OSError, ValueError) as e:
-        logger.debug(f"Failed to decode image from {sav_path}: {e}")
+    except (OSError, ValueError):
         return None
 
 
 def thumb_image_size(thumb_path: Path) -> tuple[int, int] | None:
     """读取缩略图文件的图片尺寸（只解析文件头，不解码像素）"""
-    data = read_image_file(thumb_path)
-    if not data:
-        return None
     try:
-        with Image.open(BytesIO(data)) as img:
+        with open_sav_image(thumb_path) as img:
             return img.size
-    except OSError:
+    except (OSError, ValueError):
         return None

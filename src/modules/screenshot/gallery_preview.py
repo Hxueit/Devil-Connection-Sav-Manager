@@ -69,7 +69,7 @@ class GalleryPreview:
 
     def show(self) -> None:
         """打开画廊窗口；已经打开时把它提到前面"""
-        if not self.manager.storage_dir or not self.manager.ids_data:
+        if not self.manager.ids_data:
             showerror_relative(self.root, self.t("error"), self.t("select_dir_hint"))
             return
         if widget_alive(self.window) and restore_and_activate_window(self.window):
@@ -234,8 +234,8 @@ class GalleryPreview:
             return {key: load_resized_image(Path(key[0]), size) for key in keys}
 
         def done(images: dict[CacheKey, Image.Image | None] | None, error: BaseException | None) -> None:
-            if token != self._page_token or not widget_alive(self.window):
-                return  # 页面已经换了
+            if token != self._page_token:
+                return  # 页面已经换了（窗口关掉时 run_in_background 不会回调）
             images = images or {}
             for cell, label, screenshot_id, key in to_load:
                 image = images.get(key)

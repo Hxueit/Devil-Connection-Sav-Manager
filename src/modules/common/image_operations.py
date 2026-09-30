@@ -5,7 +5,6 @@
     ImageReplaceHelper  选择新图片 -> 新旧对比确认 -> 回调
 """
 
-import logging
 import tkinter as tk
 from collections.abc import Callable
 from io import BytesIO
@@ -17,8 +16,6 @@ from PIL import Image, ImageTk
 from src.utils.images import IMAGE_FILE_TYPES, ImageSource, open_image
 from src.utils.styles import Colors
 from src.utils.ui_utils import create_dialog, dialog_label, showerror_relative, showinfo_relative
-
-logger = logging.getLogger(__name__)
 
 EXPORT_QUALITY = 95
 REPLACE_PREVIEW_SIZE = (400, 300)
@@ -91,7 +88,6 @@ class ImageExportHelper:
         try:
             Path(save_path).write_bytes(convert_image(open_image(image_data), format_choice))
         except (OSError, ValueError) as e:
-            logger.error(f"Failed to export image: {e}", exc_info=True)
             showerror_relative(self.root, self.t("error"), f"{self.t('export_failed')}: {e}")
             return
         showinfo_relative(self.root, self.t("success"), self.t("export_success", path=save_path))
@@ -106,18 +102,17 @@ class ImageReplaceHelper:
         self._photo_refs: list[ImageTk.PhotoImage] = []
 
     def show_replace_flow(self, original_image: ImageSource, on_confirm_callback: Callable[[Path], None],
-                          is_valid_image_check: Callable[[Path], bool] | None = None) -> None:
+                          is_valid_image_check: Callable[[Path], bool]) -> None:
         """选择新图片 -> 新旧对比确认 -> on_confirm_callback(新图片路径)"""
         path = filedialog.askopenfilename(title=self.t("select_new_image"), filetypes=IMAGE_FILE_TYPES)
         if not path:
             return
         new_image_path = Path(path)
-        is_valid_image = is_valid_image_check(new_image_path) if is_valid_image_check else True
-        if self._confirm_replace(original_image, new_image_path, is_valid_image):
+        if self._confirm_replace(original_image, new_image_path, is_valid_image_check(new_image_path)):
             on_confirm_callback(new_image_path)
 
     def _confirm_replace(self, original_image: ImageSource, new_image_path: Path,
-                         is_valid_image: bool = True) -> bool:
+                         is_valid_image: bool) -> bool:
         """显示新旧图片对比，等待用户确认；确认返回 True"""
         self._photo_refs.clear()
         popup = create_dialog(self.root, self.t("replace_warning"), "900x500")
@@ -156,8 +151,7 @@ class ImageReplaceHelper:
     def _add_preview(self, parent: tk.Frame, source: ImageSource) -> None:
         try:
             preview = open_image(source).resize(REPLACE_PREVIEW_SIZE, Image.Resampling.BILINEAR)
-        except (OSError, ValueError) as e:
-            logger.debug(f"Failed to display image preview: {e}")
+        except (OSError, ValueError):
             dialog_label(parent, self.t("preview_failed"), size=12, fg="red").pack(side="left", padx=10)
             return
         photo = ImageTk.PhotoImage(preview)

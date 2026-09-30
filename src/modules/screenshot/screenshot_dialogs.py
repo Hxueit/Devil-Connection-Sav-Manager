@@ -1,10 +1,8 @@
 """截图的新增 / 替换 / 导出对话框"""
 
-import logging
 import tkinter as tk
 import zipfile
 from collections.abc import Callable
-from io import BytesIO
 from pathlib import Path
 from tkinter import filedialog, ttk
 
@@ -22,7 +20,7 @@ from src.modules.screenshot.screenshot_manager import (
     current_datetime,
     generate_id,
     is_valid_date,
-    read_image_file,
+    open_sav_image,
 )
 from src.utils.background import run_in_background
 from src.utils.images import IMAGE_FILE_TYPES, is_image_file
@@ -35,8 +33,6 @@ from src.utils.ui_utils import (
     showinfo_relative,
     widget_alive,
 )
-
-logger = logging.getLogger(__name__)
 
 ASPECT_RATIO_TOLERANCE = 30  # 高度与 4:3 的偏差在这么多像素内都算 4:3
 
@@ -61,13 +57,9 @@ def show_add_dialog(root: tk.Misc, manager: ScreenshotManager, t: Callable[..., 
     if not path_str:
         return
     image_path = Path(path_str)
-    if not image_path.exists():
-        showerror_relative(root, t("error"), t("file_not_exist"))
-        return
-
     is_image = is_image_file(image_path)
     ratio_ok = is_image and is_4_3(image_path)
-    height = 300 + (80 if not is_image or not ratio_ok else 0)
+    height = 300 if ratio_ok else 380  # 多出来的高度放警告文字
     dialog = create_dialog(root, t("add_new_title"), f"400x{height}")
 
     if not is_image:
@@ -120,13 +112,8 @@ def show_add_dialog(root: tk.Misc, manager: ScreenshotManager, t: Callable[..., 
 def show_replace_dialog(root: tk.Misc, manager: ScreenshotManager, t: Callable[..., str],
                         screenshot_id: str, on_replaced: Callable[[str], None]) -> None:
     """选择新图片替换截图；成功后调用 on_replaced(截图ID)"""
-    main_path = manager.file_path(screenshot_id)
-    thumb_path = manager.file_path(screenshot_id, thumb=True)
-    if not main_path or not thumb_path:
+    if not manager.file_path(screenshot_id) or not manager.file_path(screenshot_id, thumb=True):
         showerror_relative(root, t("error"), t("file_missing"))
-        return
-    if not main_path.exists() or not thumb_path.exists():
-        showerror_relative(root, t("error"), t("file_not_exist"))
         return
     original = manager.get_image_data(screenshot_id)
     if original is None:
@@ -190,15 +177,14 @@ def _batch_export_to_zip(root: tk.Misc, manager: ScreenshotManager, t: Callable[
         exported = 0
         with zipfile.ZipFile(save_path, 'w', zipfile.ZIP_DEFLATED) as zip_file:
             for screenshot_id, path in paths:
-                data = read_image_file(path) if path else None
-                try:
-                    if data is None:
-                        raise ValueError("image not readable")
-                    with Image.open(BytesIO(data)) as img:
-                        zip_file.writestr(f"{screenshot_id}{extension}", convert_image(img, format_choice))
-                    exported += 1
-                except (OSError, ValueError) as e:
-                    logger.debug(f"Failed to export {screenshot_id}: {e}")
+                # 缺失或读不出来的截图跳过，最后统计失败数量
+                if path:
+                    try:
+                        with open_sav_image(path) as img:
+                            zip_file.writestr(f"{screenshot_id}{extension}", convert_image(img, format_choice))
+                        exported += 1
+                    except (OSError, ValueError):
+                        pass
                 progress["done"] += 1
         return exported
 

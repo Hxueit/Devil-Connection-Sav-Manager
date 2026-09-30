@@ -4,7 +4,6 @@
 每页分左右两个半页）。勾选「开启修改」后才能新增/替换/删除/排序/拖拽。
 """
 
-import logging
 import tkinter as tk
 from collections.abc import Callable
 from pathlib import Path
@@ -20,8 +19,6 @@ from src.utils.background import run_in_background
 from src.utils.hint_animation import HintAnimation
 from src.utils.styles import Colors, get_cjk_font
 from src.utils.ui_utils import askyesno_relative, showerror_relative, showinfo_relative, showwarning_relative
-
-logger = logging.getLogger(__name__)
 
 # 「开启修改」复选框的 ttk 样式名
 CHECKBOX_STYLE_NORMAL = "Screenshot.TCheckbutton"
@@ -72,9 +69,7 @@ class ScreenshotManagerUI:
                                    CHECKBOX_STYLE_NORMAL, CHECKBOX_STYLE_HINT)
         self._set_edit_mode(False)
 
-        if storage_dir:
-            self.manager.set_storage_dir(storage_dir)
-            self.load_screenshots(silent=True)
+        self.load_screenshots(silent=True)
 
     # ---------- 界面搭建 ----------
 
@@ -211,7 +206,6 @@ class ScreenshotManagerUI:
         self.storage_dir = storage_dir
         self.checked.clear()
         if storage_dir:
-            self.manager.set_storage_dir(storage_dir)
             self.hint_label.pack_forget()
         else:
             self.hint_label.pack(pady=10)
@@ -220,7 +214,7 @@ class ScreenshotManagerUI:
         """重新读取截图并刷新列表和画廊（silent 时出错不弹窗）"""
         if not self.storage_dir:
             return
-        self.manager.set_storage_dir(self.storage_dir)
+        self.manager.storage_dir = Path(self.storage_dir)
         if not self.manager.load_screenshots():
             if not silent:
                 showerror_relative(self.root, self.t("error"), self.t("missing_files"))
@@ -245,7 +239,7 @@ class ScreenshotManagerUI:
             if n % PER_PAGE == 0:
                 self.tree.insert("", tk.END, values=("", f"{self.t('page')} {page} ←"), tags=("PageHeaderLeft",))
 
-            screenshot_id = item.get('id', '')
+            screenshot_id = item['id']
             main_file = self.manager.sav_pairs.get(screenshot_id, [None, None])[0] or self.t("missing_main_file")
             text = f"{screenshot_id} - {main_file} - {item.get('date', '')}"
             row = self.tree.insert("", tk.END, values=(CHECKED if screenshot_id in self.checked else UNCHECKED, text))
@@ -272,11 +266,11 @@ class ScreenshotManagerUI:
         self._mark_timers[screenshot_id] = self.root.after(MARK_DURATION_MS, lambda: self._unmark_row(screenshot_id))
 
     def _unmark_row(self, screenshot_id: str) -> None:
-        self._mark_timers.pop(screenshot_id, None)
-        row = self._item_by_id.get(screenshot_id)
-        if row and self.tree.exists(row):
-            self.tree.set(row, "info", self._row_text[screenshot_id])
-            self.tree.item(row, tags=())
+        # 重新渲染列表时会取消所有计时器，所以这里的行一定还在
+        del self._mark_timers[screenshot_id]
+        row = self._item_by_id[screenshot_id]
+        self.tree.set(row, "info", self._row_text[screenshot_id])
+        self.tree.item(row, tags=())
 
     def _on_tree_click(self, event: tk.Event) -> str | None:
         """点击复选框列时切换勾选"""
@@ -304,14 +298,14 @@ class ScreenshotManagerUI:
     def _on_checked_changed(self) -> None:
         all_checked = bool(self._id_by_item) and len(self.checked) == len(self._id_by_item)
         self.tree.heading("select", text=CHECKED if all_checked else UNCHECKED)
-        if self.checked and self.storage_dir:
+        if self.checked:
             self.batch_export_button.pack(pady=5)
         else:
             self.batch_export_button.pack_forget()
 
     def _checked_ids(self) -> list[str]:
         """勾选的截图ID，按列表顺序"""
-        return [item['id'] for item in self.manager.ids_data if item.get('id') in self.checked]
+        return [item['id'] for item in self.manager.ids_data if item['id'] in self.checked]
 
     def _selected_id(self) -> str | None:
         """当前选中（高亮）行的截图ID；没选中时提示并返回 None"""
@@ -334,10 +328,9 @@ class ScreenshotManagerUI:
             return
         self.load_screenshots()
         moving_down = to_index > from_index
-        row = self._item_by_id.get(moved_id)
-        if row:
-            self.tree.selection_set(row)
-            self.tree.see(row)
+        row = self._item_by_id[moved_id]
+        self.tree.selection_set(row)
+        self.tree.see(row)
         self._mark_row(moved_id, "down" if moving_down else "up")
         self._mark_row(self.manager.ids_data[from_index]['id'], "up" if moving_down else "down")
 
@@ -398,7 +391,6 @@ class ScreenshotManagerUI:
         try:
             self.manager.sort_by_date(ascending=ascending)
         except (OSError, ValueError, KeyError) as e:
-            logger.error(f"Failed to sort screenshots: {e}", exc_info=True)
             showerror_relative(self.root, self.t("error"), self.t("save_failed", error=str(e)))
             return
         self.load_screenshots()
@@ -437,7 +429,6 @@ class ScreenshotManagerUI:
         try:
             failed_files = self.manager.delete_screenshots(selected_ids)
         except OSError as e:
-            logger.error(f"Failed to delete screenshots: {e}", exc_info=True)
             showerror_relative(self.root, self.t("error"), self.t("save_failed", error=str(e)))
             return
         self.load_screenshots()
