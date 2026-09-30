@@ -1,6 +1,5 @@
 """删除存档对话框：分页显示存档槽，点击选中后可以「清空为空存档」或「删除槽位（后续存档前移）」"""
 
-import logging
 import tkinter as tk
 from typing import TYPE_CHECKING
 
@@ -22,8 +21,6 @@ from src.utils.ui_utils import (
 
 if TYPE_CHECKING:
     from src.modules.save_analysis.tyrano.save_viewer import TyranoSaveViewer
-
-logger = logging.getLogger(__name__)
 
 SELECTED_BG_COLOR = "#FFE0E0"
 SELECTED_BORDER_COLOR = "#FF6B6B"
@@ -118,8 +115,6 @@ class TyranoDeleteDialog:
         self._load_page_images()
 
     def _load_page_images(self) -> None:
-        if not widget_alive(self.dialog):
-            return
         self._load_id += 1
         load_id = self._load_id
         self._slots_frame.update_idletasks()
@@ -144,8 +139,6 @@ class TyranoDeleteDialog:
     # --- 选择 ---
 
     def _toggle_selection(self, card: SlotCard) -> None:
-        if card.slot_index < 0:
-            return
         self._selected ^= {card.slot_index}
         self._update_card_color(card)
 

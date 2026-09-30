@@ -27,7 +27,8 @@ def tyrano(tmp_path):
     slots[3] = dict(EMPTY_SLOT)
     write_sav(tmp_path / TYRANO_SAVE_FILENAME, {"data": slots, "other": 1})
     analyzer = TyranoAnalyzer(str(tmp_path))
-    assert analyzer.load_save_file()
+    analyzer.set_save_data(analyzer.read_file())
+    assert analyzer.total_pages == 2
     return analyzer
 
 

@@ -6,7 +6,6 @@
 """
 
 import json
-import logging
 import re
 import tkinter as tk
 from collections.abc import Callable
@@ -25,15 +24,10 @@ from src.modules.save_analysis.tyrano.analyzer import (
     describe_slot,
     extract_save_info,
     is_empty_save,
-    step_page,
 )
 from src.modules.save_analysis.tyrano.constants import TYRANO_ROWS_PER_PAGE
-from src.modules.save_analysis.tyrano.image_utils import (
-    DEFAULT_THUMBNAIL_SIZE,
-    create_status_circle_image,
-    decode_image_data,
-)
-from src.utils.images import image_to_data_uri, is_image_file
+from src.modules.save_analysis.tyrano.image_utils import create_status_circle_image
+from src.utils.images import decode_image_data, image_to_data_uri, is_image_file
 from src.utils.styles import Colors, get_cjk_font, white_button
 from src.utils.ui_utils import (
     create_dialog,
@@ -44,8 +38,6 @@ from src.utils.ui_utils import (
 
 if TYPE_CHECKING:
     from src.modules.save_analysis.tyrano.save_viewer import TyranoSaveViewer
-
-logger = logging.getLogger(__name__)
 
 DATE_COLOR = "#000000"
 SUBTITLE_COLOR = "#2EA6B6"
@@ -109,8 +101,8 @@ class PageNavBar:
             widget.configure(text=self.t(key))
 
     def _step(self, delta: int) -> None:
-        if self._total > 0:
-            self._on_page_change(step_page(self._page, self._total, delta))
+        # 首尾循环：第一页的上一页是最后一页（没有存档时按钮是禁用的，_total 不会是 0）
+        self._on_page_change((self._page - 1 + delta) % self._total + 1)
 
     def _jump(self) -> None:
         text = self.jump_entry.get().strip()
@@ -166,7 +158,7 @@ def _date_for_name(save_date: str | None) -> str:
     """把保存时间转成 YYYY-MM-DD，用在文件名和窗口标题里"""
     if not save_date:
         return datetime.now().strftime("%Y-%m-%d")
-    date_part = save_date.split()[0] if save_date.split() else ""
+    date_part = save_date.partition(" ")[0]
     for fmt in ("%Y/%m/%d", "%Y-%m-%d"):
         try:
             return datetime.strptime(date_part, fmt).strftime("%Y-%m-%d")
@@ -192,7 +184,7 @@ class SlotCard:
         image_frame = ctk.CTkFrame(content, fg_color="transparent")
         image_frame.pack(side="left", fill="y", padx=(0, 10))
         self.image_label = ctk.CTkLabel(image_frame, text="", fg_color="transparent",
-                                        width=DEFAULT_THUMBNAIL_SIZE[0], height=DEFAULT_THUMBNAIL_SIZE[1])
+                                        width=120, height=90)
         self.image_label.pack(fill="none")
         self.text_frame = ctk.CTkFrame(content, fg_color="transparent")
         self.text_frame.pack(side="right", fill="both", expand=True)
@@ -259,13 +251,10 @@ class TyranoSaveSlot(SlotCard):
     def __init__(self, parent: tk.Misc, viewer: "TyranoSaveViewer") -> None:
         super().__init__(parent, viewer.t)
         self.viewer = viewer
+        self.root = viewer.root_window
         self._button_frame: ctk.CTkFrame | None = None
         self.image_label.configure(cursor="hand2")
         self.image_label.bind("<Button-1>", lambda e: None if self.is_empty else self._show_image_dialog())
-
-    @property
-    def root(self) -> tk.Misc:
-        return self.viewer.root_window
 
     def set_slot(self, slot_data: dict[str, Any] | None, index: int) -> None:
         super().set_slot(slot_data, index)
@@ -339,8 +328,7 @@ class TyranoSaveSlot(SlotCard):
             return
         try:
             Path(file_path).write_text(json.dumps(self.slot_data, ensure_ascii=False, indent=2), encoding="utf-8")
-        except (OSError, TypeError, ValueError) as e:
-            logger.error("Failed to export save slot: %s", e, exc_info=True)
+        except OSError as e:
             showerror_relative(self.root, self.t("error"), self.t("tyrano_export_failed", error=str(e)))
             return
         showinfo_relative(self.root, self.t("success"), self.t("tyrano_export_success", path=file_path))
@@ -366,7 +354,7 @@ class TyranoSaveSlot(SlotCard):
 
         preview_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         preview_frame.pack(side="top", fill="both", expand=True, pady=(0, 20))
-        image = decode_image_data(image_data) if image_data else None
+        image = decode_image_data(image_data)
         if image is not None:
             ratio = min(300 / image.width, 225 / image.height, 1.0)
             preview = image.resize((int(image.width * ratio), int(image.height * ratio)), Image.Resampling.BILINEAR)
@@ -380,15 +368,13 @@ class TyranoSaveSlot(SlotCard):
             if not image_data:
                 showwarning_relative(dialog, t("warning"), t("tyrano_imgdata_no_image"))
                 return
-            helper = ImageReplaceHelper(self.root, t)
-            helper.show_replace_flow(image_data, replace_image, is_image_file)
+            ImageReplaceHelper(self.root, t).show_replace_flow(image_data, replace_image, is_image_file)
 
         def replace_image(new_image_path: Path) -> None:
             try:
                 with Image.open(new_image_path) as new_image:
                     new_image_data = image_to_data_uri(new_image)
             except (OSError, ValueError) as e:
-                logger.error("Failed to read replacement image: %s", e, exc_info=True)
                 showerror_relative(dialog, t("error"), f"{t('error')}: {e}")
                 return
             if not self.viewer.analyzer.replace_slot(index, {**slot_data, "img_data": new_image_data}):
@@ -399,14 +385,10 @@ class TyranoSaveSlot(SlotCard):
             dialog.destroy()
 
         def on_export() -> None:
-            if not image_data:
+            if image is None:
                 showwarning_relative(dialog, t("warning"), t("tyrano_imgdata_no_image"))
                 return
-            if image is None:
-                showerror_relative(dialog, t("error"), t("tyrano_imgdata_no_image"))
-                return
-            helper = ImageExportHelper(self.root, t)
-            helper.show_format_dialog(image, self._export_basename())
+            ImageExportHelper(self.root, t).show_format_dialog(image, self._export_basename())
 
         button_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         button_frame.pack(side="bottom", fill="x", pady=(10, 0))

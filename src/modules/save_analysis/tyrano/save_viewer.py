@@ -1,7 +1,6 @@
 """Tyrano 存档标签页：像游戏里一样分页显示存档槽，并提供导入、删除、重排序、自动存档编辑等入口"""
 
 import json
-import logging
 import tkinter as tk
 from collections.abc import Callable
 from pathlib import Path
@@ -38,8 +37,6 @@ from src.utils.ui_utils import (
     widget_alive,
 )
 
-logger = logging.getLogger(__name__)
-
 RESIZE_DEBOUNCE_MS = 200
 PAGE_SWITCH_DEBOUNCE_MS = 150
 DEFAULT_SLOT_SIZE = (300, 150)
@@ -68,22 +65,16 @@ class TyranoSaveViewer:
         self.slot_widgets: list[TyranoSaveSlot] = []
 
         self._load_id = 0              # 每次加载页面图片时加一，用来丢弃过期的后台结果
-        self._destroyed = False
         self._first_page_shown = False  # 第一页显示完成后才开始响应窗口大小变化
         self._prefetching = False
         self._reading_file = False      # 正在后台读取存档文件，这时不能撤掉「加载中」遮罩
         self._page_timer: str | None = None
         self._resize_timer: str | None = None
         self._last_parent_size: tuple[int, int] | None = None
-        self._loading_overlay: ctk.CTkFrame | None = None
-        self._loading_label: ctk.CTkLabel | None = None
         self._texts: list[tuple[Any, str]] = []   # (控件, 翻译键)，切换语言时更新
 
         self._create_ui()
-        if analyzer.save_data is None:
-            self.refresh()   # 调用方还没读取存档：在后台读取
-        else:
-            self.refresh_display()
+        self.refresh()
         self._refresh_when_mapped(attempts_left=5)
 
     # ------------------------------------------------------------------
@@ -110,6 +101,13 @@ class TyranoSaveViewer:
         self.auto_saves_button = self._button(nav, "tyrano_auto_saves_button",
                                               lambda: TyranoAutoSavesDialog(self), "right")
 
+        # 盖住存档区域的「加载中」遮罩，需要时才 place 出来
+        self._loading_overlay = ctk.CTkFrame(self.slots_frame, fg_color=Colors.WHITE)
+        loading_label = ctk.CTkLabel(self._loading_overlay, text=self.t("loading"), font=get_cjk_font(12),
+                                     text_color=Colors.TEXT_SECONDARY, fg_color="transparent")
+        loading_label.place(relx=0.5, rely=0.5, anchor="center")
+        self._texts.append((loading_label, "loading"))
+
     def _button(self, parent: tk.Misc, text_key: str, command: Callable[[], Any], side: str) -> ctk.CTkButton:
         button = white_button(parent, self.t(text_key), command, width=60, height=30)
         button.pack(side=side, padx=5)
@@ -121,23 +119,11 @@ class TyranoSaveViewer:
         for widget, key in self._texts:
             widget.configure(text=self.t(key))
         self.page_bar.update_texts()
-        if self._loading_label is not None:
-            self._loading_label.configure(text=self.t("loading"))
         self.refresh_display()
 
     def _show_loading_overlay(self) -> None:
-        if self._loading_overlay is None:
-            self._loading_overlay = ctk.CTkFrame(self.slots_frame, fg_color=Colors.WHITE)
-            self._loading_label = ctk.CTkLabel(self._loading_overlay, text="", font=get_cjk_font(12),
-                                               text_color=Colors.TEXT_SECONDARY, fg_color="transparent")
-            self._loading_label.place(relx=0.5, rely=0.5, anchor="center")
-        self._loading_label.configure(text=self.t("loading"))
         self._loading_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
         self._loading_overlay.lift()
-
-    def _hide_loading_overlay(self) -> None:
-        if self._loading_overlay is not None:
-            self._loading_overlay.place_forget()
 
     # ------------------------------------------------------------------
     # 显示当前页
@@ -152,7 +138,7 @@ class TyranoSaveViewer:
 
         def done(save_data: dict | None, error: BaseException | None) -> None:
             self._reading_file = False
-            if self._destroyed:
+            if not widget_alive(self.slots_frame):
                 return
             # 读取期间如果导入、删除等操作已经改了数据（它们写文件前会重新读磁盘），
             # 内存里的数据比这次读到的还新，不能用读到的旧数据覆盖
@@ -167,15 +153,15 @@ class TyranoSaveViewer:
 
         修改存档后调用这个就行：analyzer 修改成功后内存和文件是一致的，不用重新读文件。
         """
-        if self._destroyed or not widget_alive(self.slots_frame):
-            return
+        if not widget_alive(self.slots_frame):
+            return   # 标签页已经销毁（翻页/缩放的定时器、后台读取完成时会调用这里）
         if not self.slot_widgets:
             self.slot_widgets = [TyranoSaveSlot(cell, self) for cell in build_slot_grid(self.slots_frame)]
 
         page_slots = self.analyzer.get_current_page_slots()
         first_index = max(self.analyzer.current_page - 1, 0) * TYRANO_SAVES_PER_PAGE
-        for pos, card in enumerate(self.slot_widgets):
-            card.set_slot(page_slots[pos] if pos < len(page_slots) else None, first_index + pos)
+        for pos, (card, slot) in enumerate(zip(self.slot_widgets, page_slots)):
+            card.set_slot(slot, first_index + pos)
         self._load_page_images()
         self.page_bar.show(self.analyzer.current_page, self.analyzer.total_pages)
 
@@ -198,8 +184,8 @@ class TyranoSaveViewer:
             return [slot_thumbnail(data, slot_size, cache, no_image_text, failed_text) for data in image_datas]
 
         def done(thumbnails: list | None, error: BaseException | None) -> None:
-            if self._destroyed or load_id != self._load_id:
-                return   # 已经翻到别的页了
+            if load_id != self._load_id or not widget_alive(self.slots_frame):
+                return   # 已经翻到别的页了，或者标签页已经销毁
             if error is not None:
                 thumbnails = [create_placeholder_image(thumbnail_size(slot_size), failed_text)] * len(image_datas)
             diameter = self._circle_diameter()
@@ -207,7 +193,7 @@ class TyranoSaveViewer:
                 card.show_info(diameter)
                 card.set_image(thumbnail)
             if not self._reading_file:
-                self._hide_loading_overlay()
+                self._loading_overlay.place_forget()
             if not self._first_page_shown:
                 self._first_page_shown = True
                 self.parent.bind("<Configure>", self._on_window_resize)
@@ -229,13 +215,12 @@ class TyranoSaveViewer:
 
     def _circle_diameter(self) -> int:
         """完成状态圆点的直径，随卡片宽度在 12~18 之间变化"""
-        width = self.slot_widgets[0].text_frame.winfo_width()
-        return max(12, min(18, int(width * 0.10))) if width > 0 else 15
+        return max(12, min(18, int(self.slot_widgets[0].text_frame.winfo_width() * 0.10)))
 
     def _prefetch_adjacent_pages(self, slot_size: tuple[int, int]) -> None:
         """在后台为前后两页生成缩略图，让翻页更快"""
         page, total = self.analyzer.current_page, self.analyzer.total_pages
-        if self._prefetching or page < 1 or total <= 1:
+        if self._prefetching or total <= 1:
             return
         image_datas = []
         for p in (page - 1, page + 1):
@@ -260,7 +245,7 @@ class TyranoSaveViewer:
     def _refresh_when_mapped(self, attempts_left: int) -> None:
         """创建时标签页可能还没显示出来（尺寸为 1x1），等它显示后按真实尺寸再刷新一次"""
         def check() -> None:
-            if self._destroyed or not widget_alive(self.slots_frame):
+            if not widget_alive(self.slots_frame):
                 return
             frame = self.slots_frame
             if frame.winfo_ismapped() and frame.winfo_width() > 1 and frame.winfo_height() > 1:
@@ -270,7 +255,7 @@ class TyranoSaveViewer:
 
         self.parent.after(120, check)
 
-    def _on_window_resize(self, event: tk.Event | None = None) -> None:
+    def _on_window_resize(self, _event: tk.Event) -> None:
         size = (self.parent.winfo_width(), self.parent.winfo_height())
         if size == self._last_parent_size:
             return
@@ -280,21 +265,17 @@ class TyranoSaveViewer:
 
     def _cancel_timer(self, timer_id: str | None) -> None:
         if timer_id:
-            try:
-                self.parent.after_cancel(timer_id)
-            except (tk.TclError, ValueError):
-                pass
+            self.parent.after_cancel(timer_id)
 
     def cleanup(self) -> None:
-        """标签页被销毁前调用：停止定时器，丢弃后台结果，释放缓存"""
-        self._destroyed = True
-        self._load_id += 1
+        """标签页被销毁前调用：停止定时器，释放缓存
+
+        标签页的外层 frame（self.parent）不会被销毁，所以定时器要手动取消；
+        之后才完成的后台任务会发现 slots_frame 已经不在了，直接丢弃结果。
+        """
         self._cancel_timer(self._page_timer)
         self._cancel_timer(self._resize_timer)
         self.image_cache.clear()
-        if widget_alive(self._loading_overlay):
-            self._loading_overlay.destroy()
-        self._loading_overlay = self._loading_label = None
 
     # ------------------------------------------------------------------
     # 翻页
@@ -302,7 +283,7 @@ class TyranoSaveViewer:
 
     def _go_to_page(self, page: int) -> None:
         """翻页；连续点击翻页时只刷新最后一次"""
-        self.analyzer.set_page(page)
+        self.analyzer.current_page = page
         self.page_bar.show(self.analyzer.current_page, self.analyzer.total_pages)
         self._cancel_timer(self._page_timer)
         self._page_timer = self.parent.after(PAGE_SWITCH_DEBOUNCE_MS, self.refresh_display)
@@ -323,21 +304,10 @@ class TyranoSaveViewer:
 
         try:
             content = Path(file_path).read_text(encoding="utf-8").strip()
-        except FileNotFoundError:
-            showwarning_relative(self.root_window, t("warning"), t("tyrano_import_invalid_format"))
-            return
         except (OSError, ValueError) as e:
             showerror_relative(self.root_window, t("error"), t("tyrano_import_failed", error=str(e)))
             return
-
-        # 导出的文件是普通 JSON；也接受 .sav 那样 URL 编码过的 JSON
-        try:
-            slot_data = json.loads(content)
-        except ValueError:
-            try:
-                slot_data = decode_sav(content)
-            except ValueError:
-                slot_data = None
+        slot_data = _parse_slot_file(content)
         if not isinstance(slot_data, dict):
             showwarning_relative(self.root_window, t("warning"), t("tyrano_import_invalid_format"))
             return
@@ -356,3 +326,15 @@ class TyranoSaveViewer:
             self.refresh_display()
         else:
             showerror_relative(self.root_window, t("error"), t("tyrano_import_failed", error=""))
+
+
+def _parse_slot_file(text: str) -> Any:
+    """导出的文件是普通 JSON；也接受 .sav 那样 URL 编码过的 JSON。都解析不了时返回 None"""
+    try:
+        return json.loads(text)
+    except ValueError:
+        pass
+    try:
+        return decode_sav(text)
+    except ValueError:
+        return None
