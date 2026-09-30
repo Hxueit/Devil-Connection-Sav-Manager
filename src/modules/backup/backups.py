@@ -9,10 +9,10 @@ import logging
 import os
 import shutil
 import zipfile
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, List, Optional
 
 from src.constants import SF_SAVE_FILENAME, TYRANO_SAVE_FILENAME, VERSION
 
@@ -28,7 +28,7 @@ COMPRESSION_LEVEL = 7
 @dataclass
 class BackupInfo:
     zip_path: Path
-    timestamp: Optional[datetime]  # INFO 文件缺失或无法解析时为 None
+    timestamp: datetime | None  # INFO 文件缺失或无法解析时为 None
     has_info: bool
     file_size: int
 
@@ -46,7 +46,7 @@ def format_size(size_bytes: int) -> str:
             return f"{size_bytes:.2f} {unit}"
 
 
-def _list_files(storage_dir: Path) -> List[Path]:
+def _list_files(storage_dir: Path) -> list[Path]:
     return sorted(p for p in Path(storage_dir).rglob("*") if p.is_file())
 
 
@@ -69,7 +69,7 @@ def estimate_compressed_size(storage_dir: Path) -> int:
     return int(total_size * ratio)
 
 
-def create_backup(storage_dir: Path, progress: Optional[Callable[[int, int], None]] = None) -> Path:
+def create_backup(storage_dir: Path, progress: Callable[[int, int], None] | None = None) -> Path:
     """把 _storage 打包成新的备份文件，返回备份路径
 
     先写到 .partial 临时文件，全部成功后才改名成 .zip，
@@ -133,7 +133,7 @@ def _read_backup_timestamp(zip_path: Path):
         return None, False
 
 
-def scan_backups(backup_dir: Path) -> List[BackupInfo]:
+def scan_backups(backup_dir: Path) -> list[BackupInfo]:
     """列出备份：有时间戳的按时间倒序排在前面，其余排在后面"""
     backup_dir = Path(backup_dir)
     if not backup_dir.is_dir():
@@ -149,7 +149,7 @@ def scan_backups(backup_dir: Path) -> List[BackupInfo]:
     return dated + undated
 
 
-def missing_required_files(zip_path: Path) -> List[str]:
+def missing_required_files(zip_path: Path) -> list[str]:
     """返回备份中缺少的必需存档文件"""
     try:
         with zipfile.ZipFile(zip_path) as zf:

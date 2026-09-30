@@ -9,10 +9,11 @@ import json
 import logging
 import re
 import tkinter as tk
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any
 
 import customtkinter as ctk
 from PIL import Image
@@ -35,7 +36,10 @@ from src.modules.save_analysis.tyrano.image_utils import (
 from src.utils.images import image_to_data_uri, is_image_file
 from src.utils.styles import Colors, get_cjk_font, white_button
 from src.utils.ui_utils import (
-    create_dialog, showerror_relative, showinfo_relative, showwarning_relative,
+    create_dialog,
+    showerror_relative,
+    showinfo_relative,
+    showwarning_relative,
 )
 
 if TYPE_CHECKING:
@@ -126,7 +130,7 @@ class PageNavBar:
         self._on_page_change(page)
 
 
-def build_slot_grid(parent: tk.Misc) -> List[ctk.CTkFrame]:
+def build_slot_grid(parent: tk.Misc) -> list[ctk.CTkFrame]:
     """创建与游戏存档界面一致的两列三行网格，按页内顺序返回 6 个格子（先左列再右列）"""
     grid = ctk.CTkFrame(parent, fg_color=Colors.WHITE)
     grid.pack(fill="both", expand=True, padx=10, pady=5)
@@ -149,7 +153,7 @@ def build_slot_grid(parent: tk.Misc) -> List[ctk.CTkFrame]:
     return cells
 
 
-def slot_size_for_area(width: int, height: int) -> Optional[Tuple[int, int]]:
+def slot_size_for_area(width: int, height: int) -> tuple[int, int] | None:
     """由 build_slot_grid 所在区域的大小算出单个格子的大小；区域还没布局好时返回 None"""
     column_width = (width - 20 - 3 - 20) // 2   # 网格左右边距、分隔线及其两侧边距
     row_height = (height - 10) // TYRANO_ROWS_PER_PAGE
@@ -158,7 +162,7 @@ def slot_size_for_area(width: int, height: int) -> Optional[Tuple[int, int]]:
     return None
 
 
-def _date_for_name(save_date: Optional[str]) -> str:
+def _date_for_name(save_date: str | None) -> str:
     """把保存时间转成 YYYY-MM-DD，用在文件名和窗口标题里"""
     if not save_date:
         return datetime.now().strftime("%Y-%m-%d")
@@ -176,9 +180,9 @@ class SlotCard:
 
     def __init__(self, parent: tk.Misc, t: Callable[..., str]) -> None:
         self.t = t
-        self.slot_data: Optional[Dict[str, Any]] = None
+        self.slot_data: dict[str, Any] | None = None
         self.slot_index = -1
-        self._on_click: Optional[Callable[[tk.Event], None]] = None
+        self._on_click: Callable[[tk.Event], None] | None = None
 
         self.container = ctk.CTkFrame(parent, fg_color=Colors.LIGHT_GRAY, corner_radius=8,
                                       border_width=2, border_color=Colors.GRAY)
@@ -204,7 +208,7 @@ class SlotCard:
         for widget in self._frames:
             widget.bind("<Button-1>", callback)
 
-    def set_slot(self, slot_data: Optional[Dict[str, Any]], index: int) -> None:
+    def set_slot(self, slot_data: dict[str, Any] | None, index: int) -> None:
         """换成另一个存档槽的数据；信息面板要等 show_info() 时才重新创建"""
         self.slot_data = slot_data
         self.slot_index = index
@@ -255,7 +259,7 @@ class TyranoSaveSlot(SlotCard):
     def __init__(self, parent: tk.Misc, viewer: "TyranoSaveViewer") -> None:
         super().__init__(parent, viewer.t)
         self.viewer = viewer
-        self._button_frame: Optional[ctk.CTkFrame] = None
+        self._button_frame: ctk.CTkFrame | None = None
         self.image_label.configure(cursor="hand2")
         self.image_label.bind("<Button-1>", lambda e: None if self.is_empty else self._show_image_dialog())
 
@@ -263,7 +267,7 @@ class TyranoSaveSlot(SlotCard):
     def root(self) -> tk.Misc:
         return self.viewer.root_window
 
-    def set_slot(self, slot_data: Optional[Dict[str, Any]], index: int) -> None:
+    def set_slot(self, slot_data: dict[str, Any] | None, index: int) -> None:
         super().set_slot(slot_data, index)
         if self._button_frame is not None:
             self._button_frame.destroy()
@@ -286,7 +290,7 @@ class TyranoSaveSlot(SlotCard):
         index = self.slot_index
         analyzer = self.viewer.analyzer
 
-        def load_slot() -> Optional[Dict[str, Any]]:
+        def load_slot() -> dict[str, Any] | None:
             return analyzer.save_slots[index] if index < len(analyzer.save_slots) else None
 
         SaveFileViewer.open_or_focus(

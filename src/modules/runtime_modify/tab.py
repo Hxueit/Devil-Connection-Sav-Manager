@@ -5,11 +5,12 @@
 """
 import logging
 import threading
-from typing import Any, Callable, Dict, List, Optional, Tuple
+import tkinter as tk
+from collections.abc import Callable
+from tkinter import font as tkfont
+from typing import Any
 
 import customtkinter as ctk
-import tkinter as tk
-from tkinter import font as tkfont
 
 try:
     import keyboard
@@ -84,7 +85,7 @@ class RuntimeModifyTab:
         self,
         parent: ctk.CTkFrame,
         root: ctk.CTk,
-        storage_dir: Optional[str],
+        storage_dir: str | None,
         t: Callable[..., str],
     ) -> None:
         self.parent = parent
@@ -95,22 +96,22 @@ class RuntimeModifyTab:
 
         # 最近一次检查到的状态；「Hook 已启用」即能连上游戏页面（_ws_url 不为 None）
         self._game_running = False
-        self._ws_url: Optional[str] = None
+        self._ws_url: str | None = None
         self._is_launching = False
         self._closed = False
 
-        self._poll_job: Optional[str] = None
+        self._poll_job: str | None = None
         self._polling = False
         # 启动/停止完成时会直接设置状态并加一，用来丢弃在那之前发出、结果已过时的轮询
         self._status_generation = 0
 
-        self.console_window: Optional[DevToolsConsoleWindow] = None
-        self.misc_dialog: Optional[RuntimeMiscDialog] = None
-        self.cache_clean_dialog: Optional[CacheCleanDialog] = None
+        self.console_window: DevToolsConsoleWindow | None = None
+        self.misc_dialog: RuntimeMiscDialog | None = None
+        self.cache_clean_dialog: CacheCleanDialog | None = None
 
         self._hotkey_handle: Any = None
         self._hotkey_pressed = threading.Event()
-        self._hotkey_job: Optional[str] = None
+        self._hotkey_job: str | None = None
 
         self._build_ui()
         self._register_hotkey()
@@ -249,7 +250,7 @@ class RuntimeModifyTab:
         line.pack(side="left", padx=(10, 10))
         line.pack_propagate(False)
 
-    def _toggle_description(self, _event: Optional[tk.Event] = None) -> None:
+    def _toggle_description(self, _event: tk.Event | None = None) -> None:
         self._description_expanded = not self._description_expanded
         if self._description_expanded:
             self.description_label.pack(anchor="w")
@@ -258,7 +259,7 @@ class RuntimeModifyTab:
 
     # ------------------------------------------------------------ 状态
 
-    def _set_game_status(self, running: bool, ws_url: Optional[str]) -> None:
+    def _set_game_status(self, running: bool, ws_url: str | None) -> None:
         ws_url = ws_url if running else None
         changed = (running, ws_url is not None) != (self._game_running, self._hook_enabled)
         self._game_running = running
@@ -300,7 +301,7 @@ class RuntimeModifyTab:
             lambda result, error: self._on_status_polled(result, error, generation),
         )
 
-    def _on_status_polled(self, result: Optional[Tuple[bool, Optional[str]]], error: Optional[BaseException],
+    def _on_status_polled(self, result: tuple[bool, str | None] | None, error: BaseException | None,
                           generation: int) -> None:
         self._polling = False
         if self._closed:
@@ -320,7 +321,7 @@ class RuntimeModifyTab:
 
     # ------------------------------------------------------------ 端口
 
-    def _parse_port(self) -> Tuple[Optional[int], Optional[str]]:
+    def _parse_port(self) -> tuple[int | None, str | None]:
         """读取端口输入，返回 (端口, 错误提示)"""
         try:
             text = self.port_entry.get().strip()
@@ -336,7 +337,7 @@ class RuntimeModifyTab:
             return None, self.t("runtime_modify_error_port_out_of_range", min_port=MIN_PORT, max_port=MAX_PORT)
         return port, None
 
-    def _port_or_show_error(self) -> Optional[int]:
+    def _port_or_show_error(self) -> int | None:
         port, error = self._parse_port()
         if error:
             showerror_relative(self.root, self.t("error"), error)
@@ -374,7 +375,7 @@ class RuntimeModifyTab:
         set_textbox_text(self.status_text, self.t("runtime_modify_status_launching"))
         run_in_background(self.parent, lambda: self.service.launch_and_test(exe_path, port), self._on_launch_done)
 
-    def _on_launch_done(self, info: Optional[Dict[str, Any]], error: Optional[BaseException]) -> None:
+    def _on_launch_done(self, info: dict[str, Any] | None, error: BaseException | None) -> None:
         if self._closed:
             return
         self._is_launching = False
@@ -404,7 +405,7 @@ class RuntimeModifyTab:
         set_textbox_text(self.status_text, message)
         showerror_relative(self.root, self.t("error"), message)
 
-    def _format_launch_details(self, info: Dict[str, Any]) -> str:
+    def _format_launch_details(self, info: dict[str, Any]) -> str:
         """启动详情（启动方式、页面标题、地址、TYRANO 类型）；没有时返回空字符串"""
         lines = []
         mode = info.get("launch_mode")
@@ -428,7 +429,7 @@ class RuntimeModifyTab:
         self.stop_button.configure(state="disabled")
         run_in_background(self.parent, lambda: self.service.stop_game(port), self._on_stop_done)
 
-    def _on_stop_done(self, _result: None, exc: Optional[BaseException]) -> None:
+    def _on_stop_done(self, _result: None, exc: BaseException | None) -> None:
         if self._closed:
             return
         if exc is not None:
@@ -450,7 +451,7 @@ class RuntimeModifyTab:
             return
         js_path = SF_JS_PATH if kind == "sf" else KAG_STAT_JS_PATH
 
-        def read() -> Tuple[str, Dict[str, Any]]:
+        def read() -> tuple[str, dict[str, Any]]:
             ws_url = fetch_ws_url(port)
             if ws_url is None:
                 raise GameNotConnectedError(f"No game page on port {port}")
@@ -458,8 +459,8 @@ class RuntimeModifyTab:
 
         run_in_background(self.parent, read, lambda result, error: self._on_variable_read(kind, result, error))
 
-    def _on_variable_read(self, kind: str, result: Optional[Tuple[str, Dict[str, Any]]],
-                          error: Optional[BaseException]) -> None:
+    def _on_variable_read(self, kind: str, result: tuple[str, dict[str, Any]] | None,
+                          error: BaseException | None) -> None:
         if self._closed:
             return
         if isinstance(error, GameNotConnectedError):
@@ -504,7 +505,7 @@ class RuntimeModifyTab:
 
     # ------------------------------------------------------------ 弹窗
 
-    def _open_dialogs(self) -> List[RuntimeDialog]:
+    def _open_dialogs(self) -> list[RuntimeDialog]:
         dialogs = (self.console_window, self.misc_dialog, self.cache_clean_dialog)
         return [dialog for dialog in dialogs if dialog is not None and dialog.is_open()]
 
@@ -582,7 +583,7 @@ class RuntimeModifyTab:
             return
         run_in_background(self.parent, lambda: mark_current_label_read(ws_url), self._on_fast_forward_done)
 
-    def _on_fast_forward_done(self, _result: None, error: Optional[BaseException]) -> None:
+    def _on_fast_forward_done(self, _result: None, error: BaseException | None) -> None:
         if error is None:
             return
         logger.error(f"Failed to mark as read: {error}")

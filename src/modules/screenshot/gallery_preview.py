@@ -4,19 +4,22 @@
 按列填充（先填满第一列的 3 张再到下一列），第 2、3 列之间是左右半页的分隔线。
 """
 
+import tkinter as tk
 from collections import OrderedDict
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-
-import tkinter as tk
 from tkinter import ttk
+
 from PIL import Image, ImageTk
 
 from src.modules.screenshot.screenshot_manager import ScreenshotManager, load_resized_image
 from src.utils.background import run_in_background
 from src.utils.styles import Colors, get_cjk_font
 from src.utils.ui_utils import (
-    restore_and_activate_window, set_window_icon, showerror_relative, showwarning_relative, widget_alive,
+    restore_and_activate_window,
+    set_window_icon,
+    showerror_relative,
+    showwarning_relative,
+    widget_alive,
 )
 
 ROWS = 3
@@ -34,7 +37,7 @@ DEFAULT_SIZE_MODE = 2
 MAX_CACHED_IMAGES = 5 * PER_PAGE  # 缓存最近几页的缩略图，翻回去时不用重新解码
 
 # 缓存键：(文件路径, 修改时间)，图片被替换后键就变了，旧缓存自然失效
-CacheKey = Tuple[str, int]
+CacheKey = tuple[str, int]
 
 
 class GalleryPreview:
@@ -44,18 +47,18 @@ class GalleryPreview:
         self.root = root
         self.manager = screenshot_manager
         self.t = t
-        self.window: Optional[tk.Toplevel] = None
+        self.window: tk.Toplevel | None = None
         self.page = 1
         self.size_mode = DEFAULT_SIZE_MODE
-        self.image_ids: List[str] = []
-        self._cache: "OrderedDict[CacheKey, ImageTk.PhotoImage]" = OrderedDict()
-        self._page_photos: List[ImageTk.PhotoImage] = []  # 当前页显示的图片，保持引用以免被回收
+        self.image_ids: list[str] = []
+        self._cache: OrderedDict[CacheKey, ImageTk.PhotoImage] = OrderedDict()
+        self._page_photos: list[ImageTk.PhotoImage] = []  # 当前页显示的图片，保持引用以免被回收
         self._page_token = 0  # 每次重建页面加一，用来丢弃旧页面迟到的加载结果
-        self.page_area: Optional[tk.Frame] = None
-        self.page_frame: Optional[tk.Frame] = None
+        self.page_area: tk.Frame | None = None
+        self.page_frame: tk.Frame | None = None
 
     @property
-    def image_size(self) -> Tuple[int, int]:
+    def image_size(self) -> tuple[int, int]:
         return SIZE_PRESETS[self.size_mode][0]
 
     @property
@@ -162,7 +165,7 @@ class GalleryPreview:
 
     # ---------- 页面 ----------
 
-    def _image_path(self, screenshot_id: str) -> Optional[Path]:
+    def _image_path(self, screenshot_id: str) -> Path | None:
         # 优先用缩略图，没有时用主图
         return self.manager.file_path(screenshot_id, thumb=True) or self.manager.file_path(screenshot_id)
 
@@ -176,7 +179,7 @@ class GalleryPreview:
 
         width, height = self.image_size
         first = (self.page - 1) * PER_PAGE
-        to_load: List[Tuple[tk.Frame, tk.Label, str, CacheKey]] = []  # 缓存里没有、需要后台读取的格子
+        to_load: list[tuple[tk.Frame, tk.Label, str, CacheKey]] = []  # 缓存里没有、需要后台读取的格子
         for row in range(ROWS):
             row_frame = tk.Frame(self.page_frame, bg=Colors.WHITE)
             row_frame.pack(side="top", pady=5)
@@ -211,7 +214,7 @@ class GalleryPreview:
             self._load_page_images(to_load)
 
     @staticmethod
-    def _cache_key(path: Optional[Path]) -> Optional[CacheKey]:
+    def _cache_key(path: Path | None) -> CacheKey | None:
         try:
             return (str(path), path.stat().st_mtime_ns) if path else None
         except OSError:
@@ -222,15 +225,15 @@ class GalleryPreview:
         self.prev_button.config(state="normal" if self.page > 1 else "disabled")
         self.next_button.config(state="normal" if self.page < self.total_pages else "disabled")
 
-    def _load_page_images(self, to_load: List[Tuple[tk.Frame, tk.Label, str, CacheKey]]) -> None:
+    def _load_page_images(self, to_load: list[tuple[tk.Frame, tk.Label, str, CacheKey]]) -> None:
         """在一个后台任务里读取整页缺少的缩略图，读完后一起显示"""
         token, size = self._page_token, self.image_size
         keys = [key for _, _, _, key in to_load]
 
-        def work() -> Dict[CacheKey, Optional[Image.Image]]:
+        def work() -> dict[CacheKey, Image.Image | None]:
             return {key: load_resized_image(Path(key[0]), size) for key in keys}
 
-        def done(images: Optional[Dict[CacheKey, Optional[Image.Image]]], error: Optional[BaseException]) -> None:
+        def done(images: dict[CacheKey, Image.Image | None] | None, error: BaseException | None) -> None:
             if token != self._page_token or not widget_alive(self.window):
                 return  # 页面已经换了
             images = images or {}

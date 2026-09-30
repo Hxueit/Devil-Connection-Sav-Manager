@@ -5,9 +5,10 @@
 
 import platform
 import tkinter as tk
+from collections.abc import Callable
 from tkinter import Scrollbar
 from tkinter import font as tkfont
-from typing import Callable, List, Literal, Set, Tuple
+from typing import Literal
 
 import customtkinter as ctk
 
@@ -64,9 +65,9 @@ def create_rounded_rect(canvas: tk.Canvas, x1: float, y1: float, x2: float, y2: 
     return canvas.create_polygon(points, smooth=True, **kwargs)
 
 
-def wrap_text(text: str, font: tkfont.Font, max_width: int) -> List[str]:
+def wrap_text(text: str, font: tkfont.Font, max_width: int) -> list[str]:
     """按像素宽度逐字换行（条件文本是中日文，没有空格可断）"""
-    lines: List[str] = []
+    lines: list[str] = []
     current = ""
     for char in text:
         if current and font.measure(current + char) > max_width:
@@ -80,7 +81,7 @@ def wrap_text(text: str, font: tkfont.Font, max_width: int) -> List[str]:
 
 
 def show_requirements(window: tk.Misc, t: Callable[[str], str], title_key: str,
-                      items: List[Tuple[str, str]], collected: Set[str], id_prefix: str, kind: Kind) -> None:
+                      items: list[tuple[str, str]], collected: set[str], id_prefix: str, kind: Kind) -> None:
     """打开达成条件窗口
 
     Args:

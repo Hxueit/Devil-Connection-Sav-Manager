@@ -12,10 +12,11 @@
 import logging
 import os
 import tkinter as tk
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from tkinter import Scrollbar, ttk
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 
 import customtkinter as ctk
 
@@ -59,10 +60,10 @@ class _Row:
     """一行「标签: 值」的可变文字"""
     label_var: tk.StringVar
     value_var: tk.StringVar
-    tooltip_var: Optional[tk.StringVar] = None
+    tooltip_var: tk.StringVar | None = None
 
 
-def _file_signature(path: str) -> Optional[Tuple[int, int]]:
+def _file_signature(path: str) -> tuple[int, int] | None:
     """(修改时间, 大小)，用来判断文件有没有变；文件不存在时返回 None"""
     try:
         st = os.stat(path)
@@ -78,19 +79,19 @@ class SaveAnalyzer:
         self.window = parent
         self.storage_dir = storage_dir
         self.t = t  # 翻译函数，总是返回当前语言的文字
-        self.save_data: Optional[Dict[str, Any]] = None
+        self.save_data: dict[str, Any] | None = None
 
         self.window.update_idletasks()
         window_width = self.window.winfo_width()
         self._width = int((window_width if window_width > 1 else DEFAULT_WINDOW_WIDTH) * LEFT_WIDTH_RATIO)
 
         # 当前左侧显示的分区是按哪种路线建的；None 表示还没有显示存档数据
-        self._rendered_route: Optional[bool] = None
+        self._rendered_route: bool | None = None
         # 上次成功显示时 sf 存档和 NEO.sav 的 (修改时间, 大小)；没变就不用重新显示
-        self._rendered_files: Optional[Tuple[Any, Any]] = None
-        self._rows: Dict[str, _Row] = {}
-        self._translatable: List[Tuple[tk.Widget, str]] = []   # 语言切换时需要更新文字的标题/按钮/提示
-        self._var_name_labels: List[Tuple[ttk.Label, ttk.Label]] = []  # (变量名标签, 它前面的标签)
+        self._rendered_files: tuple[Any, Any] | None = None
+        self._rows: dict[str, _Row] = {}
+        self._translatable: list[tuple[tk.Widget, str]] = []   # 语言切换时需要更新文字的标题/按钮/提示
+        self._var_name_labels: list[tuple[ttk.Label, ttk.Label]] = []  # (变量名标签, 它前面的标签)
 
         self.show_var_names_var = tk.BooleanVar(value=False)
         self._build_layout()
@@ -128,7 +129,7 @@ class SaveAnalyzer:
         paned.add(right_frame, width=400, minsize=200)
 
         # 左右比例固定为 2:1，禁止拖动分隔条
-        def keep_ratio(event: Optional[tk.Event] = None) -> None:
+        def keep_ratio(event: tk.Event | None = None) -> None:
             if paned.winfo_width() > 1:
                 paned.paneconfig(left_frame, width=int(paned.winfo_width() * 0.67))
 
@@ -238,7 +239,7 @@ class SaveAnalyzer:
         self._var_name_labels.clear()
         self._rendered_route = None
 
-    def _build_sections(self, save_data: Dict[str, Any], stats: Dict[str, Any]) -> None:
+    def _build_sections(self, save_data: dict[str, Any], stats: dict[str, Any]) -> None:
         self._clear_sections()
         fanatic = stats["is_fanatic_route"]
         for key in section_order(fanatic):
@@ -255,7 +256,7 @@ class SaveAnalyzer:
         self._rendered_route = fanatic
         bind_mousewheel(self.scrollable_frame, self._scroll)
 
-    def _update_sections(self, save_data: Dict[str, Any], stats: Dict[str, Any]) -> None:
+    def _update_sections(self, save_data: dict[str, Any], stats: dict[str, Any]) -> None:
         for widget, key in self._translatable:
             widget.config(text=self.t(key))
         for section in SECTIONS.values():
@@ -266,7 +267,7 @@ class SaveAnalyzer:
                 if row.tooltip_var is not None:
                     row.tooltip_var.set(self.t(field.tooltip_key))
 
-    def _create_section(self, section: Section, color: Optional[str]) -> tk.Frame:
+    def _create_section(self, section: Section, color: str | None) -> tk.Frame:
         """创建带边框的分区，返回放内容的 Frame"""
         frame = tk.Frame(self.scrollable_frame, bg=Colors.WHITE, relief="ridge", borderwidth=2)
         frame.pack(fill="x", padx=10, pady=5)
@@ -291,7 +292,7 @@ class SaveAnalyzer:
         content.pack(fill="x", padx=10, pady=5)
         return content
 
-    def _create_row(self, parent: tk.Frame, field: Field, value: str, color: Optional[str]) -> None:
+    def _create_row(self, parent: tk.Frame, field: Field, value: str, color: str | None) -> None:
         """一行「[变量名] 标签: 值 ℹ」，点击 ℹ 展开/收起说明"""
         tooltip_text = self.t(field.tooltip_key) if field.tooltip_key else ""
         has_tooltip = bool(field.tooltip_key) and not (field.tooltip_optional and not tooltip_text)
@@ -345,7 +346,7 @@ class SaveAnalyzer:
 
     # ---------------------------------------------------------------- 按钮
 
-    def _requirement_commands(self) -> Dict[str, Callable[[], None]]:
+    def _requirement_commands(self) -> dict[str, Callable[[], None]]:
         return {
             "endings_statistics": self.show_endings_requirements,
             "stickers_statistics": self.show_stickers_requirements,

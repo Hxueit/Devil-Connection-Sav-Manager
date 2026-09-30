@@ -7,8 +7,8 @@ import locale
 import logging
 import os
 import webbrowser
+from collections.abc import Callable
 from tkinter import filedialog, ttk
-from typing import Callable, Optional
 
 import customtkinter as ctk
 
@@ -81,21 +81,21 @@ class SavTool:
     def __init__(self, root: ctk.CTk) -> None:
         self.root = root
         self.language = detect_system_language()
-        self.storage_dir: Optional[str] = None
+        self.storage_dir: str | None = None
 
         # 各标签页的内容，选择目录后才创建
-        self.save_analyzer: Optional[SaveAnalyzer] = None
-        self.screenshot_manager_ui: Optional[ScreenshotManagerUI] = None
-        self.backup_restore_tab: Optional[BackupRestoreTab] = None
-        self.tyrano_tab: Optional[TyranoSaveViewer] = None
-        self.runtime_modify_tab: Optional[RuntimeModifyTab] = None
-        self.others_tab: Optional[OthersTab] = None
+        self.save_analyzer: SaveAnalyzer | None = None
+        self.screenshot_manager_ui: ScreenshotManagerUI | None = None
+        self.backup_restore_tab: BackupRestoreTab | None = None
+        self.tyrano_tab: TyranoSaveViewer | None = None
+        self.runtime_modify_tab: RuntimeModifyTab | None = None
+        self.others_tab: OthersTab | None = None
         self._pending_tabs: set = set()  # 还没创建的懒加载标签页
 
         # 存档变动提示（在「其他」页中开关）
         self.toast_enabled = False
         self.toast_ignore_record = DEFAULT_TOAST_IGNORE_RECORD
-        self.save_monitor: Optional[SaveChangeMonitor] = None
+        self.save_monitor: SaveChangeMonitor | None = None
         self.change_notifier = ChangeNotifier(root, self.t)
 
         root.title(self.t("window_title"))

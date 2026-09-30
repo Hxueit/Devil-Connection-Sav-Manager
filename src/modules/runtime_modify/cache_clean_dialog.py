@@ -1,9 +1,10 @@
 """缓存清理窗口：选择清理项后在游戏页面里执行对应的清理脚本"""
+import tkinter as tk
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 
 import customtkinter as ctk
-import tkinter as tk
 
 from src.modules.runtime_modify.cache_clean_scripts import (
     JS_CHECK_PHOTO_OPEN,
@@ -35,26 +36,26 @@ class CleanupItemResult:
     script_failed 为 True 表示脚本本身出错或返回值不对（除了逐项显示，还会列在「警告」里）。
     """
     name: str
-    count: Optional[int]
-    error: Optional[str] = None
+    count: int | None
+    error: str | None = None
     script_failed: bool = False
 
 
 @dataclass
 class CleanupResult:
-    items: List[CleanupItemResult] = field(default_factory=list)
-    skipped: List[str] = field(default_factory=list)    # 因照片界面打开而跳过的项
+    items: list[CleanupItemResult] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)    # 因照片界面打开而跳过的项
 
 
 class CannotCleanNowError(Exception):
     """游戏正在转场/动画，现在清理会出问题；reason 是游戏给出的原因（可能为 None）"""
 
-    def __init__(self, reason: Optional[str]) -> None:
+    def __init__(self, reason: str | None) -> None:
         super().__init__(reason or "")
         self.reason = reason
 
 
-def run_cleanup(ws_url: str, jobs: List[CleanupJob]) -> CleanupResult:
+def run_cleanup(ws_url: str, jobs: list[CleanupJob]) -> CleanupResult:
     """依次执行清理脚本（在后台线程调用）
 
     Raises:
@@ -96,19 +97,19 @@ def run_cleanup(ws_url: str, jobs: List[CleanupJob]) -> CleanupResult:
 class CacheCleanDialog(RuntimeDialog):
     """左侧是执行按钮和结果，右侧是可勾选的清理项"""
 
-    def __init__(self, parent: tk.Misc, t: Callable[..., str], get_ws_url: Callable[[], Optional[str]]) -> None:
+    def __init__(self, parent: tk.Misc, t: Callable[..., str], get_ws_url: Callable[[], str | None]) -> None:
         super().__init__(parent, t, "cache_clean_dialog_title", "550x550", (500, 450))
         self.get_ws_url = get_ws_url
 
-        self._item_vars: Dict[str, tk.BooleanVar] = {}   # 固定清理项 key -> 是否勾选
+        self._item_vars: dict[str, tk.BooleanVar] = {}   # 固定清理项 key -> 是否勾选
         # 扫描出的项：(名称, 清理脚本, 是否勾选, 复选框)
-        self._dynamic_items: List[Tuple[str, str, tk.BooleanVar, ctk.CTkCheckBox]] = []
+        self._dynamic_items: list[tuple[str, str, tk.BooleanVar, ctk.CTkCheckBox]] = []
         # 文字固定的控件及其翻译键，切换语言时逐个更新
-        self._translated_widgets: List[Tuple[Any, str]] = []
-        self._status_key: Optional[str] = None   # 状态栏显示的是固定提示时记下它的键，结果文字则为 None
+        self._translated_widgets: list[tuple[Any, str]] = []
+        self._status_key: str | None = None   # 状态栏显示的是固定提示时记下它的键，结果文字则为 None
         self._is_executing = False
         self._is_scanning = False
-        self._found_count: Optional[int] = None  # 扫描到的项数；还没扫描时为 None
+        self._found_count: int | None = None  # 扫描到的项数；还没扫描时为 None
 
         self._build_ui()
 
@@ -189,7 +190,7 @@ class CacheCleanDialog(RuntimeDialog):
         return ctk.CTkCheckBox(
             parent, text=text, variable=var, font=get_cjk_font(10), text_color=Colors.TEXT_PRIMARY, **kwargs)
 
-    def _add_group(self, parent: tk.Misc, title_key: str, select_all_key: str, scripts: Dict[str, str],
+    def _add_group(self, parent: tk.Misc, title_key: str, select_all_key: str, scripts: dict[str, str],
                    checked: bool) -> None:
         """一个分组：标题、「全选」复选框、每个清理项的复选框"""
         self._group_label(parent, title_key).pack(anchor="w", pady=(0, 5))
@@ -229,7 +230,7 @@ class CacheCleanDialog(RuntimeDialog):
         self.scan_button.configure(text=self.t("cache_clean_scanning"), state="disabled")
         run_in_background(self.window, lambda: evaluate(ws_url, JS_SCAN_DANGEROUS_ITEMS), self._on_scan_done)
 
-    def _on_scan_done(self, found: Any, error: Optional[BaseException]) -> None:
+    def _on_scan_done(self, found: Any, error: BaseException | None) -> None:
         self._is_scanning = False
         self.scan_button.configure(text=self.t("cache_clean_scan_button"), state="normal")
         if error is not None:
@@ -255,7 +256,7 @@ class CacheCleanDialog(RuntimeDialog):
 
     # ------------------------------------------------------------ 执行
 
-    def _selected_jobs(self) -> List[CleanupJob]:
+    def _selected_jobs(self) -> list[CleanupJob]:
         jobs = []
         for key, var in self._item_vars.items():
             if var.get():
@@ -283,12 +284,12 @@ class CacheCleanDialog(RuntimeDialog):
         self._show_status_key("cache_clean_checking_state")
         run_in_background(self.window, lambda: run_cleanup(ws_url, jobs), self._on_cleanup_done)
 
-    def _on_cleanup_done(self, result: Optional[CleanupResult], error: Optional[BaseException]) -> None:
+    def _on_cleanup_done(self, result: CleanupResult | None, error: BaseException | None) -> None:
         self._is_executing = False
         self.execute_button.configure(state="normal", text=self.t("cache_clean_execute"))
         self._show_status(self._format_result(result, error))
 
-    def _format_result(self, result: Optional[CleanupResult], error: Optional[BaseException]) -> str:
+    def _format_result(self, result: CleanupResult | None, error: BaseException | None) -> str:
         error_prefix = self.t("cache_clean_error")
         if isinstance(error, CannotCleanNowError):
             reason = error.reason or self.t("cache_clean_unknown_reason")

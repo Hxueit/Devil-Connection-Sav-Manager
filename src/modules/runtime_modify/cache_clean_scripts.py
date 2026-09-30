@@ -4,7 +4,7 @@
 每个清理脚本返回 { success, count } 或 { success: false, error }。
 """
 import json
-from typing import Any, Dict
+from typing import Any
 
 JS_CHECK_STATE = """(function() {
     try {
@@ -357,7 +357,7 @@ JS_SCAN_DANGEROUS_ITEMS = """(function() {
 })()"""
 
 
-def generate_cleanup_script(item: Dict[str, Any]) -> str:
+def generate_cleanup_script(item: dict[str, Any]) -> str:
     """为扫描结果中的一项生成清理脚本；无法处理时返回空字符串"""
     item_type = item.get("type")
     # 用 json.dumps 把 Python 值变成 JS 字面量，自动处理引号转义

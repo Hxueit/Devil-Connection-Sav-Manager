@@ -21,7 +21,8 @@ import logging
 import queue
 import threading
 import tkinter as tk
-from typing import Any, Callable, Optional
+from collections.abc import Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,7 @@ for _ in range(WORKER_COUNT):
 def run_in_background(
     widget: tk.Misc,
     work: Callable[[], Any],
-    on_done: Optional[Callable[[Any, Optional[BaseException]], None]] = None,
+    on_done: Callable[[Any, BaseException | None], None] | None = None,
 ) -> None:
     """在后台线程执行 work()，完成后在主线程调用 on_done(result, error)
 

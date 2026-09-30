@@ -14,9 +14,9 @@ import stat
 import tempfile
 import urllib.parse
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 
-PathLike = Union[str, Path]
+PathLike = str | Path
 
 
 def decode_sav(text: str) -> Any:

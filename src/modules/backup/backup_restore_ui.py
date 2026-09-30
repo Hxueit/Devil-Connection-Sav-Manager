@@ -6,9 +6,9 @@
 import logging
 import re
 import tkinter as tk
+from collections.abc import Callable
 from pathlib import Path
 from tkinter import Entry, Scrollbar, ttk
-from typing import Callable, List, Optional
 
 from src.modules.backup import backups
 from src.utils.background import run_in_background
@@ -34,8 +34,8 @@ class BackupRestoreTab:
         root: tk.Tk,
         storage_dir: str,
         t: Callable[..., str],
-        on_restore_start: Optional[Callable[[], None]] = None,
-        on_restore_done: Optional[Callable[[bool], None]] = None,
+        on_restore_start: Callable[[], None] | None = None,
+        on_restore_done: Callable[[bool], None] | None = None,
     ) -> None:
         self.root = root
         self.storage_dir = Path(storage_dir)
@@ -43,7 +43,7 @@ class BackupRestoreTab:
         self.on_restore_start = on_restore_start
         self.on_restore_done = on_restore_done
 
-        self.selected_backup_path: Optional[Path] = None
+        self.selected_backup_path: Path | None = None
         self._busy = False
         self._progress = (0, 1)  # 后台线程写入 (current, total)，主线程定时读取
         self._scan_count = 0  # 每次刷新列表加一，用来丢弃过时的扫描结果
@@ -181,7 +181,7 @@ class BackupRestoreTab:
         # 等待期间主窗口可能被关掉了，这时变量已经不能读取
         return widget_alive(self.root) and answer.get()
 
-    def _show_error(self, key: str, error: Optional[BaseException] = None) -> None:
+    def _show_error(self, key: str, error: BaseException | None = None) -> None:
         message = self.t(key)
         if error is not None:
             message += f"\n\n{error}"
@@ -195,7 +195,7 @@ class BackupRestoreTab:
         self._set_busy(True)
         run_in_background(self.frame, lambda: backups.estimate_compressed_size(self.storage_dir), self._on_estimated)
 
-    def _on_estimated(self, estimated_size: Optional[int], error: Optional[BaseException]) -> None:
+    def _on_estimated(self, estimated_size: int | None, error: BaseException | None) -> None:
         if error is not None:
             self._set_busy(False)
             self._show_error("backup_estimate_failed")
@@ -232,7 +232,7 @@ class BackupRestoreTab:
         self.backup_progress_label.config(text=f"{percent}% ({current}/{total})" if current else "0%")
         self.frame.after(PROGRESS_POLL_MS, self._poll_progress)
 
-    def _on_backup_done(self, backup_path: Optional[Path], error: Optional[BaseException]) -> None:
+    def _on_backup_done(self, backup_path: Path | None, error: BaseException | None) -> None:
         self.backup_progress.pack_forget()
         self.backup_progress_label.pack_forget()
         self._set_busy(False)
@@ -259,14 +259,14 @@ class BackupRestoreTab:
         scan_id = self._scan_count
         backup_dir = backups.get_backup_dir(self.storage_dir)
 
-        def done(found: Optional[List[backups.BackupInfo]], error: Optional[BaseException]) -> None:
+        def done(found: list[backups.BackupInfo] | None, error: BaseException | None) -> None:
             if scan_id != self._scan_count:
                 return  # 之后又发起了新的扫描，这次的结果已经过时
             self._show_backups(found or [])
 
         run_in_background(self.frame, lambda: backups.scan_backups(backup_dir), done)
 
-    def _show_backups(self, found: List[backups.BackupInfo]) -> None:
+    def _show_backups(self, found: list[backups.BackupInfo]) -> None:
         self.backup_tree.delete(*self.backup_tree.get_children())
         for info in found:
             timestamp = info.timestamp.strftime(backups.TIMESTAMP_FORMAT) if info.timestamp else ""
@@ -330,7 +330,7 @@ class BackupRestoreTab:
         )
         self.refresh_backup_list()
 
-    def _ask_new_name(self, path: Path) -> Optional[str]:
+    def _ask_new_name(self, path: Path) -> str | None:
         """弹出重命名输入框，取消时返回 None"""
         dialog = create_dialog(self.root, self.t("rename_backup_title"), "450x250")
         dialog_label(
@@ -365,7 +365,7 @@ class BackupRestoreTab:
             self.on_restore_start()
         run_in_background(self.frame, lambda: backups.restore_backup(path, self.storage_dir), self._on_restore_done)
 
-    def _on_restore_done(self, _result, error: Optional[BaseException]) -> None:
+    def _on_restore_done(self, _result, error: BaseException | None) -> None:
         self._set_busy(False)
         if error is not None:
             self._show_error("restore_failed", error)

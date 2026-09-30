@@ -1,8 +1,8 @@
 """运行时修改页的弹出窗口：公共基类和「杂项」窗口"""
-from typing import Callable
+import tkinter as tk
+from collections.abc import Callable
 
 import customtkinter as ctk
-import tkinter as tk
 
 from src.utils.styles import Colors, get_cjk_font, white_button
 from src.utils.ui_utils import center_window, create_dialog, restore_and_activate_window, widget_alive

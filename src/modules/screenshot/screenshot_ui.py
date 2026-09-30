@@ -5,11 +5,11 @@
 """
 
 import logging
-from pathlib import Path
-from typing import Callable, Dict, List, Optional, Set
-
 import tkinter as tk
+from collections.abc import Callable
+from pathlib import Path
 from tkinter import ttk
+
 from PIL import Image, ImageTk
 
 from src.modules.common.draggable_list import TreeDragReorder
@@ -44,7 +44,7 @@ MARKS = {
 class ScreenshotManagerUI:
     """截图管理标签页"""
 
-    def __init__(self, parent_frame: tk.Frame, root: tk.Tk, storage_dir: Optional[str],
+    def __init__(self, parent_frame: tk.Frame, root: tk.Tk, storage_dir: str | None,
                  t: Callable[..., str]) -> None:
         self.parent_frame = parent_frame
         self.root = root
@@ -54,12 +54,12 @@ class ScreenshotManagerUI:
         self.gallery = GalleryPreview(root, self.manager, t)
         self.edit_enabled = False
 
-        self.checked: Set[str] = set()            # 勾选的截图ID
-        self._id_by_item: Dict[str, str] = {}     # Treeview 行 -> 截图ID（页眉行不在里面）
-        self._item_by_id: Dict[str, str] = {}
-        self._row_text: Dict[str, str] = {}       # 截图ID -> 不带标记的行文字
-        self._mark_timers: Dict[str, str] = {}    # 截图ID -> 清除标记的 after id
-        self._preview_photo: Optional[ImageTk.PhotoImage] = None
+        self.checked: set[str] = set()            # 勾选的截图ID
+        self._id_by_item: dict[str, str] = {}     # Treeview 行 -> 截图ID（页眉行不在里面）
+        self._item_by_id: dict[str, str] = {}
+        self._row_text: dict[str, str] = {}       # 截图ID -> 不带标记的行文字
+        self._mark_timers: dict[str, str] = {}    # 截图ID -> 清除标记的 after id
+        self._preview_photo: ImageTk.PhotoImage | None = None
         self._preview_request = 0  # 每次切换预览加一，用来丢弃过时的后台加载结果
 
         self._build_ui()
@@ -198,7 +198,7 @@ class ScreenshotManagerUI:
         for button in self._edit_buttons:
             button.config(state="normal" if enabled else "disabled")
 
-    def _on_edit_button_click(self, event: tk.Event) -> Optional[str]:
+    def _on_edit_button_click(self, event: tk.Event) -> str | None:
         """点了被禁用的修改按钮时，让「开启修改」复选框闪一下提示用户"""
         if event.widget.instate(['disabled']):
             self._hint.trigger()
@@ -207,7 +207,7 @@ class ScreenshotManagerUI:
 
     # ---------- 列表 ----------
 
-    def set_storage_dir(self, storage_dir: Optional[str]) -> None:
+    def set_storage_dir(self, storage_dir: str | None) -> None:
         self.storage_dir = storage_dir
         self.checked.clear()
         if storage_dir:
@@ -278,7 +278,7 @@ class ScreenshotManagerUI:
             self.tree.set(row, "info", self._row_text[screenshot_id])
             self.tree.item(row, tags=())
 
-    def _on_tree_click(self, event: tk.Event) -> Optional[str]:
+    def _on_tree_click(self, event: tk.Event) -> str | None:
         """点击复选框列时切换勾选"""
         if self.tree.identify_region(event.x, event.y) != "cell" or self.tree.identify_column(event.x) != "#1":
             return None
@@ -309,11 +309,11 @@ class ScreenshotManagerUI:
         else:
             self.batch_export_button.pack_forget()
 
-    def _checked_ids(self) -> List[str]:
+    def _checked_ids(self) -> list[str]:
         """勾选的截图ID，按列表顺序"""
         return [item['id'] for item in self.manager.ids_data if item.get('id') in self.checked]
 
-    def _selected_id(self) -> Optional[str]:
+    def _selected_id(self) -> str | None:
         """当前选中（高亮）行的截图ID；没选中时提示并返回 None"""
         selection = self.tree.selection()
         if not selection:
@@ -356,7 +356,7 @@ class ScreenshotManagerUI:
         self._show_preview(screenshot_id)
         self.export_button.pack(pady=5)
 
-    def _set_preview(self, photo: Optional[ImageTk.PhotoImage], error_text: str = "") -> None:
+    def _set_preview(self, photo: ImageTk.PhotoImage | None, error_text: str = "") -> None:
         self._preview_request += 1  # 还在加载的旧预览不再显示
         self._preview_photo = photo
         self.preview_label.config(image=photo or '', text=error_text, bg=Colors.WHITE if photo else "lightgray")
@@ -376,7 +376,7 @@ class ScreenshotManagerUI:
         self._preview_request += 1
         request = self._preview_request
 
-        def done(image: Optional[Image.Image], error: Optional[BaseException]) -> None:
+        def done(image: Image.Image | None, error: BaseException | None) -> None:
             if request != self._preview_request:
                 return  # 加载期间已经选了别的截图
             if image is None:

@@ -3,7 +3,6 @@ import logging
 import os
 import platform
 import re
-from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +33,7 @@ def get_steam_path() -> str:
     return os.path.expanduser("~/.steam/steam")
 
 
-def _read_text(path: str) -> Optional[str]:
+def _read_text(path: str) -> str | None:
     try:
         with open(path, encoding="utf-8") as f:
             return f.read()
@@ -43,7 +42,7 @@ def _read_text(path: str) -> Optional[str]:
         return None
 
 
-def get_steam_libraries(steam_path: str) -> List[str]:
+def get_steam_libraries(steam_path: str) -> list[str]:
     """Steam 主目录 + libraryfolders.vdf 里登记的其他库"""
     libraries = [steam_path] if os.path.exists(steam_path) else []
     content = _read_text(os.path.join(steam_path, "steamapps", "libraryfolders.vdf")) or ""
@@ -54,7 +53,7 @@ def get_steam_libraries(steam_path: str) -> List[str]:
     return libraries
 
 
-def find_game_directory(library_path: str) -> Optional[str]:
+def find_game_directory(library_path: str) -> str | None:
     """先找默认文件夹名，找不到再看 appmanifest 里的 installdir"""
     common_dir = os.path.join(library_path, "steamapps", "common")
     candidates = [GAME_FOLDER_NAME]
@@ -69,7 +68,7 @@ def find_game_directory(library_path: str) -> Optional[str]:
     return None
 
 
-def auto_detect_storage() -> Optional[str]:
+def auto_detect_storage() -> str | None:
     """返回游戏 _storage 文件夹的绝对路径，找不到时返回 None"""
     steam_path = get_steam_path()
     if not os.path.exists(steam_path):

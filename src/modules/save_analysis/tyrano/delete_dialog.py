@@ -2,7 +2,7 @@
 
 import logging
 import tkinter as tk
-from typing import TYPE_CHECKING, List, Optional, Set
+from typing import TYPE_CHECKING
 
 import customtkinter as ctk
 
@@ -13,7 +13,11 @@ from src.modules.save_analysis.tyrano.save_slot import PageNavBar, SlotCard, bui
 from src.utils.background import run_in_background
 from src.utils.styles import Colors, get_cjk_font
 from src.utils.ui_utils import (
-    askyesno_relative, create_dialog, showinfo_relative, showwarning_relative, widget_alive,
+    askyesno_relative,
+    create_dialog,
+    showinfo_relative,
+    showwarning_relative,
+    widget_alive,
 )
 
 if TYPE_CHECKING:
@@ -35,7 +39,7 @@ class TyranoDeleteDialog:
         self.viewer = viewer
         self.analyzer = viewer.analyzer
         self.t = t = viewer.t
-        self._selected: Set[int] = set()
+        self._selected: set[int] = set()
         self._current_page = 1
         self._load_id = 0
 
@@ -71,7 +75,7 @@ class TyranoDeleteDialog:
                       text_color="white", font=get_cjk_font(12)).pack(side="right")
 
         # 存档槽网格：6 张卡片，翻页时复用
-        self._cards: List[SlotCard] = []
+        self._cards: list[SlotCard] = []
         for cell in build_slot_grid(self._slots_frame):
             card = SlotCard(cell, t)
             card.image_label.pack_configure(expand=True)   # 缩略图在卡片中垂直居中
@@ -130,7 +134,7 @@ class TyranoDeleteDialog:
         def work() -> list:
             return [slot_thumbnail(data, slot_size, cache, no_image_text, failed_text) for data in image_datas]
 
-        def done(thumbnails: Optional[list], error: Optional[BaseException]) -> None:
+        def done(thumbnails: list | None, error: BaseException | None) -> None:
             if error is None and load_id == self._load_id:
                 for card, thumbnail in zip(cards, thumbnails):
                     card.set_image(thumbnail)

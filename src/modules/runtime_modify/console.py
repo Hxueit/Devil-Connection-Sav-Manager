@@ -1,19 +1,19 @@
 """DevTools 控制台窗口：向运行中的游戏发送 JavaScript 并显示结果"""
 import json
+import tkinter as tk
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 import customtkinter as ctk
-import tkinter as tk
 
+from src.constants import TYRANO_QUICK_SAVE_FILENAME
 from src.modules.runtime_modify.dialogs import RuntimeDialog, set_textbox_text
 from src.modules.runtime_modify.service import evaluate
 from src.modules.save_analysis.tyrano.analyzer import describe_slot
-from src.constants import TYRANO_QUICK_SAVE_FILENAME
 from src.utils.background import run_in_background
 from src.utils.sav_io import read_sav
 from src.utils.styles import Colors, get_cjk_font, white_button
-
 
 MAX_HISTORY = 100
 
@@ -29,7 +29,7 @@ SHORTCUT_COMMANDS = [
 ]
 
 
-def _load_quick_save_slot(storage_dir: Optional[str]) -> Optional[Dict[str, Any]]:
+def _load_quick_save_slot(storage_dir: str | None) -> dict[str, Any] | None:
     """读取快速存档，返回其中的存档槽数据；没有或无法读取时返回 None"""
     if not storage_dir:
         return None
@@ -47,7 +47,7 @@ def _load_quick_save_slot(storage_dir: Optional[str]) -> Optional[Dict[str, Any]
     return None
 
 
-def describe_quick_save(slot: Optional[Dict[str, Any]], t: Callable[..., str]) -> str:
+def describe_quick_save(slot: dict[str, Any] | None, t: Callable[..., str]) -> str:
     """把快速存档槽概括成一行：第几天 · ●●○ · 保存时间 · 副标题"""
     return describe_slot(slot, t) or t("runtime_modify_console_no_quick_save")
 
@@ -70,8 +70,8 @@ class DevToolsConsoleWindow(RuntimeDialog):
         self,
         parent: tk.Misc,
         t: Callable[..., str],
-        get_ws_url: Callable[[], Optional[str]],
-        storage_dir: Optional[str],
+        get_ws_url: Callable[[], str | None],
+        storage_dir: str | None,
         on_close: Callable[[], None],
     ) -> None:
         super().__init__(parent, t, "runtime_modify_console_title", "800x600", (600, 400))
@@ -79,11 +79,11 @@ class DevToolsConsoleWindow(RuntimeDialog):
         self.storage_dir = storage_dir
         self.on_close = on_close
 
-        self._history: List[str] = []
+        self._history: list[str] = []
         self._history_index = -1        # -1 表示没有在翻历史
         self._draft = ""                # 开始翻历史前输入框里的内容
         self._is_executing = False
-        self._shortcut_popup: Optional[ctk.CTkToplevel] = None
+        self._shortcut_popup: ctk.CTkToplevel | None = None
 
         self._build_ui()
         self.window.protocol("WM_DELETE_WINDOW", self._on_window_close)
@@ -152,7 +152,7 @@ class DevToolsConsoleWindow(RuntimeDialog):
 
     # ------------------------------------------------------------ 输入与历史
 
-    def _on_output_clicked(self, _event: tk.Event) -> Optional[str]:
+    def _on_output_clicked(self, _event: tk.Event) -> str | None:
         # 输出区为空时点击直接跳到输入框；有内容时保留默认行为以便选择复制
         if not self.output_textbox.get("1.0", "end-1c").strip():
             self._focus_input()
@@ -181,7 +181,7 @@ class DevToolsConsoleWindow(RuntimeDialog):
         self._on_send_clicked()
         return "break"
 
-    def _on_up_key(self, _event: tk.Event) -> Optional[str]:
+    def _on_up_key(self, _event: tk.Event) -> str | None:
         # 光标在第一行时才翻历史，否则让光标正常上移
         if self._tk_input.index(tk.INSERT).split(".")[0] != "1":
             return None
@@ -197,7 +197,7 @@ class DevToolsConsoleWindow(RuntimeDialog):
         self._set_input(self._history[self._history_index])
         return "break"
 
-    def _on_down_key(self, _event: tk.Event) -> Optional[str]:
+    def _on_down_key(self, _event: tk.Event) -> str | None:
         # 光标在最后一行时才翻历史
         if self._tk_input.index(tk.INSERT).split(".")[0] != self._tk_input.index("end-1c").split(".")[0]:
             return None
@@ -243,7 +243,7 @@ class DevToolsConsoleWindow(RuntimeDialog):
         self.send_button.configure(state="disabled")
         run_in_background(self.window, lambda: evaluate(ws_url, command), self._on_command_done)
 
-    def _on_command_done(self, result: Any, error: Optional[BaseException]) -> None:
+    def _on_command_done(self, result: Any, error: BaseException | None) -> None:
         self._is_executing = False
         self.send_button.configure(state="normal")
         if error is not None:

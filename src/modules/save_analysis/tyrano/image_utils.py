@@ -8,8 +8,7 @@ import logging
 import platform
 import threading
 from collections import OrderedDict
-from functools import lru_cache
-from typing import Optional, Tuple
+from functools import cache, lru_cache
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -17,13 +16,13 @@ from src.utils.images import decode_image_data
 
 logger = logging.getLogger(__name__)
 
-Size = Tuple[int, int]
+Size = tuple[int, int]
 
 DEFAULT_THUMBNAIL_SIZE: Size = (120, 90)
 _ASPECT_RATIO_4_3 = 4.0 / 3.0
 
 
-def thumbnail_size(slot_size: Size, image_size: Optional[Size] = None) -> Size:
+def thumbnail_size(slot_size: Size, image_size: Size | None = None) -> Size:
     """存档槽卡片中缩略图的尺寸：保持图片宽高比，最多占卡片宽度的 35%、高度的 85%"""
     slot_w, slot_h = slot_size
     if slot_w <= 0 or slot_h <= 0:
@@ -49,12 +48,12 @@ class ImageCache:
 
     def __init__(self, max_originals: int = 12, max_thumbnails: int = 120) -> None:
         self._lock = threading.Lock()
-        self._originals: "OrderedDict[str, Image.Image]" = OrderedDict()
-        self._thumbnails: "OrderedDict[Tuple[str, Size], Image.Image]" = OrderedDict()
+        self._originals: OrderedDict[str, Image.Image] = OrderedDict()
+        self._thumbnails: OrderedDict[tuple[str, Size], Image.Image] = OrderedDict()
         self._max_originals = max_originals
         self._max_thumbnails = max_thumbnails
 
-    def _get(self, store: OrderedDict, key) -> Optional[Image.Image]:
+    def _get(self, store: OrderedDict, key) -> Image.Image | None:
         with self._lock:
             image = store.get(key)
             if image is not None:
@@ -68,7 +67,7 @@ class ImageCache:
             while len(store) > max_size:
                 store.popitem(last=False)
 
-    def get_thumbnail(self, image_data: str, slot_size: Size) -> Optional[Image.Image]:
+    def get_thumbnail(self, image_data: str, slot_size: Size) -> Image.Image | None:
         """返回适合放进 slot_size 大小的存档槽卡片的缩略图；图片无法解码时返回 None"""
         if not isinstance(image_data, str):
             return None
@@ -95,7 +94,7 @@ class ImageCache:
             self._thumbnails.clear()
 
 
-def slot_thumbnail(image_data: Optional[str], slot_size: Size, cache: ImageCache,
+def slot_thumbnail(image_data: str | None, slot_size: Size, cache: ImageCache,
                    no_image_text: str, decode_failed_text: str) -> Image.Image:
     """存档槽要显示的图片：缩略图，或者写着原因的灰色占位图"""
     if not image_data:
@@ -117,7 +116,7 @@ def _font_paths(prefer_cjk: bool) -> list:
     return cjk + ["arial.ttf"] if prefer_cjk else ["arial.ttf"] + cjk
 
 
-@lru_cache(maxsize=None)
+@cache
 def _load_font(size: int, prefer_cjk: bool):
     for path in _font_paths(prefer_cjk):
         try:

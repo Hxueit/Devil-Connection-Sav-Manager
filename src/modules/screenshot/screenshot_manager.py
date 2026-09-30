@@ -18,7 +18,6 @@ import string
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 from PIL import Image
 
@@ -37,7 +36,7 @@ DEFAULT_THUMB_SIZE = (1280, 960)
 THUMB_QUALITY = 90
 
 
-def parse_screenshot_filename(filename: str) -> Optional[Tuple[str, bool]]:
+def parse_screenshot_filename(filename: str) -> tuple[str, bool] | None:
     """从文件名解析出 (截图ID, 是否缩略图)，不是截图文件时返回 None"""
     if not (filename.startswith(FILE_PREFIX) and filename.endswith(FILE_SUFFIX)) or filename == IDS_FILENAME:
         return None
@@ -65,7 +64,7 @@ def encode_main_image(image_bytes: bytes) -> str:
     return bytes_to_data_uri(buffer.getvalue(), "image/png")
 
 
-def encode_thumbnail(image_bytes: bytes, size: Tuple[int, int]) -> str:
+def encode_thumbnail(image_bytes: bytes, size: tuple[int, int]) -> str:
     """生成缩略图的 JPEG data URI"""
     with Image.open(BytesIO(image_bytes)) as img:
         thumb = img.resize(size, Image.Resampling.BILINEAR).convert('RGB')
@@ -107,14 +106,14 @@ class ScreenshotError(Exception):
 class ScreenshotManager:
     """截图索引和图片文件的管理（不涉及界面）"""
 
-    def __init__(self, storage_dir: Optional[str] = None) -> None:
-        self.storage_dir: Optional[Path] = Path(storage_dir) if storage_dir else None
-        self.ids_data: List[Dict[str, str]] = []
-        self.all_ids_data: List[str] = []
+    def __init__(self, storage_dir: str | None = None) -> None:
+        self.storage_dir: Path | None = Path(storage_dir) if storage_dir else None
+        self.ids_data: list[dict[str, str]] = []
+        self.all_ids_data: list[str] = []
         # {截图ID: [主文件名, 缩略图文件名]}，缺失的文件为 None
-        self.sav_pairs: Dict[str, List[Optional[str]]] = {}
+        self.sav_pairs: dict[str, list[str | None]] = {}
 
-    def set_storage_dir(self, storage_dir: Optional[str]) -> None:
+    def set_storage_dir(self, storage_dir: str | None) -> None:
         self.storage_dir = Path(storage_dir) if storage_dir else None
 
     # ---------- 读取 ----------
@@ -159,7 +158,7 @@ class ScreenshotManager:
         self._scan_files()
         return True
 
-    def file_path(self, screenshot_id: str, thumb: bool = False) -> Optional[Path]:
+    def file_path(self, screenshot_id: str, thumb: bool = False) -> Path | None:
         """截图文件的路径；文件不存在时返回 None"""
         pair = self.sav_pairs.get(screenshot_id)
         name = pair and pair[1 if thumb else 0]
@@ -167,7 +166,7 @@ class ScreenshotManager:
             return None
         return self.storage_dir / name
 
-    def get_image_data(self, screenshot_id: str) -> Optional[bytes]:
+    def get_image_data(self, screenshot_id: str) -> bytes | None:
         """读取主图的图片字节，失败时返回 None"""
         path = self.file_path(screenshot_id)
         return read_image_file(path) if path else None
@@ -179,7 +178,7 @@ class ScreenshotManager:
         write_sav(self.storage_dir / IDS_FILENAME, self.ids_data)
         write_sav(self.storage_dir / ALL_IDS_FILENAME, self.all_ids_data)
 
-    def _replace_index(self, ids_data: List[Dict[str, str]], all_ids_data: Optional[List[str]] = None) -> None:
+    def _replace_index(self, ids_data: list[dict[str, str]], all_ids_data: list[str] | None = None) -> None:
         """保存新的索引内容；写入失败时内存中的索引保持不变并抛出 OSError
 
         all_ids_data 省略时按 ids_data 的顺序重建。
@@ -218,7 +217,7 @@ class ScreenshotManager:
         self._replace_index(new_order)
 
     def _write_image_files(self, screenshot_id: str, image_path: Path,
-                           thumb_size: Tuple[int, int]) -> List[Path]:
+                           thumb_size: tuple[int, int]) -> list[Path]:
         """把图片编码后写成主图和缩略图两个文件，返回写入的路径"""
         image_bytes = image_path.read_bytes()
         # 两个文件都编码成功后再写，避免只写了一半
@@ -277,7 +276,7 @@ class ScreenshotManager:
             logger.error(f"Failed to replace screenshot: {e}", exc_info=True)
             raise ScreenshotError("file_operation_failed", str(e)) from e
 
-    def delete_screenshots(self, screenshot_ids: List[str]) -> List[str]:
+    def delete_screenshots(self, screenshot_ids: list[str]) -> list[str]:
         """从索引中移除截图并删除文件
 
         Returns:
@@ -291,7 +290,7 @@ class ScreenshotManager:
             [item_id for item_id in self.all_ids_data if item_id not in to_delete],
         )
 
-        failed: List[str] = []
+        failed: list[str] = []
         for screenshot_id in screenshot_ids:
             for name in self.sav_pairs.pop(screenshot_id, [None, None]):
                 if not name:
@@ -303,7 +302,7 @@ class ScreenshotManager:
                     failed.append(name)
         return failed
 
-    def _existing_thumb_size(self) -> Tuple[int, int]:
+    def _existing_thumb_size(self) -> tuple[int, int]:
         """新截图的缩略图尺寸与已有的缩略图保持一致"""
         for screenshot_id in self.sav_pairs:
             thumb_path = self.file_path(screenshot_id, thumb=True)
@@ -313,7 +312,7 @@ class ScreenshotManager:
         return DEFAULT_THUMB_SIZE
 
 
-def read_image_file(sav_path: Path) -> Optional[bytes]:
+def read_image_file(sav_path: Path) -> bytes | None:
     """读取截图 .sav 文件里的图片字节，失败时返回 None"""
     try:
         return data_uri_to_bytes(read_sav(sav_path))
@@ -322,8 +321,8 @@ def read_image_file(sav_path: Path) -> Optional[bytes]:
         return None
 
 
-def load_resized_image(sav_path: Path, size: Tuple[int, int],
-                      resample: Image.Resampling = Image.Resampling.BILINEAR) -> Optional[Image.Image]:
+def load_resized_image(sav_path: Path, size: tuple[int, int],
+                      resample: Image.Resampling = Image.Resampling.BILINEAR) -> Image.Image | None:
     """读取截图文件并缩放到 size，读不出来时返回 None（给后台线程用，不碰界面）"""
     data = read_image_file(sav_path)
     if data is None:
@@ -336,7 +335,7 @@ def load_resized_image(sav_path: Path, size: Tuple[int, int],
         return None
 
 
-def thumb_image_size(thumb_path: Path) -> Optional[Tuple[int, int]]:
+def thumb_image_size(thumb_path: Path) -> tuple[int, int] | None:
     """读取缩略图文件的图片尺寸（只解析文件头，不解码像素）"""
     data = read_image_file(thumb_path)
     if not data:

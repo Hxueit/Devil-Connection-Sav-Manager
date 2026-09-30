@@ -19,7 +19,7 @@ import subprocess
 import time
 import urllib.request
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from websockets.exceptions import WebSocketException
 from websockets.sync.client import connect
@@ -43,7 +43,7 @@ _MAX_MESSAGE_SIZE = 10 * 1024 * 1024
 # 访问本机调试端口时不能走系统代理（Clash 等代理软件会设置系统代理）
 _http_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 # websockets 15+ 默认也会使用系统代理；旧版本没有这个参数
-_WS_CONNECT_OPTIONS: Dict[str, Any] = (
+_WS_CONNECT_OPTIONS: dict[str, Any] = (
     {"proxy": None} if "proxy" in inspect.signature(connect).parameters else {}
 )
 
@@ -105,7 +105,7 @@ class LaunchError(Exception):
     still_starting 为 True 表示超时了但游戏进程还在，只是还没加载完（Steam 启动较慢）。
     """
 
-    def __init__(self, message: str, info: Dict[str, Any], still_starting: bool = False) -> None:
+    def __init__(self, message: str, info: dict[str, Any], still_starting: bool = False) -> None:
         super().__init__(message)
         self.info = info
         self.still_starting = still_starting
@@ -125,7 +125,7 @@ def check_port_available(port: int) -> bool:
         return False
 
 
-def get_game_exe_path(storage_dir: Optional[str]) -> Optional[Path]:
+def get_game_exe_path(storage_dir: str | None) -> Path | None:
     """游戏 exe 位于 _storage 目录的上一级；找不到时返回 None"""
     if not storage_dir:
         return None
@@ -135,7 +135,7 @@ def get_game_exe_path(storage_dir: Optional[str]) -> Optional[Path]:
 
 # ---------------------------------------------------------------- CDP
 
-def _target_score(target: Dict[str, Any]) -> int:
+def _target_score(target: dict[str, Any]) -> int:
     """给 CDP 页面打分，分数越高越可能是游戏主页面"""
     title = (target.get("title") or "").lower()
     url = (target.get("url") or "").lower()
@@ -157,7 +157,7 @@ def _target_score(target: Dict[str, Any]) -> int:
     return score
 
 
-def fetch_target(port: int, timeout: float = 5.0) -> Optional[Dict[str, Any]]:
+def fetch_target(port: int, timeout: float = 5.0) -> dict[str, Any] | None:
     """从调试端口取得游戏页面信息（含 webSocketDebuggerUrl）；连不上时返回 None"""
     try:
         with _http_opener.open(f"http://127.0.0.1:{port}/json/list", timeout=timeout) as response:
@@ -175,7 +175,7 @@ def fetch_target(port: int, timeout: float = 5.0) -> Optional[Dict[str, Any]]:
     return max(pages, key=_target_score, default=None)
 
 
-def fetch_ws_url(port: int, timeout: float = 5.0) -> Optional[str]:
+def fetch_ws_url(port: int, timeout: float = 5.0) -> str | None:
     target = fetch_target(port, timeout)
     return target["webSocketDebuggerUrl"] if target else None
 
@@ -216,7 +216,7 @@ def evaluate(ws_url: str, expression: str, timeout: float = EVAL_TIMEOUT) -> Any
     return result.get("result", {}).get("value")
 
 
-def read_json_variable(ws_url: str, js_path: str) -> Dict[str, Any]:
+def read_json_variable(ws_url: str, js_path: str) -> dict[str, Any]:
     """读取游戏里的一个对象变量（如 SF_JS_PATH）
 
     Raises:
@@ -235,7 +235,7 @@ def read_json_variable(ws_url: str, js_path: str) -> Dict[str, Any]:
     return data
 
 
-def assign_json_variable(ws_url: str, js_path: str, data: Dict[str, Any], save_system_variable: bool = False) -> None:
+def assign_json_variable(ws_url: str, js_path: str, data: dict[str, Any], save_system_variable: bool = False) -> None:
     """用 Object.assign 把 data 写入游戏里的对象变量（如 KAG_STAT_JS_PATH）
 
     Raises:
@@ -254,7 +254,7 @@ def assign_json_variable(ws_url: str, js_path: str, data: Dict[str, Any], save_s
         raise CdpError(result if isinstance(result, str) else f"Unknown return result: {result}")
 
 
-def inject_and_save_sf(ws_url: str, edited_data: Dict[str, Any]) -> None:
+def inject_and_save_sf(ws_url: str, edited_data: dict[str, Any]) -> None:
     """把编辑后的 sf 深度合并到游戏当前的 sf 上，再调用 saveSystemVariable 写入存档
 
     Raises:
@@ -281,7 +281,7 @@ def mark_current_label_read(ws_url: str) -> None:
     logger.info(f"Label marked as read: {result.get('label', '')}")
 
 
-def deep_merge(target: Dict[str, Any], source: Dict[str, Any]) -> Dict[str, Any]:
+def deep_merge(target: dict[str, Any], source: dict[str, Any]) -> dict[str, Any]:
     """递归合并字典：两边都是 dict 的键继续合并，其余（包括数组）用 source 的值替换"""
     merged = copy.deepcopy(target)
     for key, value in source.items():
@@ -292,7 +292,7 @@ def deep_merge(target: Dict[str, Any], source: Dict[str, Any]) -> Dict[str, Any]
     return merged
 
 
-def describe_changes(original: Dict[str, Any], current: Dict[str, Any]) -> List[str]:
+def describe_changes(original: dict[str, Any], current: dict[str, Any]) -> list[str]:
     """逐个顶层键列出两份数据的差异；相同时返回空列表"""
     lines = []
     for key in sorted(set(original) | set(current)):
@@ -312,10 +312,10 @@ def describe_changes(original: Dict[str, Any], current: Dict[str, Any]) -> List[
 
 # ---------------------------------------------------------------- 游戏进程
 
-def _steam_launch_commands(exe_path: Path, port: int) -> List[List[str]]:
+def _steam_launch_commands(exe_path: Path, port: int) -> list[list[str]]:
     """Steam 版必须经由 Steam 启动（直接运行 exe 会被 Steam 重新拉起而丢失参数）"""
     args = ["-applaunch", GAME_STEAM_APP_ID, f"--remote-debugging-port={port}"]
-    commands: List[List[str]] = []
+    commands: list[list[str]] = []
 
     # Steam 根目录 = steamapps 的上一级
     parts = exe_path.resolve().parts
@@ -361,9 +361,9 @@ def _is_exe_running(exe_name: str) -> bool:
 class RuntimeModifyService:
     """管理由本工具启动的游戏进程（启动、等待就绪、检查状态、结束）"""
 
-    def __init__(self, game_exe_path: Optional[Path] = None) -> None:
+    def __init__(self, game_exe_path: Path | None = None) -> None:
         self.game_exe_path = game_exe_path
-        self.game_process: Optional["subprocess.Popen[bytes]"] = None
+        self.game_process: subprocess.Popen[bytes] | None = None
         self.launch_mode = "unknown"   # "steam" 或 "direct"
 
     def launch_game(self, exe_path: Path, port: int) -> None:
@@ -394,7 +394,7 @@ class RuntimeModifyService:
             return
         raise OSError(" | ".join(errors))
 
-    def launch_and_test(self, exe_path: Path, port: int) -> Dict[str, Any]:
+    def launch_and_test(self, exe_path: Path, port: int) -> dict[str, Any]:
         """启动游戏并等待 TYRANO 就绪，返回启动详情
 
         详情可能包含 launch_mode、target_title、target_url、tyrano_type、ws_url、inspector_url。
@@ -402,7 +402,7 @@ class RuntimeModifyService:
         Raises:
             LaunchError: 启动失败，或等待超时
         """
-        info: Dict[str, Any] = {}
+        info: dict[str, Any] = {}
         try:
             self.launch_game(exe_path, port)
         except OSError as e:
@@ -456,14 +456,14 @@ class RuntimeModifyService:
             self.game_process = None   # 已退出（Steam 启动器会很快退出）
         return self.game_exe_path is not None and _is_exe_running(self.game_exe_path.name)
 
-    def poll_status(self, port: Optional[int]) -> Tuple[bool, Optional[str]]:
+    def poll_status(self, port: int | None) -> tuple[bool, str | None]:
         """检查一次状态，返回 (游戏是否在运行, ws_url)；ws_url 不为 None 表示可以注入"""
         ws_url = fetch_ws_url(port, timeout=0.8) if port else None
         if ws_url:
             return True, ws_url
         return self.is_process_running(), None
 
-    def stop_game(self, port: Optional[int]) -> None:
+    def stop_game(self, port: int | None) -> None:
         """结束本工具启动的进程，再通过 CDP 关闭游戏窗口（Steam 启动的游戏不是我们的子进程）"""
         process, self.game_process = self.game_process, None
         if process is not None and process.poll() is None:

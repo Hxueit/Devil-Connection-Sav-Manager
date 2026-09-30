@@ -2,8 +2,9 @@
 
 import logging
 import tkinter as tk
+from collections.abc import Callable
 from tkinter import ttk
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any
 
 import customtkinter as ctk
 from PIL import Image
@@ -15,7 +16,11 @@ from src.modules.save_analysis.tyrano.image_utils import create_placeholder_imag
 from src.utils.images import decode_image_data
 from src.utils.styles import Colors, get_cjk_font, white_button
 from src.utils.ui_utils import (
-    askyesno_relative, bind_mousewheel, create_dialog, showinfo_relative, showwarning_relative,
+    askyesno_relative,
+    bind_mousewheel,
+    create_dialog,
+    showinfo_relative,
+    showwarning_relative,
 )
 
 if TYPE_CHECKING:
@@ -60,7 +65,7 @@ class TyranoReorderDialog:
         white_button(button_frame, t("tyrano_reorder_save"), self._save_order,
                      width=120, height=35, font=get_cjk_font(12)).pack(side="right")
 
-    def _on_order_changed(self, new_order: List[int]) -> None:
+    def _on_order_changed(self, new_order: list[int]) -> None:
         self._current_order = new_order
 
     def _is_dirty(self) -> bool:
@@ -72,7 +77,7 @@ class TyranoReorderDialog:
             return
         self.dialog.destroy()
 
-    def _changed_pages(self) -> List[int]:
+    def _changed_pages(self) -> list[int]:
         """顺序有变化的页码（从 1 开始）"""
         pages = []
         for start in range(0, len(self._slots), TYRANO_SAVES_PER_PAGE):
@@ -107,10 +112,10 @@ class TyranoReorderDialog:
 
 def show_reorder_preview(
     master: tk.Misc,
-    slots: List[Dict[str, Any]],
-    original_order: List[int],
-    new_order: List[int],
-    changed_pages: List[int],
+    slots: list[dict[str, Any]],
+    original_order: list[int],
+    new_order: list[int],
+    changed_pages: list[int],
     t: Callable[..., str],
 ) -> None:
     """对每个变动的页面，左右并排显示原顺序和新顺序的缩略图"""
@@ -125,8 +130,8 @@ def show_reorder_preview(
     canvas.create_window((0, 0), window=content, anchor="nw")
     canvas.configure(yscrollcommand=scrollbar.set)
 
-    def thumbnail(slot: Optional[Dict[str, Any]]) -> ctk.CTkImage:
-        image: Optional[Image.Image] = None
+    def thumbnail(slot: dict[str, Any] | None) -> ctk.CTkImage:
+        image: Image.Image | None = None
         if not slot:
             text = t("tyrano_no_save")
         elif not slot.get("img_data"):
@@ -140,7 +145,7 @@ def show_reorder_preview(
             image.thumbnail(PREVIEW_THUMB_SIZE, Image.Resampling.LANCZOS)
         return ctk.CTkImage(light_image=image, dark_image=image, size=PREVIEW_THUMB_SIZE)
 
-    def order_column(parent: tk.Misc, column: int, title_key: str, order: List[int]) -> None:
+    def order_column(parent: tk.Misc, column: int, title_key: str, order: list[int]) -> None:
         frame = ctk.CTkFrame(parent, fg_color="transparent")
         frame.grid(row=0, column=column, sticky="nsew")
         ctk.CTkLabel(frame, text=t(title_key), font=get_cjk_font(11, "bold"), fg_color="transparent",

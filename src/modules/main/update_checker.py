@@ -5,13 +5,13 @@ fetch_latest_release 会发起网络请求，请在后台线程调用（见 run_
 import json
 import re
 import urllib.request
-from typing import Any, Dict, Tuple
+from typing import Any
 
 RELEASES_API_URL = "https://api.github.com/repos/Hxueit/Devil-Connection-Sav-Manager/releases/latest"
 REQUEST_TIMEOUT_SECONDS = 10
 
 
-def fetch_latest_release() -> Dict[str, Any]:
+def fetch_latest_release() -> dict[str, Any]:
     """返回 GitHub 最新发布信息（含 tag_name、html_url、published_at）
 
     Raises:
@@ -26,7 +26,7 @@ def fetch_latest_release() -> Dict[str, Any]:
     return release
 
 
-def parse_version(version: str) -> Tuple[int, ...]:
+def parse_version(version: str) -> tuple[int, ...]:
     """'v1.2.3' -> (1, 2, 3)；无法解析时返回 (0,)"""
     match = re.match(r"v?(\d+(?:\.\d+)*)", (version or "").strip())
     return tuple(int(part) for part in match.group(1).split(".")) if match else (0,)

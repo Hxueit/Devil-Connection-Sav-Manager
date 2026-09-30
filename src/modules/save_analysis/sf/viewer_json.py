@@ -6,7 +6,8 @@
 """
 
 import json
-from typing import Any, Dict, Iterable, Optional, Tuple
+from collections.abc import Iterable
+from typing import Any
 
 SINGLE_LINE_LIST_FIELDS = frozenset([
     "endings", "collectedEndings", "omakes", "characters",
@@ -35,7 +36,7 @@ def format_json(obj: Any, indent: int = 0) -> str:
     return f"{opening}\n{pad}  {separator.join(parts)}\n{pad}{closing}"
 
 
-def _locate(data: Any, path: str) -> Optional[Tuple[Dict[str, Any], str]]:
+def _locate(data: Any, path: str) -> tuple[dict[str, Any], str] | None:
     """找到 'stat.map_label' 这类路径的 (所在字典, 键名)，路径不存在返回 None"""
     *parents, last = path.split(".")
     for part in parents:
@@ -61,7 +62,7 @@ def format_display_data(save_data: Any, collapsed_fields: Iterable[str], placeho
     return format_json(display)
 
 
-def restore_collapsed_fields(edited: Dict[str, Any], original: Any, collapsed_fields: Iterable[str],
+def restore_collapsed_fields(edited: dict[str, Any], original: Any, collapsed_fields: Iterable[str],
                              placeholder: str) -> None:
     """把 edited 中仍是 placeholder 的折叠字段换回 original 中的值（原地修改）"""
     if not isinstance(original, dict):

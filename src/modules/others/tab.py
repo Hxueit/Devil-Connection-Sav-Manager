@@ -7,8 +7,8 @@
 import json
 import logging
 import webbrowser
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 from tkinter import filedialog
 
 import customtkinter as ctk

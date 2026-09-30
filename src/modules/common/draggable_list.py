@@ -4,10 +4,10 @@ TreeDragReorder  给任意 Treeview 加上「按住一行拖到另一行」的�
 DraggableList    基于它的现成可排序列表（Tyrano 存档重排对话框使用）
 """
 
-from typing import Any, Callable, List, Optional
-
 import tkinter as tk
+from collections.abc import Callable
 from tkinter import ttk
+from typing import Any
 
 from src.utils.styles import Colors, get_cjk_font
 from src.utils.ui_utils import widget_alive
@@ -30,7 +30,7 @@ class TreeDragReorder:
         self.is_data_row = is_data_row
         self.on_drop = on_drop
         self.can_drag = can_drag
-        self._start_item: Optional[str] = None
+        self._start_item: str | None = None
         self._start_y = 0
         self._dragging = False
         # 指示线放在 Treeview 的父容器里，用 place 叠在树上面
@@ -120,9 +120,9 @@ class DraggableList:
         self,
         parent: tk.Widget,
         root: tk.Tk,
-        data_items: List[Any],
+        data_items: list[Any],
         format_item: Callable[[Any, int], str],
-        on_order_changed: Callable[[List[int]], None],
+        on_order_changed: Callable[[list[int]], None],
         t: Callable[..., str],
         items_per_page: int = 6,
     ) -> None:
@@ -132,8 +132,8 @@ class DraggableList:
         self.on_order_changed = on_order_changed
         self.t = t
         self.items_per_page = items_per_page
-        self._current_order: List[int] = list(range(len(data_items)))
-        self._highlight_timer: Optional[str] = None
+        self._current_order: list[int] = list(range(len(data_items)))
+        self._highlight_timer: str | None = None
 
         frame = tk.Frame(parent)
         frame.pack(fill="both", expand=True)

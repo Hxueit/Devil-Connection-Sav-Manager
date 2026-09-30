@@ -1,27 +1,39 @@
 """截图的新增 / 替换 / 导出对话框"""
 
 import logging
+import tkinter as tk
 import zipfile
+from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
-from typing import Callable, List
-
-import tkinter as tk
 from tkinter import filedialog, ttk
+
 from PIL import Image
 
 from src.modules.common.image_operations import (
-    EXPORT_FORMATS, ImageExportHelper, ImageReplaceHelper,
+    EXPORT_FORMATS,
+    ImageExportHelper,
+    ImageReplaceHelper,
     convert_image,
 )
 from src.modules.screenshot.screenshot_manager import (
-    ScreenshotError, ScreenshotManager, current_datetime, generate_id, is_valid_date, read_image_file,
+    ScreenshotError,
+    ScreenshotManager,
+    current_datetime,
+    generate_id,
+    is_valid_date,
+    read_image_file,
 )
-from src.utils.images import IMAGE_FILE_TYPES, is_image_file
 from src.utils.background import run_in_background
+from src.utils.images import IMAGE_FILE_TYPES, is_image_file
 from src.utils.styles import Colors
 from src.utils.ui_utils import (
-    askyesno_relative, create_dialog, dialog_label, showerror_relative, showinfo_relative, widget_alive,
+    askyesno_relative,
+    create_dialog,
+    dialog_label,
+    showerror_relative,
+    showinfo_relative,
+    widget_alive,
 )
 
 logger = logging.getLogger(__name__)
@@ -141,14 +153,14 @@ def export_screenshot(root: tk.Misc, manager: ScreenshotManager, t: Callable[...
     ImageExportHelper(root, t).show_format_dialog(image_data, screenshot_id)
 
 
-def batch_export(root: tk.Misc, manager: ScreenshotManager, t: Callable[..., str], screenshot_ids: List[str]) -> None:
+def batch_export(root: tk.Misc, manager: ScreenshotManager, t: Callable[..., str], screenshot_ids: list[str]) -> None:
     """选择格式后把多张截图导出到一个 ZIP 文件（后台线程执行，显示进度）"""
     ImageExportHelper(root, t).ask_format(
         lambda format_choice: _batch_export_to_zip(root, manager, t, screenshot_ids, format_choice))
 
 
 def _batch_export_to_zip(root: tk.Misc, manager: ScreenshotManager, t: Callable[..., str],
-                         screenshot_ids: List[str], format_choice: str) -> None:
+                         screenshot_ids: list[str], format_choice: str) -> None:
     save_path = filedialog.asksaveasfilename(
         title=t("save_zip"),
         defaultextension=".zip",

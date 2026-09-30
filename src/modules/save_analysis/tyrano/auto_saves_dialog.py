@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Optional
+from typing import TYPE_CHECKING, Any
 
 import customtkinter as ctk
 
@@ -77,14 +77,14 @@ class TyranoAutoSavesDialog:
             showerror_relative(self.dialog, t("error"), t("tyrano_auto_save_load_failed", error=error))
             return
 
-        def load() -> Optional[Dict[str, Any]]:
+        def load() -> dict[str, Any] | None:
             try:
                 return read_sav(file_path)
             except (OSError, ValueError) as e:
                 logger.error("Failed to reload auto save file %s: %s", file_path, e, exc_info=True)
                 return None
 
-        def save(edited_data: Dict[str, Any]) -> bool:
+        def save(edited_data: dict[str, Any]) -> bool:
             write_sav(file_path, edited_data)
             return True
 

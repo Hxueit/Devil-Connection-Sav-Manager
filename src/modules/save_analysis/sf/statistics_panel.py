@@ -12,9 +12,10 @@ import string
 import time
 import tkinter as tk
 import urllib.parse
+from collections.abc import Callable
 from pathlib import Path
 from tkinter import font as tkfont
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 
 import customtkinter as ctk
 
@@ -76,14 +77,14 @@ def get_progress_color(stickers_percent: float, fanatic_route: bool) -> str:
     return STICKER_COLOR_THRESHOLDS[-1][1]
 
 
-def extract_sticker_data(save_data: Dict[str, Any]) -> Tuple[int, float]:
+def extract_sticker_data(save_data: dict[str, Any]) -> tuple[int, float]:
     """返回 (已收集贴纸数, 百分比)"""
     stickers = save_data.get("sticker")
     count = len(set(stickers)) if isinstance(stickers, list) else 0
     return count, count / TOTAL_STICKERS * 100.0
 
 
-def extract_judge_data(save_data: Dict[str, Any]) -> Dict[str, int]:
+def extract_judge_data(save_data: dict[str, Any]) -> dict[str, int]:
     judge_counts = save_data.get("judgeCounts")
     if not isinstance(judge_counts, dict):
         judge_counts = {}
@@ -100,7 +101,7 @@ def _format_number(value: float) -> str:
     return f"{value:,.2f}".rstrip("0").rstrip(".")
 
 
-def format_mp_value_for_display(mp: Any) -> Tuple[str, bool]:
+def format_mp_value_for_display(mp: Any) -> tuple[str, bool]:
     """格式化总 MP，返回 (显示文本, 是否异常)
 
     存档被改坏时 wholeTotalMP 可能是任意字符串，原样显示并标记为异常。
@@ -126,7 +127,7 @@ def format_mp_value_for_display(mp: Any) -> Tuple[str, bool]:
     return str(mp), True
 
 
-def load_neo_content(storage_dir: str) -> Optional[Tuple[Optional[str], str]]:
+def load_neo_content(storage_dir: str) -> tuple[str | None, str] | None:
     """读取 NEO.sav，返回 (自定义文本, 颜色)；固定台词时文本为 None；文件不存在返回 None"""
     if not storage_dir:
         return None
@@ -176,7 +177,7 @@ def _lighten(color: str, factor: float) -> str:
     return _interpolate_color(color, "#FFFFFF", factor)
 
 
-def _ring_bbox(cx: int, cy: int) -> Tuple[int, int, int, int]:
+def _ring_bbox(cx: int, cy: int) -> tuple[int, int, int, int]:
     return cx - RING_RADIUS, cy - RING_RADIUS, cx + RING_RADIUS, cy + RING_RADIUS
 
 
@@ -247,17 +248,17 @@ class StatisticsPanel:
     def __init__(self, parent: tk.Widget, storage_dir: str, t: Callable[..., str]) -> None:
         self.storage_dir = storage_dir
         self.t = t
-        self._ring_job: Optional[str] = None
-        self._gibberish_job: Optional[str] = None
+        self._ring_job: str | None = None
+        self._gibberish_job: str | None = None
         # 狂信徒路线的乱码效果：[(刷新函数, 原文)]，每次刷新把原文打乱后交给刷新函数
-        self._gibberish_targets: List[Tuple[Callable[[str], None], str]] = []
+        self._gibberish_targets: list[tuple[Callable[[str], None], str]] = []
 
         self.container = tk.Frame(parent, bg=Colors.WHITE)
         self.container.pack(fill="both", expand=True, padx=10, pady=10)
         tk.Label(self.container, text=self.t("no_save_data"), font=get_cjk_font(12),
                  bg=Colors.WHITE).pack(pady=50)
 
-    def update(self, save_data: Dict[str, Any]) -> None:
+    def update(self, save_data: dict[str, Any]) -> None:
         if not widget_alive(self.container):
             return
         self._cancel_jobs()
@@ -284,7 +285,7 @@ class StatisticsPanel:
 
     # ---- 贴纸进度环
 
-    def _create_sticker_ring(self, save_data: Dict[str, Any], fanatic: bool) -> None:
+    def _create_sticker_ring(self, save_data: dict[str, Any], fanatic: bool) -> None:
         collected, percent = extract_sticker_data(save_data)
         frame = tk.Frame(self.container, bg=Colors.WHITE)
         frame.pack(pady=(0, 20))
@@ -296,7 +297,7 @@ class StatisticsPanel:
 
         title = self.t("stickers_statistics")
         count = f"{collected}/{TOTAL_STICKERS}"
-        percent_text_id: Optional[int] = None
+        percent_text_id: int | None = None
         if fanatic:
             # 三行文字都是深红色乱码（行距比正常时紧凑），百分比不跟随动画变化
             lines = [
@@ -316,7 +317,7 @@ class StatisticsPanel:
         self._animate_ring(canvas, center, percent, get_progress_color(percent, fanatic), percent_text_id)
 
     def _animate_ring(self, canvas: tk.Canvas, center: int, target: float, color: str,
-                      percent_text_id: Optional[int]) -> None:
+                      percent_text_id: int | None) -> None:
         """进度环从 0 增长到目标值（缓出）；到 100% 时再播放一次庆祝动画
 
         percent_text_id: 环中间的百分比文字，动画中跟着变化；None 表示不更新
@@ -395,7 +396,7 @@ class StatisticsPanel:
             self._gibberish_targets.append((lambda s: title.config(text=s), title_text))
             self._gibberish_targets.append((lambda s: value.config(text=s), value_text))
 
-    def _create_judge_display(self, judge: Dict[str, int], fanatic: bool) -> None:
+    def _create_judge_display(self, judge: dict[str, int], fanatic: bool) -> None:
         frame = tk.Frame(self.container, bg=Colors.WHITE)
         frame.pack(pady=(30, 0))
         texts = [f"{judge[key]:,}" for key in ("perfect", "good", "bad")]
@@ -406,7 +407,7 @@ class StatisticsPanel:
                                highlightthickness=0)
         canvas.pack()
 
-        def draw(parts: List[str], colors: List[str], separator_color: str) -> None:
+        def draw(parts: list[str], colors: list[str], separator_color: str) -> None:
             """把三个数字和分隔符居中排成一行，每段单独着色"""
             canvas.delete("all")
             separator_width = font.measure(JUDGE_SEPARATOR)

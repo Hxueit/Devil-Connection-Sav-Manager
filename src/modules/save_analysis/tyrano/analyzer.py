@@ -5,9 +5,10 @@
 """
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from src.constants import TYRANO_SAVE_FILENAME
 from src.modules.save_analysis.tyrano.constants import TYRANO_SAVES_PER_PAGE
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 # 单个存档槽的解析
 # ---------------------------------------------------------------------------
 
-def is_empty_save(slot: Optional[Dict[str, Any]]) -> bool:
+def is_empty_save(slot: dict[str, Any] | None) -> bool:
     """是否为空存档槽（NO SAVE）"""
     if not slot:
         return True
@@ -31,7 +32,7 @@ def is_empty_save(slot: Optional[Dict[str, Any]]) -> bool:
             and isinstance(stat, dict) and len(stat) == 0)
 
 
-def _to_int(value: Any) -> Optional[int]:
+def _to_int(value: Any) -> int | None:
     try:
         return int(value)
     except (ValueError, TypeError):
@@ -41,17 +42,17 @@ def _to_int(value: Any) -> Optional[int]:
 @dataclass
 class SaveInfo:
     """存档槽中用于显示的信息"""
-    day: Optional[int] = None          # 第几天（后日谈时为后日谈的天数）
+    day: int | None = None          # 第几天（后日谈时为后日谈的天数）
     is_epilogue: bool = False
     finished_count: int = 0            # 当天已完成的 3 个事件中完成了几个
-    save_date: Optional[str] = None
-    subtitle: Optional[str] = None
+    save_date: str | None = None
+    subtitle: str | None = None
 
     def circles(self, done: str = "●", todo: str = "○") -> str:
         return "".join(done if i < self.finished_count else todo for i in range(3))
 
 
-def extract_save_info(slot: Optional[Dict[str, Any]]) -> SaveInfo:
+def extract_save_info(slot: dict[str, Any] | None) -> SaveInfo:
     """从存档槽的 stat.f 中读出天数、完成情况等信息"""
     if not slot:
         return SaveInfo()
@@ -96,7 +97,7 @@ def day_text(info: SaveInfo, t: Callable[..., str]) -> str:
     return t(key, day=info.day)
 
 
-def describe_slot(slot: Optional[Dict[str, Any]], t: Callable[..., str]) -> str:
+def describe_slot(slot: dict[str, Any] | None, t: Callable[..., str]) -> str:
     """一行文字描述存档槽，如「3日目 · ●●○ · 2024/05/01 12:00:00 · 副标题」；无可用信息时返回空字符串"""
     if not slot:
         return ""
@@ -129,8 +130,8 @@ class TyranoAnalyzer:
         if not storage_dir:
             raise ValueError("storage_dir cannot be empty")
         self.storage_dir = Path(storage_dir)
-        self.save_data: Optional[Dict[str, Any]] = None
-        self.save_slots: List[Dict[str, Any]] = []
+        self.save_data: dict[str, Any] | None = None
+        self.save_slots: list[dict[str, Any]] = []
         self.current_page = 0   # 从 1 开始；没有存档时为 0
         self.total_pages = 0
 
@@ -142,7 +143,7 @@ class TyranoAnalyzer:
         """加载存档文件，成功返回 True；失败时清空数据并返回 False"""
         return self.set_save_data(self.read_file())
 
-    def read_file(self) -> Optional[Dict[str, Any]]:
+    def read_file(self) -> dict[str, Any] | None:
         """只读取并解码存档文件，不修改内存中的数据（可以在后台线程调用）；失败时返回 None"""
         try:
             save_data = read_sav(self.file_path)
@@ -154,7 +155,7 @@ class TyranoAnalyzer:
             return None
         return save_data if isinstance(save_data, dict) else None
 
-    def set_save_data(self, save_data: Optional[Dict[str, Any]]) -> bool:
+    def set_save_data(self, save_data: dict[str, Any] | None) -> bool:
         """使用 read_file() 读到的数据；None 表示读取失败，清空数据并返回 False"""
         if save_data is None:
             self.save_data = None
@@ -179,7 +180,7 @@ class TyranoAnalyzer:
 
     # --- 分页 ---
 
-    def get_current_page_slots(self) -> List[Optional[Dict[str, Any]]]:
+    def get_current_page_slots(self) -> list[dict[str, Any] | None]:
         """当前页的 6 个存档槽，不足的位置用 None 补齐"""
         if not self.save_slots or self.current_page < 1:
             return []
@@ -195,7 +196,7 @@ class TyranoAnalyzer:
 
     # --- 修改 ---
 
-    def _modify_slots(self, change: Callable[[List[Dict[str, Any]]], Optional[List[Dict[str, Any]]]],
+    def _modify_slots(self, change: Callable[[list[dict[str, Any]]], list[dict[str, Any]] | None],
                       repaginate: bool = False) -> bool:
         """读取磁盘上最新的存档 → change(存档槽列表) 得到新列表 → 写回文件 → 更新内存
 
@@ -232,7 +233,7 @@ class TyranoAnalyzer:
             self.current_page = page
         return True
 
-    def reorder_slots(self, new_order: List[int]) -> bool:
+    def reorder_slots(self, new_order: list[int]) -> bool:
         """按 new_order 重排：new_order[i] 是新位置 i 上的存档原来的索引"""
         def change(slots):
             if sorted(new_order) != list(range(len(slots))):
@@ -241,7 +242,7 @@ class TyranoAnalyzer:
             return [slots[i] for i in new_order]
         return self._modify_slots(change)
 
-    def replace_slot(self, index: int, slot_data: Dict[str, Any]) -> bool:
+    def replace_slot(self, index: int, slot_data: dict[str, Any]) -> bool:
         """替换指定位置的存档槽"""
         def change(slots):
             if not 0 <= index < len(slots):
@@ -250,7 +251,7 @@ class TyranoAnalyzer:
             return slots[:index] + [slot_data] + slots[index + 1:]
         return self._modify_slots(change)
 
-    def clear_slots(self, indices: List[int]) -> bool:
+    def clear_slots(self, indices: list[int]) -> bool:
         """把指定存档槽清空为 NO SAVE（位置保留）"""
         def change(slots):
             valid = [i for i in indices if 0 <= i < len(slots)]
@@ -262,7 +263,7 @@ class TyranoAnalyzer:
             return new_slots
         return self._modify_slots(change)
 
-    def remove_slots(self, indices: List[int]) -> bool:
+    def remove_slots(self, indices: list[int]) -> bool:
         """删除指定存档槽，后面的存档依次前移"""
         def change(slots):
             removed = {i for i in indices if 0 <= i < len(slots)}
@@ -271,7 +272,7 @@ class TyranoAnalyzer:
             return [slot for i, slot in enumerate(slots) if i not in removed]
         return self._modify_slots(change, repaginate=True)
 
-    def import_slot(self, slot_data: Dict[str, Any]) -> bool:
+    def import_slot(self, slot_data: dict[str, Any]) -> bool:
         """导入一个存档槽：放到最靠前的空存档位置，没有空位时追加到末尾"""
         if not isinstance(slot_data, dict):
             return False

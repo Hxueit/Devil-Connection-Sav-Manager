@@ -6,12 +6,12 @@
 """
 
 import logging
+import tkinter as tk
+from collections.abc import Callable
 from io import BytesIO
 from pathlib import Path
-from typing import Callable, List, Optional, Union
-
-import tkinter as tk
 from tkinter import filedialog, ttk
+
 from PIL import Image, ImageTk
 
 from src.utils.images import IMAGE_FILE_TYPES, ImageSource, open_image
@@ -51,7 +51,7 @@ class ImageExportHelper:
         self.root = root
         self.t = t
 
-    def show_format_dialog(self, image_data: Union[bytes, Image.Image], default_filename: str) -> None:
+    def show_format_dialog(self, image_data: bytes | Image.Image, default_filename: str) -> None:
         """选择格式 -> 选择保存路径 -> 导出"""
         self.ask_format(lambda fmt: self._export(image_data, default_filename, fmt))
 
@@ -78,7 +78,7 @@ class ImageExportHelper:
         dialog.bind('<Return>', lambda e: confirm())
         dialog.bind('<Escape>', lambda e: dialog.destroy())
 
-    def _export(self, image_data: Union[bytes, Image.Image], default_filename: str, format_choice: str) -> None:
+    def _export(self, image_data: bytes | Image.Image, default_filename: str, format_choice: str) -> None:
         extension, _, filetypes = EXPORT_FORMATS[format_choice]
         save_path = filedialog.asksaveasfilename(
             title=self.t("save_image"),
@@ -103,10 +103,10 @@ class ImageReplaceHelper:
     def __init__(self, root: tk.Misc, t: Callable[..., str]) -> None:
         self.root = root
         self.t = t
-        self._photo_refs: List[ImageTk.PhotoImage] = []
+        self._photo_refs: list[ImageTk.PhotoImage] = []
 
     def show_replace_flow(self, original_image: ImageSource, on_confirm_callback: Callable[[Path], None],
-                          is_valid_image_check: Optional[Callable[[Path], bool]] = None) -> None:
+                          is_valid_image_check: Callable[[Path], bool] | None = None) -> None:
         """选择新图片 -> 新旧对比确认 -> on_confirm_callback(新图片路径)"""
         path = filedialog.askopenfilename(title=self.t("select_new_image"), filetypes=IMAGE_FILE_TYPES)
         if not path:

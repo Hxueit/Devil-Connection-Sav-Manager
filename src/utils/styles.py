@@ -6,7 +6,6 @@ import platform
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
-from typing import Optional, Tuple
 
 import customtkinter as ctk
 
@@ -26,14 +25,14 @@ def _scaled(size: int) -> int:
     return max(1, int(round(size * _FONT_SCALE)))
 
 
-def get_cjk_font(size: int = 10, weight: str = "normal") -> Tuple:
+def get_cjk_font(size: int = 10, weight: str = "normal") -> tuple:
     """适合中日文的字体元组，weight 为 "bold" 时加粗"""
     if weight == "bold":
         return (_CJK_FONT_NAME, _scaled(size), "bold")
     return (_CJK_FONT_NAME, _scaled(size))
 
 
-def get_mono_font(size: int = 10) -> Tuple[str, int]:
+def get_mono_font(size: int = 10) -> tuple[str, int]:
     """等宽字体元组（代码/行号）"""
     return (_MONO_FONT_NAME, _scaled(size))
 
@@ -80,10 +79,10 @@ class Colors:
     MODAL_BG = "#f5f5f7"
 
 
-_style: Optional[ttk.Style] = None
+_style: ttk.Style | None = None
 
 
-def init_styles(root: Optional[tk.Tk] = None) -> ttk.Style:
+def init_styles(root: tk.Tk | None = None) -> ttk.Style:
     """初始化 customtkinter 主题和全部 ttk 样式（只执行一次）"""
     global _style
     if _style is not None:

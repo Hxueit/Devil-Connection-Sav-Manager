@@ -7,9 +7,10 @@
 """
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from src.constants import (
     SF_SAVE_FILENAME,
@@ -26,7 +27,7 @@ from src.utils.sav_io import read_sav
 logger = logging.getLogger(__name__)
 
 
-def load_save_file(storage_dir: str) -> Dict[str, Any]:
+def load_save_file(storage_dir: str) -> dict[str, Any]:
     """读取 sf 存档
 
     Raises:
@@ -40,7 +41,7 @@ def load_save_file(storage_dir: str) -> Dict[str, Any]:
     return data
 
 
-def get_nested_value(data: Dict[str, Any], path: str) -> Any:
+def get_nested_value(data: dict[str, Any], path: str) -> Any:
     """按 'memory.name' 这样的路径取值，路径不存在时返回 None"""
     value: Any = data
     for part in path.split("."):
@@ -50,7 +51,7 @@ def get_nested_value(data: Dict[str, Any], path: str) -> Any:
     return value
 
 
-def is_fanatic_route(save_data: Dict[str, Any]) -> bool:
+def is_fanatic_route(save_data: dict[str, Any]) -> bool:
     """kill 或 killed 为 1 表示当前处于狂信徒路线"""
     return save_data.get("kill") == 1 or save_data.get("killed") == 1
 
@@ -60,7 +61,7 @@ def _numeric_order(item: Any) -> int:
     return int(text) if text.isdigit() else 999
 
 
-def compute_shared_data(save_data: Dict[str, Any]) -> Dict[str, Any]:
+def compute_shared_data(save_data: dict[str, Any]) -> dict[str, Any]:
     """计算各分区共用的数据（字段定义里叫 stats），避免每个字段各算一遍"""
     endings = set(save_data.get("endings", []))
     collected_endings = set(save_data.get("collectedEndings", []))
@@ -90,27 +91,27 @@ def compute_shared_data(save_data: Dict[str, Any]) -> Dict[str, Any]:
 
 
 # 计算函数的参数：(save 存档数据, stats = compute_shared_data 的结果, t 翻译函数)
-ValueFunc = Callable[[Dict[str, Any], Dict[str, Any], Callable[[str], str]], Any]
+ValueFunc = Callable[[dict[str, Any], dict[str, Any], Callable[[str], str]], Any]
 
 
 @dataclass
 class Field:
     """左侧分区中的一行「标签: 值」"""
     label_key: str                        # 标签的翻译键，同时作为这一行的唯一标识
-    path: Optional[str] = None            # 直接读取的存档路径；不填 compute 时显示该值
+    path: str | None = None            # 直接读取的存档路径；不填 compute 时显示该值
     default: Any = 0                      # 存档里没有该变量时显示的值
-    compute: Optional[ValueFunc] = None   # 需要计算的字段
-    var_name: Optional[str] = None        # 勾选「显示变量名」时显示在标签前的 [变量名]
-    tooltip_key: Optional[str] = None     # 有值时行尾显示可点击的 ℹ，点开显示该说明
+    compute: ValueFunc | None = None   # 需要计算的字段
+    var_name: str | None = None        # 勾选「显示变量名」时显示在标签前的 [变量名]
+    tooltip_key: str | None = None     # 有值时行尾显示可点击的 ℹ，点开显示该说明
     tooltip_optional: bool = False        # 说明翻译为空时不显示 ℹ
 
 
 @dataclass
 class Section:
     key: str                              # 同时是标题的翻译键
-    fields: List[Field]
-    button_text_key: Optional[str] = None  # 有值时标题右侧显示按钮（查看达成条件）
-    hint_key: Optional[str] = None        # 分区底部的灰色提示
+    fields: list[Field]
+    button_text_key: str | None = None  # 有值时标题右侧显示按钮（查看达成条件）
+    hint_key: str | None = None        # 分区底部的灰色提示
 
 
 def _var(path: str, **kwargs: Any) -> Field:
@@ -118,27 +119,27 @@ def _var(path: str, **kwargs: Any) -> Field:
     return Field(path=path, var_name=path, **kwargs)
 
 
-def _join(items: List[Any], t: Callable[[str], str]) -> str:
+def _join(items: list[Any], t: Callable[[str], str]) -> str:
     return ", ".join(str(i) for i in items) if items else t("none")
 
 
-def _killed(save: Dict[str, Any], stats: Dict[str, Any], t: Callable[[str], str]) -> Any:
+def _killed(save: dict[str, Any], stats: dict[str, Any], t: Callable[[str], str]) -> Any:
     return t("variable_not_exist") if save.get("killed") is None else save["killed"]
 
 
-def _missing_endings(save: Dict[str, Any], stats: Dict[str, Any], t: Callable[[str], str]) -> str:
+def _missing_endings(save: dict[str, Any], stats: dict[str, Any], t: Callable[[str], str]) -> str:
     missing = stats["missing_endings"]
     return f"{len(missing)}: {_join(missing, t)}" if missing else t("none")
 
 
-def _gender(save: Dict[str, Any], stats: Dict[str, Any], t: Callable[[str], str]) -> str:
+def _gender(save: dict[str, Any], stats: dict[str, Any], t: Callable[[str], str]) -> str:
     value = get_nested_value(save, "memory.seibetu")
     return {1: t("gender_male"), 2: t("gender_female")}.get(value, t("not_set"))
 
 
 FANATIC_SECTION_KEY = "fanatic_related"
 
-SECTIONS: Dict[str, Section] = {s.key: s for s in [
+SECTIONS: dict[str, Section] = {s.key: s for s in [
     Section(FANATIC_SECTION_KEY, [
         _var("NEO", label_key="neo_value", tooltip_key="neo_value_tooltip"),
         _var("Lamia_noroi", label_key="lamia_curse"),
@@ -213,7 +214,7 @@ SECTIONS: Dict[str, Section] = {s.key: s for s in [
 ]}
 
 
-def section_order(fanatic_route: bool) -> List[str]:
+def section_order(fanatic_route: bool) -> list[str]:
     """分区显示顺序：狂信徒路线时「狂信徒相关」放最前，否则放在「角色信息」之前"""
     order = [key for key in SECTIONS if key != FANATIC_SECTION_KEY]
     if fanatic_route:
@@ -222,7 +223,7 @@ def section_order(fanatic_route: bool) -> List[str]:
     return [*order[:index], FANATIC_SECTION_KEY, *order[index:]]
 
 
-def field_value(field: Field, save_data: Dict[str, Any], stats: Dict[str, Any],
+def field_value(field: Field, save_data: dict[str, Any], stats: dict[str, Any],
                 t: Callable[[str], str]) -> str:
     """字段显示的文本；存档里的值类型异常时退回显示原始值"""
     raw = get_nested_value(save_data, field.path) if field.path else None

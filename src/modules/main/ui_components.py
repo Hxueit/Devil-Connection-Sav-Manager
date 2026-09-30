@@ -4,8 +4,8 @@ import platform
 import tkinter as tk
 import tkinter.font as tkfont
 import webbrowser
+from collections.abc import Callable
 from tkinter import Menu, ttk
-from typing import Callable, Optional
 
 from src.constants import LATEST_GAME_PATCH_AT_BUILD, VERSION
 from src.utils.styles import Colors, get_cjk_font
@@ -139,9 +139,9 @@ class VersionInfo:
     def __init__(self, root: tk.Tk, t: Callable[[str], str]) -> None:
         self.root = root
         self.t = t
-        self.update_label: Optional[ttk.Label] = None
-        self.update_label_wrapper: Optional[tk.Frame] = None
-        self._shake_job: Optional[str] = None
+        self.update_label: ttk.Label | None = None
+        self.update_label_wrapper: tk.Frame | None = None
+        self._shake_job: str | None = None
         self._shake_index = 0
 
         self.version_frame = tk.Frame(root, bg=Colors.LIGHT_GRAY)

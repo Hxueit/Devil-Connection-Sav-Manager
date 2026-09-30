@@ -12,9 +12,10 @@ import json
 import logging
 import re
 import tkinter as tk
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from tkinter import Scrollbar, ttk
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any
 
 from src.utils.background import run_in_background
 from src.utils.hint_animation import HintAnimation
@@ -38,7 +39,7 @@ CHECKBOX_STYLE_HINT = "SfViewerHint.TCheckbutton"
 
 __all__ = ["SaveFileViewer", "ViewerTexts", "DEFAULT_SF_COLLAPSED_FIELDS"]
 
-DEFAULT_SF_COLLAPSED_FIELDS: List[str] = ["record", "_tap_effect", "initialVars"]
+DEFAULT_SF_COLLAPSED_FIELDS: list[str] = ["record", "_tap_effect", "initialVars"]
 
 WINDOW_SIZE = "1200x900"
 # 注入后稍等片刻再从游戏读回数据，确保游戏已经处理完写入
@@ -66,16 +67,16 @@ class ViewerTexts:
     confirm_save: str = "save_confirm_text"
     save_success: str = "save_success"
     save_failed: str = "save_file_failed"      # 带 {error}
-    load_failed: Optional[str] = None          # 带 {error}；None 时直接显示错误信息
+    load_failed: str | None = None          # 带 {error}；None 时直接显示错误信息
 
 
 # viewer_id -> 已打开的查看器；同一份数据只开一个窗口
-_open_viewers: Dict[str, "SaveFileViewer"] = {}
+_open_viewers: dict[str, "SaveFileViewer"] = {}
 
 
 def apply_json_syntax_highlight(text_widget: tk.Text, content: str) -> None:
     """按行用正则给 JSON 文本上色（每种颜色一次 tag_add 调用，减少 Tcl 往返）"""
-    ranges: Dict[str, List[str]] = {tag: [] for _, tag in JSON_HIGHLIGHT_PATTERNS}
+    ranges: dict[str, list[str]] = {tag: [] for _, tag in JSON_HIGHLIGHT_PATTERNS}
     for line_no, line in enumerate(content.split("\n"), start=1):
         for pattern, tag in JSON_HIGHLIGHT_PATTERNS:
             for match in pattern.finditer(line):
@@ -105,17 +106,17 @@ class SaveFileViewer:
         self,
         parent: tk.Misc,
         t: Callable[..., str],
-        data: Dict[str, Any],
+        data: dict[str, Any],
         title: str,
-        load: Callable[[], Optional[Dict[str, Any]]],
-        save: Callable[[Dict[str, Any]], Any],
-        texts: Optional[ViewerTexts] = None,
+        load: Callable[[], dict[str, Any] | None],
+        save: Callable[[dict[str, Any]], Any],
+        texts: ViewerTexts | None = None,
         collapsed_fields: Iterable[str] = (),
         show_collapse_toggle: bool = False,
         edit_checkbox: bool = False,
         runtime: bool = False,
-        find_outside_changes: Optional[Callable[[Dict[str, Any]], List[str]]] = None,
-        on_saved: Optional[Callable[[Dict[str, Any]], None]] = None,
+        find_outside_changes: Callable[[dict[str, Any]], list[str]] | None = None,
+        on_saved: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         """
         Args:
@@ -145,7 +146,7 @@ class SaveFileViewer:
         self._line_count = 0
         self._search_term = ""
         self._search_index = -1
-        self._hint_animation: Optional[HintAnimation] = None
+        self._hint_animation: HintAnimation | None = None
 
         self.viewer_window = tk.Toplevel(parent.nametowidget("."))
         self.viewer_window.title(title)
@@ -271,7 +272,7 @@ class SaveFileViewer:
     def _get_text(self) -> str:
         return self.text_widget.get("1.0", "end-1c")
 
-    def _set_data(self, data: Dict[str, Any]) -> None:
+    def _set_data(self, data: dict[str, Any]) -> None:
         self.save_data = data
         # 保存前用它检测数据在打开之后是否被别处（游戏）改过
         self.original_save_data = copy.deepcopy(data)
@@ -322,7 +323,7 @@ class SaveFileViewer:
         return askyesno_relative(self.viewer_window, self.t("refresh_confirm_title"),
                                  self.t("unsaved_changes_warning"))
 
-    def _on_key_press(self, event: tk.Event) -> Optional[str]:
+    def _on_key_press(self, event: tk.Event) -> str | None:
         is_ctrl_c = bool(event.state & 0x4) and event.keysym.lower() == "c"
         if not self.enable_edit_var.get():
             if is_ctrl_c:
@@ -383,7 +384,7 @@ class SaveFileViewer:
 
     # ---------------------------------------------------------------- 读取 / 保存
 
-    def _call(self, work: Callable[[], Any], on_done: Callable[[Any, Optional[BaseException]], None]) -> None:
+    def _call(self, work: Callable[[], Any], on_done: Callable[[Any, BaseException | None], None]) -> None:
         """执行 load/save 等调用方传入的函数，结果交给 on_done(结果, 异常)
 
         运行时模式要等游戏回复，放到后台线程；读写文件很快，直接执行。
@@ -408,9 +409,9 @@ class SaveFileViewer:
             message = str(error)
         showerror_relative(self.viewer_window, self.t("error"), message)
 
-    def _reload(self, on_failed: Optional[Callable[[], None]] = None) -> None:
+    def _reload(self, on_failed: Callable[[], None] | None = None) -> None:
         """重新 load() 并显示；失败（或数据已不存在）时调用 on_failed"""
-        def done(data: Optional[Dict[str, Any]], error: Optional[BaseException]) -> None:
+        def done(data: dict[str, Any] | None, error: BaseException | None) -> None:
             if error is not None:
                 self._show_load_error(error)
             if data is None:
@@ -441,7 +442,7 @@ class SaveFileViewer:
 
         original = self.original_save_data
 
-        def on_checked(changes: Optional[List[str]], error: Optional[BaseException]) -> None:
+        def on_checked(changes: list[str] | None, error: BaseException | None) -> None:
             if error is not None:
                 self._show_save_error(error)
                 return
@@ -456,8 +457,8 @@ class SaveFileViewer:
     def _show_save_error(self, error: BaseException) -> None:
         showerror_relative(self.viewer_window, self.t("error"), self.t(self.texts.save_failed, error=str(error)))
 
-    def _save(self, edited_data: Dict[str, Any]) -> None:
-        def done(result: Any, error: Optional[BaseException]) -> None:
+    def _save(self, edited_data: dict[str, Any]) -> None:
+        def done(result: Any, error: BaseException | None) -> None:
             if error is None and result is False:
                 error = RuntimeError(self.t("viewer_save_failed_reason"))
             if error is not None:
@@ -476,7 +477,7 @@ class SaveFileViewer:
 
         def reread() -> None:
             # 读回游戏处理后的数据；用户已经开始新的编辑时不覆盖
-            def on_reread(data: Optional[Dict[str, Any]], error: Optional[BaseException]) -> None:
+            def on_reread(data: dict[str, Any] | None, error: BaseException | None) -> None:
                 if error is not None:
                     logger.warning("Failed to refresh after inject: %s", error)
                 elif data is not None and not self._has_unsaved_changes():
@@ -489,7 +490,7 @@ class SaveFileViewer:
 
     # ---------------------------------------------------------------- 搜索
 
-    def _focus_search(self, event: Optional[tk.Event] = None) -> str:
+    def _focus_search(self, event: tk.Event | None = None) -> str:
         self.search_entry.focus()
         self.search_entry.select_range(0, "end")
         return "break"

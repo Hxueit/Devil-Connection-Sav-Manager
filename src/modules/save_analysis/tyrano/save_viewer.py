@@ -3,9 +3,10 @@
 import json
 import logging
 import tkinter as tk
+from collections.abc import Callable
 from pathlib import Path
 from tkinter import filedialog
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Any
 
 import customtkinter as ctk
 
@@ -30,7 +31,11 @@ from src.utils.background import run_in_background
 from src.utils.sav_io import decode_sav
 from src.utils.styles import Colors, get_cjk_font, white_button
 from src.utils.ui_utils import (
-    askyesno_relative, showerror_relative, showinfo_relative, showwarning_relative, widget_alive,
+    askyesno_relative,
+    showerror_relative,
+    showinfo_relative,
+    showwarning_relative,
+    widget_alive,
 )
 
 logger = logging.getLogger(__name__)
@@ -60,19 +65,19 @@ class TyranoSaveViewer:
         self.analyzer = analyzer
         self.t = t
         self.image_cache = ImageCache()
-        self.slot_widgets: List[TyranoSaveSlot] = []
+        self.slot_widgets: list[TyranoSaveSlot] = []
 
         self._load_id = 0              # 每次加载页面图片时加一，用来丢弃过期的后台结果
         self._destroyed = False
         self._first_page_shown = False  # 第一页显示完成后才开始响应窗口大小变化
         self._prefetching = False
         self._reading_file = False      # 正在后台读取存档文件，这时不能撤掉「加载中」遮罩
-        self._page_timer: Optional[str] = None
-        self._resize_timer: Optional[str] = None
-        self._last_parent_size: Optional[Tuple[int, int]] = None
-        self._loading_overlay: Optional[ctk.CTkFrame] = None
-        self._loading_label: Optional[ctk.CTkLabel] = None
-        self._texts: List[Tuple[Any, str]] = []   # (控件, 翻译键)，切换语言时更新
+        self._page_timer: str | None = None
+        self._resize_timer: str | None = None
+        self._last_parent_size: tuple[int, int] | None = None
+        self._loading_overlay: ctk.CTkFrame | None = None
+        self._loading_label: ctk.CTkLabel | None = None
+        self._texts: list[tuple[Any, str]] = []   # (控件, 翻译键)，切换语言时更新
 
         self._create_ui()
         if analyzer.save_data is None:
@@ -145,7 +150,7 @@ class TyranoSaveViewer:
         self._reading_file = True
         self._show_loading_overlay()
 
-        def done(save_data: Optional[dict], error: Optional[BaseException]) -> None:
+        def done(save_data: dict | None, error: BaseException | None) -> None:
             self._reading_file = False
             if self._destroyed:
                 return
@@ -192,7 +197,7 @@ class TyranoSaveViewer:
         def work() -> list:
             return [slot_thumbnail(data, slot_size, cache, no_image_text, failed_text) for data in image_datas]
 
-        def done(thumbnails: Optional[list], error: Optional[BaseException]) -> None:
+        def done(thumbnails: list | None, error: BaseException | None) -> None:
             if self._destroyed or load_id != self._load_id:
                 return   # 已经翻到别的页了
             if error is not None:
@@ -210,7 +215,7 @@ class TyranoSaveViewer:
 
         run_in_background(self.parent, work, done)
 
-    def _slot_size(self) -> Tuple[int, int]:
+    def _slot_size(self) -> tuple[int, int]:
         """单个存档槽卡片的大小（用来决定缩略图尺寸）"""
         width, height = self.slots_frame.winfo_width(), self.slots_frame.winfo_height()
         if width <= 1 or height <= 1:
@@ -227,7 +232,7 @@ class TyranoSaveViewer:
         width = self.slot_widgets[0].text_frame.winfo_width()
         return max(12, min(18, int(width * 0.10))) if width > 0 else 15
 
-    def _prefetch_adjacent_pages(self, slot_size: Tuple[int, int]) -> None:
+    def _prefetch_adjacent_pages(self, slot_size: tuple[int, int]) -> None:
         """在后台为前后两页生成缩略图，让翻页更快"""
         page, total = self.analyzer.current_page, self.analyzer.total_pages
         if self._prefetching or page < 1 or total <= 1:
@@ -247,7 +252,7 @@ class TyranoSaveViewer:
             for data in image_datas:
                 cache.get_thumbnail(data, slot_size)
 
-        def done(_result: Any, _error: Optional[BaseException]) -> None:
+        def done(_result: Any, _error: BaseException | None) -> None:
             self._prefetching = False
 
         run_in_background(self.parent, work, done)
@@ -265,7 +270,7 @@ class TyranoSaveViewer:
 
         self.parent.after(120, check)
 
-    def _on_window_resize(self, event: Optional[tk.Event] = None) -> None:
+    def _on_window_resize(self, event: tk.Event | None = None) -> None:
         size = (self.parent.winfo_width(), self.parent.winfo_height())
         if size == self._last_parent_size:
             return
@@ -273,7 +278,7 @@ class TyranoSaveViewer:
         self._cancel_timer(self._resize_timer)
         self._resize_timer = self.parent.after(RESIZE_DEBOUNCE_MS, self.refresh_display)
 
-    def _cancel_timer(self, timer_id: Optional[str]) -> None:
+    def _cancel_timer(self, timer_id: str | None) -> None:
         if timer_id:
             try:
                 self.parent.after_cancel(timer_id)

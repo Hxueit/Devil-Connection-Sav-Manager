@@ -8,7 +8,6 @@ import ctypes
 import logging
 import platform
 import tkinter as tk
-from typing import List, Optional, Tuple
 
 import customtkinter as ctk
 
@@ -47,7 +46,7 @@ GREEN = "#4ade80"
 RED = "#f87171"
 
 
-def _work_area(widget: tk.Misc) -> Tuple[int, int, int, int]:
+def _work_area(widget: tk.Misc) -> tuple[int, int, int, int]:
     """可用工作区 (left, top, right, bottom)；Windows 上排除任务栏"""
     if _USE_ALPHA:
         try:
@@ -64,7 +63,7 @@ def _work_area(widget: tk.Misc) -> Tuple[int, int, int, int]:
 class Toast:
     """通知窗口。外部会用到 window / message / message_text / update_message / reset_timer"""
 
-    _active_toasts: List["Toast"] = []
+    _active_toasts: list["Toast"] = []
 
     def __init__(self, root: ctk.CTk, message: str, duration: int = 10000,
                  fade_in: int = 200, fade_out: int = 200):
@@ -77,8 +76,8 @@ class Toast:
         self.window_height = 0
         self._pinned = False
         self._fading_out = False
-        self._close_job: Optional[str] = None  # 停留结束后开始淡出
-        self._fade_job: Optional[str] = None   # 渐变动画的下一帧
+        self._close_job: str | None = None  # 停留结束后开始淡出
+        self._fade_job: str | None = None   # 渐变动画的下一帧
 
         self._build_ui()
         self._show_text(message)

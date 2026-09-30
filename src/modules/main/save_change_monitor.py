@@ -8,8 +8,9 @@ import json
 import logging
 import os
 import tkinter as tk
+from collections.abc import Callable, Iterable
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any
 
 from src.constants import SF_SAVE_FILENAME
 from src.utils.sav_io import read_sav
@@ -24,7 +25,7 @@ FLOAT_EPSILON = 1e-10
 
 # ---------- 比较 ----------
 
-def parse_ignored_vars(text: str) -> Set[str]:
+def parse_ignored_vars(text: str) -> set[str]:
     """'record, initialVars' -> {'record', 'initialVars'}"""
     return {name.strip() for name in (text or "").split(",") if name.strip()}
 
@@ -61,7 +62,7 @@ def _list_key(item: Any) -> str:
     return str(item)
 
 
-def _compare_lists(key: str, old: list, new: list) -> List[str]:
+def _compare_lists(key: str, old: list, new: list) -> list[str]:
     old_keys = {_list_key(item) for item in old}
     new_keys = {_list_key(item) for item in new}
     changes = [f"{key}.append({_format_value(item)})" for item in new if _list_key(item) not in old_keys]
@@ -69,11 +70,11 @@ def _compare_lists(key: str, old: list, new: list) -> List[str]:
     return changes
 
 
-def _is_ignored(full_key: str, key: str, ignored: Set[str]) -> bool:
+def _is_ignored(full_key: str, key: str, ignored: set[str]) -> bool:
     return key in ignored or any(full_key == name or full_key.startswith(name + ".") for name in ignored)
 
 
-def compare_saves(old: Any, new: Any, ignored: Iterable[str] = (), prefix: str = "") -> List[str]:
+def compare_saves(old: Any, new: Any, ignored: Iterable[str] = (), prefix: str = "") -> list[str]:
     """递归比较两份存档，返回变更列表
 
     格式：「-键」删除，「+键 = 值」新增，「键 旧值→新值」修改，
@@ -82,7 +83,7 @@ def compare_saves(old: Any, new: Any, ignored: Iterable[str] = (), prefix: str =
     ignored = set(ignored)
     old = old if isinstance(old, dict) else {}
     new = new if isinstance(new, dict) else {}
-    changes: List[str] = []
+    changes: list[str] = []
     for key in list(old) + [k for k in new if k not in old]:
         full_key = f"{prefix}.{key}" if prefix else key
         if _is_ignored(full_key, key, ignored):
@@ -130,8 +131,8 @@ class SaveChangeMonitor:
         self,
         widget: tk.Misc,
         storage_dir: str,
-        ignored_vars: Set[str],
-        on_change: Callable[[List[str]], None],
+        ignored_vars: set[str],
+        on_change: Callable[[list[str]], None],
         on_ab_initio: Callable[[], None],
     ) -> None:
         self.widget = widget
@@ -139,10 +140,10 @@ class SaveChangeMonitor:
         self.ignored_vars = ignored_vars
         self.on_change = on_change
         self.on_ab_initio = on_ab_initio
-        self._stamp: Optional[Tuple[int, int]] = None  # (mtime_ns, size)
+        self._stamp: tuple[int, int] | None = None  # (mtime_ns, size)
         self._data: Any = None
         self._ab_initio_fired = False
-        self._job: Optional[str] = None
+        self._job: str | None = None
 
     def start(self) -> None:
         self.stop()
@@ -198,7 +199,7 @@ class SaveChangeMonitor:
 
 # ---------- 显示 ----------
 
-def _parse_arrow_change(change: str) -> Optional[Tuple[str, str, str]]:
+def _parse_arrow_change(change: str) -> tuple[str, str, str] | None:
     """'var old→new' -> (var, old, new)；不是这种格式时返回 None"""
     if change.startswith(("+", "-")) or ARROW not in change:
         return None
@@ -209,7 +210,7 @@ def _parse_arrow_change(change: str) -> Optional[Tuple[str, str, str]]:
     return prefix[:last_space].strip(), prefix[last_space + 1:].strip(), new_value.strip()
 
 
-def _toast_alive(toast: Optional[Toast]) -> bool:
+def _toast_alive(toast: Toast | None) -> bool:
     return toast is not None and widget_alive(toast.window)
 
 
@@ -222,11 +223,11 @@ class ChangeNotifier:
         self.root = root
         self.t = t
         # 变量名 -> (依次出现过的值, 显示它的 toast)
-        self._chains: Dict[str, Tuple[List[str], Optional[Toast]]] = {}
+        self._chains: dict[str, tuple[list[str], Toast | None]] = {}
 
-    def show(self, changes: List[str]) -> None:
-        new_lines: List[str] = []
-        new_vars: List[str] = []
+    def show(self, changes: list[str]) -> None:
+        new_lines: list[str] = []
+        new_vars: list[str] = []
         for change in changes:
             parsed = _parse_arrow_change(change)
             if parsed is None:

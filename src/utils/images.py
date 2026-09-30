@@ -7,7 +7,6 @@
 import base64
 from io import BytesIO
 from pathlib import Path
-from typing import Optional, Union
 
 from PIL import Image
 
@@ -22,7 +21,7 @@ IMAGE_FILE_TYPES = [
     ("All files", "*.*"),
 ]
 
-ImageSource = Union[str, Path, Image.Image, bytes]
+ImageSource = str, Path, Image.Image, bytes
 
 
 def is_image_file(path: Path) -> bool:
@@ -74,7 +73,7 @@ def open_image(source: ImageSource) -> Image.Image:
         return img.copy()
 
 
-def decode_image_data(data_uri: object) -> Optional[Image.Image]:
+def decode_image_data(data_uri: object) -> Image.Image | None:
     """解码存档里的 data URI 图片，失败返回 None"""
     try:
         return open_image(data_uri) if isinstance(data_uri, str) else None
