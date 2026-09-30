@@ -71,10 +71,7 @@ _NUMERIC_STRING = re.compile(r"^[+-]?\d+(?:\.\d+)?$")
 def get_progress_color(stickers_percent: float, fanatic_route: bool) -> str:
     if fanatic_route:
         return FANATIC_RING_COLOR
-    for threshold, color in STICKER_COLOR_THRESHOLDS:
-        if stickers_percent >= threshold:
-            return color
-    return STICKER_COLOR_THRESHOLDS[-1][1]
+    return next(color for threshold, color in STICKER_COLOR_THRESHOLDS if stickers_percent >= threshold)
 
 
 def extract_sticker_data(save_data: dict[str, Any]) -> tuple[int, float]:
@@ -129,8 +126,6 @@ def format_mp_value_for_display(mp: Any) -> tuple[str, bool]:
 
 def load_neo_content(storage_dir: str) -> tuple[str | None, str] | None:
     """读取 NEO.sav，返回 (自定义文本, 颜色)；固定台词时文本为 None；文件不存在返回 None"""
-    if not storage_dir:
-        return None
     neo_path = Path(storage_dir) / NEO_SAVE_FILENAME
     try:
         content = urllib.parse.unquote(neo_path.read_text(encoding="utf-8").strip())
@@ -154,7 +149,7 @@ def generate_gibberish_text(original_text: str) -> str:
         return original_text
     count = max(1, int(len(original_text) * random.uniform(0.2, 0.5)))
     result = list(original_text)
-    for pos in random.sample(range(len(result)), min(count, len(result))):
+    for pos in random.sample(range(len(result)), count):
         result[pos] = random.choice(string.printable)
     return "".join(result)
 
@@ -276,10 +271,7 @@ class StatisticsPanel:
     def _cancel_jobs(self) -> None:
         for job in (self._ring_job, self._gibberish_job):
             if job is not None:
-                try:
-                    self.container.after_cancel(job)
-                except tk.TclError:
-                    pass
+                self.container.after_cancel(job)
         self._ring_job = self._gibberish_job = None
         self._gibberish_targets.clear()
 
@@ -318,10 +310,7 @@ class StatisticsPanel:
 
     def _animate_ring(self, canvas: tk.Canvas, center: int, target: float, color: str,
                       percent_text_id: int | None) -> None:
-        """进度环从 0 增长到目标值（缓出）；到 100% 时再播放一次庆祝动画
-
-        percent_text_id: 环中间的百分比文字，动画中跟着变化；None 表示不更新
-        """
+        """进度环从 0 增长到目标值（缓出）并更新中间的百分比文字（有的话）；到 100% 时再播放庆祝动画"""
         start_time = time.time()
 
         def frame() -> None:
@@ -451,9 +440,8 @@ class StatisticsPanel:
 
     def _update_gibberish(self) -> None:
         self._gibberish_job = None
-        try:
-            for apply, text in self._gibberish_targets:
-                apply(generate_gibberish_text(text))
-        except tk.TclError:
-            return  # 控件已销毁
+        if not widget_alive(self.container):
+            return
+        for apply, text in self._gibberish_targets:
+            apply(generate_gibberish_text(text))
         self._gibberish_job = self.container.after(GIBBERISH_UPDATE_INTERVAL_MS, self._update_gibberish)

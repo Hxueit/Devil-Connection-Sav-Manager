@@ -82,13 +82,7 @@ def wrap_text(text: str, font: tkfont.Font, max_width: int) -> list[str]:
 
 def show_requirements(window: tk.Misc, t: Callable[[str], str], title_key: str,
                       items: list[tuple[str, str]], collected: set[str], id_prefix: str, kind: Kind) -> None:
-    """打开达成条件窗口
-
-    Args:
-        items: [(编号, 条件文本)]
-        collected: 已收集的编号
-        id_prefix: 卡片标题中编号前的前缀（"END"、"#" 等）
-    """
+    """打开达成条件窗口；items 是 [(编号, 条件文本)]，id_prefix 是卡片标题里编号前的 "END"、"#" 等"""
     top = tk.Toplevel(window.nametowidget("."))
     title_text = t(title_key) + " - " + t("view_requirements")
     top.title(title_text)

@@ -48,16 +48,11 @@ from .statistics_panel import StatisticsPanel
 logger = logging.getLogger(__name__)
 
 LEFT_WIDTH_RATIO = 2 / 3
-DEFAULT_WINDOW_WIDTH = 800
 FANATIC_TEXT_COLOR = "#8b0000"
-TITLE_COLOR = "#000000"
-TOOLTIP_ICON_COLOR = "blue"
-LABEL_WRAPLENGTH = 400
 
 
 @dataclass
 class _Row:
-    """一行「标签: 值」的可变文字"""
     label_var: tk.StringVar
     value_var: tk.StringVar
     tooltip_var: tk.StringVar | None = None
@@ -73,8 +68,6 @@ def _file_signature(path: str) -> tuple[int, int] | None:
 
 
 class SaveAnalyzer:
-    """sf 存档分析页"""
-
     def __init__(self, parent: tk.Widget, storage_dir: str, t: Callable[..., str]) -> None:
         self.window = parent
         self.storage_dir = storage_dir
@@ -83,7 +76,7 @@ class SaveAnalyzer:
 
         self.window.update_idletasks()
         window_width = self.window.winfo_width()
-        self._width = int((window_width if window_width > 1 else DEFAULT_WINDOW_WIDTH) * LEFT_WIDTH_RATIO)
+        self._width = int((window_width if window_width > 1 else 800) * LEFT_WIDTH_RATIO)
 
         # 当前左侧显示的分区是按哪种路线建的；None 表示还没有显示存档数据
         self._rendered_route: bool | None = None
@@ -129,7 +122,7 @@ class SaveAnalyzer:
         paned.add(right_frame, width=400, minsize=200)
 
         # 左右比例固定为 2:1，禁止拖动分隔条
-        def keep_ratio(event: tk.Event | None = None) -> None:
+        def keep_ratio() -> None:
             if paned.winfo_width() > 1:
                 paned.paneconfig(left_frame, width=int(paned.winfo_width() * 0.67))
 
@@ -176,7 +169,6 @@ class SaveAnalyzer:
     # ---------------------------------------------------------------- 刷新
 
     def update_language(self) -> None:
-        """语言切换后更新所有文字"""
         self.show_var_names_checkbox.config(text=self.t("show_var_names"))
         self.refresh_button.config(text=self.t("refresh"))
         self.view_file_button.config(text=self.t("view_save_file"))
@@ -277,14 +269,18 @@ class SaveAnalyzer:
             title = ttk.Label(header, text=self.t(section.key), font=get_cjk_font(12, "bold"),
                               wraplength=int(self._width * 0.6), justify="left")
             title.pack(side="left", padx=5)
-            button = ttk.Button(header, text=self.t(section.button_text_key),
-                                command=self._requirement_commands()[section.key])
+            commands = {
+                "endings_statistics": self.show_endings_requirements,
+                "stickers_statistics": self.show_stickers_requirements,
+                "omakes_statistics": self.show_ng_scene_requirements,
+            }
+            button = ttk.Button(header, text=self.t(section.button_text_key), command=commands[section.key])
             button.pack(side="right", padx=5)
             self._translatable.append((button, section.button_text_key))
         else:
             title = ttk.Label(frame, text=self.t(section.key), font=get_cjk_font(12, "bold"),
                               wraplength=int(self._width * 0.9), justify="left",
-                              foreground=color or TITLE_COLOR)
+                              foreground=color or "#000000")
             title.pack(anchor="w", padx=5, pady=5)
         self._translatable.append((title, section.key))
 
@@ -307,7 +303,7 @@ class SaveAnalyzer:
 
         row = _Row(tk.StringVar(value=f"{self.t(field.label_key)}:"), tk.StringVar(value=value))
         label = ttk.Label(line, textvariable=row.label_var, font=get_cjk_font(10),
-                          wraplength=LABEL_WRAPLENGTH, foreground=color)
+                          wraplength=400, foreground=color)
         label.pack(side="left", padx=5)
         if field.var_name:
             var_label = ttk.Label(line, text=f"[{field.var_name}]", font=get_cjk_font(9), foreground="gray")
@@ -319,7 +315,7 @@ class SaveAnalyzer:
 
         if has_tooltip:
             icon = ttk.Label(line, text="ℹ", font=get_cjk_font(10, "bold"),
-                             foreground=color or TOOLTIP_ICON_COLOR, cursor="hand2")
+                             foreground=color or "blue", cursor="hand2")
             icon.pack(side="left", padx=2)
             tooltip_frame = tk.Frame(container, bg=Colors.WHITE)
             row.tooltip_var = tk.StringVar(value=tooltip_text)
@@ -345,13 +341,6 @@ class SaveAnalyzer:
                 var_label.pack_forget()
 
     # ---------------------------------------------------------------- 按钮
-
-    def _requirement_commands(self) -> dict[str, Callable[[], None]]:
-        return {
-            "endings_statistics": self.show_endings_requirements,
-            "stickers_statistics": self.show_stickers_requirements,
-            "omakes_statistics": self.show_ng_scene_requirements,
-        }
 
     def show_endings_requirements(self) -> None:
         data = self.save_data or {}
