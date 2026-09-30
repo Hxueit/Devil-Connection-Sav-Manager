@@ -1,6 +1,18 @@
 # Devil Connection .sav Manager
 
-[![CTk](https://img.shields.io/badge/GUI-CTk-blue?logo=python&logoColor=white)](https://github.com/TomSchimansky/CustomTkinter) [![GitHub release (latest by date)](https://img.shields.io/github/v/release/Hxueit/Devil-Connection-Sav-Manager)](https://github.com/Hxueit/Devil-Connection-Sav-Manager/releases) ![Contains Spoilers](https://img.shields.io/badge/⚠-Contains_Spoilers-yellow) <img src="https://cdn.fastly.steamstatic.com/steamcommunity/public/images/apps/3054820/0cf0cb63d65311ed0b0f6f3cb5a2af88593b7361.jpg" alt="DC" width="20" height="20" style="border-radius: 20%;" />
+[![CTk](https://img.shields.io/badge/GUI-CTk-blue?logo=python&logoColor=white)](https://github.com/TomSchimansky/CustomTkinter) [![GitHub release (latest by date)](https://img.shields.io/github/v/release/Hxueit/Devil-Connection-Sav-Manager)](https://github.com/Hxueit/Devil-Connection-Sav-Manager/releases) ![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white) [![CI](https://github.com/Hxueit/Devil-Connection-Sav-Manager/actions/workflows/ci.yml/badge.svg)](https://github.com/Hxueit/Devil-Connection-Sav-Manager/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE) ![Contains Spoilers](https://img.shields.io/badge/⚠-Contains_Spoilers-yellow) <img src="https://cdn.fastly.steamstatic.com/steamcommunity/public/images/apps/3054820/0cf0cb63d65311ed0b0f6f3cb5a2af88593b7361.jpg" alt="DC" width="20" height="20" style="border-radius: 20%;" />
+
+<p align="center">
+  <img src="docs/images/demo.gif" alt="demo" width="760">
+</p>
+
+<p align="center">
+  <img src="docs/images/sf_analysis.png" alt="SF Analyzer" width="32%">
+  <img src="docs/images/screenshots.png" alt="Screenshots" width="32%">
+  <img src="docs/images/tyrano_saves.png" alt="Tyrano Management" width="32%">
+</p>
+
+**⬇ [Download / ダウンロード / 下载（Windows exe）](https://github.com/Hxueit/Devil-Connection-Sav-Manager/releases/latest)**
 
 <details>
 <summary>日本語 (Japanese)</summary>
@@ -108,13 +120,16 @@ python main.py
   - Linuxでは基本機能は動作しますが、「実行時変更」は現在 Steam版のみ対応しています。
   - macOSは未検証です。
 - 本ツールは《でびるコネクショん》公式および開発者とは一切関係ありません。完全に有志による非公式ツールです。ゲーム本体のファイルは変更せず、ローカルに保存されているスクリーンショット保存ファイルおよびセーブデータのみを操作します。
+- ネットワーク通信は、起動時の新バージョン確認（GitHub API）と、「実行時変更」でのローカル（127.0.0.1）のゲームとの通信のみです。データを外部に送信することはありません。
 
 ## ライセンス
 
 MIT License
 
-## 貢献
+## フィードバック・開発
 
+- 不具合や要望は [Issues](https://github.com/Hxueit/Devil-Connection-Sav-Manager/issues) までお願いします。操作手順とスクリーンショットを添えていただけると助かります
+- 使用技術：Python + CustomTkinter（GUI）、Pillow（画像処理）、Chrome DevTools Protocol（websockets で実行中のゲームと通信）、Nuitka（単体 exe）、GitHub Actions（ruff / pytest によるチェックとリリース）
 - 開発では AI の補助も利用しています。機能は特定ゲーム向けに作られています
 - ツール内の翻訳文を修正したい場合は、`/src/utils/translations.py` を直接編集してください。ツール内テキストはすべてこのファイルにあります
 - コードの構成は [ARCHITECTURE.md](ARCHITECTURE.md)（中国語）を参照してください
@@ -224,13 +239,16 @@ pip install -r requirements.txt
   - Linux 下大部分功能可用，“运行时修改”目前仅支持 Steam 版本。
   - macOS 尚未测试。
 - 本工具与游戏《でびるコネクショん》官方及开发者完全无关，仅为玩家自制工具。工具不涉及修改游戏核心文件，仅操作本地存储的截图保存文件以及存档文件。
+- 联网行为只有两处：启动时通过 GitHub API 检查新版本；「运行时修改」连接本机（127.0.0.1）上运行的游戏。不会上传任何数据。
 
 ## 许可证
 
 MIT License
 
-## 贡献
+## 反馈与开发
 
+- 遇到问题或有建议欢迎提 [Issue](https://github.com/Hxueit/Devil-Connection-Sav-Manager/issues)，请写明操作步骤，最好附上截图
+- 技术栈：Python + CustomTkinter（界面）、Pillow（图片处理）、Chrome DevTools Protocol（通过 websockets 与运行中的游戏交互）、Nuitka（打包为单文件 exe）、GitHub Actions（ruff / pytest 检查与自动发布）
 - 本项目在开发过程中使用了 AI 辅助编写代码，功能实现主要针对该特定游戏。
 - 如果想对程序内的翻译进行修改与纠正，请直接查看`/src/utils/translations.py`，工具内所有文本均在该文件中
 - 代码结构说明见 [ARCHITECTURE.md](ARCHITECTURE.md)
@@ -340,13 +358,16 @@ python main.py
   - On Linux, most features work. Runtime modification currently only works with the Steam version.
   - macOS has not been tested.
 - This tool is completely unofficial and has no affiliation with the developers of でびるコネクショん. It does not modify core game files, it only operates on locally stored screenshot save files and save files.
+- Network access is limited to checking for a new version on startup (GitHub API) and, in Runtime Modify, talking to the game running on your own machine (127.0.0.1). No data is ever uploaded.
 
 ## License
 
 MIT License
 
-## Contributions
+## Feedback & Development
 
+- Found a bug or have a suggestion? Please open an [issue](https://github.com/Hxueit/Devil-Connection-Sav-Manager/issues) with the steps to reproduce and, ideally, a screenshot.
+- Tech stack: Python + CustomTkinter (GUI), Pillow (images), Chrome DevTools Protocol over websockets (talking to the running game), Nuitka (single-file exe), GitHub Actions (ruff / pytest checks and releases).
 - AI assistance was used during development. The implementation mainly targets this specific game.
 - If you want to modify or correct translations in the app, check `/src/utils/translations.py`, all UI text is in that file.
 - See [ARCHITECTURE.md](ARCHITECTURE.md) (in Chinese) for an overview of the code structure.
