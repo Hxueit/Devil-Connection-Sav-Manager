@@ -28,13 +28,7 @@ logger = logging.getLogger(__name__)
 
 
 def load_save_file(storage_dir: str) -> dict[str, Any]:
-    """读取 sf 存档
-
-    Raises:
-        FileNotFoundError: 文件不存在
-        OSError: 无法读取
-        ValueError: 内容损坏（不是合法的 URL 编码 JSON 对象）
-    """
+    """读取 sf 存档；文件不存在/读不了时抛 OSError，内容损坏时抛 ValueError"""
     data = read_sav(Path(storage_dir) / SF_SAVE_FILENAME)
     if not isinstance(data, dict):
         raise ValueError(f"{SF_SAVE_FILENAME} 的内容不是 JSON 对象")

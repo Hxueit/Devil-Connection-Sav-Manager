@@ -37,8 +37,6 @@ logger = logging.getLogger(__name__)
 CHECKBOX_STYLE_NORMAL = "SfViewer.TCheckbutton"
 CHECKBOX_STYLE_HINT = "SfViewerHint.TCheckbutton"
 
-__all__ = ["SaveFileViewer", "ViewerTexts", "DEFAULT_SF_COLLAPSED_FIELDS"]
-
 DEFAULT_SF_COLLAPSED_FIELDS: list[str] = ["record", "_tap_effect", "initialVars"]
 
 WINDOW_SIZE = "1200x900"
@@ -94,7 +92,7 @@ class SaveFileViewer:
     def open_or_focus(cls, viewer_id: str, **kwargs: Any) -> "SaveFileViewer":
         """打开新窗口；同一 viewer_id 的窗口已存在时只把它提到前面（不刷新，以免覆盖未保存的编辑）"""
         existing = _open_viewers.get(viewer_id)
-        if existing is not None and existing.viewer_window.winfo_exists():
+        if existing:
             restore_and_activate_window(existing.viewer_window)
             return existing
         viewer = cls(**kwargs)
@@ -118,21 +116,12 @@ class SaveFileViewer:
         find_outside_changes: Callable[[dict[str, Any]], list[str]] | None = None,
         on_saved: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
-        """
-        Args:
-            parent: 任意所属控件，用来找到主窗口
-            data: 初始显示的数据
-            title: 窗口标题（已翻译的文字）
-            load: 「刷新」和「启用编辑」时重新读取数据；出错时抛出异常，返回 None 表示数据已不存在（保持现状）
-            save: 保存编辑后的数据；出错时抛出异常（返回 False 也视为失败）
-            collapsed_fields: 默认折叠的字段路径（支持 "stat.map_label" 这样的嵌套路径）
-            show_collapse_toggle: 显示「取消折叠」复选框和说明文字
-            edit_checkbox: True 时默认只读，勾选「启用编辑」才能修改；False 时直接可编辑
-            runtime: load/save 要和运行中的游戏通信：在后台线程执行，保存后再从游戏读回一次
-            find_outside_changes: 保存前检查数据在打开后是否被别处改过，参数是打开时的数据，
-                返回差异说明（空列表表示没变）；有差异时让用户确认
-            on_saved: 保存成功后调用，参数为保存的数据
-        """
+        # load: 「刷新」和「启用编辑」时重新读取；出错抛异常，返回 None 表示数据已不存在（保持现状）
+        # save: 出错抛异常，返回 False 也算失败
+        # collapsed_fields: 默认折叠的字段路径，支持 "stat.map_label" 这样的嵌套路径
+        # edit_checkbox: True 时默认只读，勾选「启用编辑」才能改
+        # runtime: load/save 要和运行中的游戏通信：放到后台线程，保存后再从游戏读回一次
+        # find_outside_changes(打开时的数据): 返回打开后被别处改过的地方，非空时保存前让用户确认
         self.t = t
         self.load = load
         self.save = save
@@ -385,7 +374,7 @@ class SaveFileViewer:
     # ---------------------------------------------------------------- 读取 / 保存
 
     def _call(self, work: Callable[[], Any], on_done: Callable[[Any, BaseException | None], None]) -> None:
-        """执行 load/save 等调用方传入的函数，结果交给 on_done(结果, 异常)
+        """执行调用方传入的 load/save，结果交给 on_done(结果, 异常)
 
         运行时模式要等游戏回复，放到后台线程；读写文件很快，直接执行。
         """
@@ -394,8 +383,7 @@ class SaveFileViewer:
             return
         try:
             result = work()
-        except Exception as e:
-            logger.error("Save viewer call failed: %s", e, exc_info=True)
+        except (OSError, ValueError) as e:
             on_done(None, e)
         else:
             on_done(result, None)
@@ -468,10 +456,7 @@ class SaveFileViewer:
             showinfo_relative(self.viewer_window, self.t("success"), self.t(self.texts.save_success))
             self._render()
             if self.on_saved is not None:
-                try:
-                    self.on_saved(edited_data)
-                except Exception as e:
-                    logger.error("on_saved callback failed: %s", e, exc_info=True)
+                self.on_saved(edited_data)
             if self.runtime:
                 self.viewer_window.after(REFRESH_AFTER_INJECT_DELAY_MS, reread)
 
@@ -490,7 +475,7 @@ class SaveFileViewer:
 
     # ---------------------------------------------------------------- 搜索
 
-    def _focus_search(self, event: tk.Event | None = None) -> str:
+    def _focus_search(self, event: tk.Event) -> str:
         self.search_entry.focus()
         self.search_entry.select_range(0, "end")
         return "break"
