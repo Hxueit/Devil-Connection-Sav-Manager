@@ -1,6 +1,6 @@
 # Devil Connection .sav Manager
 
-[![CTk](https://img.shields.io/badge/GUI-CTk-blue?logo=python&logoColor=white)](https://github.com/TomSchimansky/CustomTkinter) [![GitHub release (latest by date)](https://img.shields.io/github/v/release/Hxueit/Devil-Connection-Sav-Manager)](https://github.com/Hxueit/Devil-Connection-Sav-Manager/releases) ![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white) [![CI](https://github.com/Hxueit/Devil-Connection-Sav-Manager/actions/workflows/ci.yml/badge.svg)](https://github.com/Hxueit/Devil-Connection-Sav-Manager/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE) ![Contains Spoilers](https://img.shields.io/badge/⚠-Contains_Spoilers-yellow) <img src="https://cdn.fastly.steamstatic.com/steamcommunity/public/images/apps/3054820/0cf0cb63d65311ed0b0f6f3cb5a2af88593b7361.jpg" alt="DC" width="20" height="20" style="border-radius: 20%;" />
+[![CTk](https://img.shields.io/badge/GUI-CTk-blue?logo=python&logoColor=white)](https://github.com/TomSchimansky/CustomTkinter) [![GitHub release (latest by date)](https://img.shields.io/github/v/release/Hxueit/Devil-Connection-Sav-Manager)](https://github.com/Hxueit/Devil-Connection-Sav-Manager/releases) ![Python](https://img.shields.io/badge/Python-3.8%2B-3776AB?logo=python&logoColor=white) [![CI](https://img.shields.io/github/actions/workflow/status/Hxueit/Devil-Connection-Sav-Manager/ci.yml?branch=main&label=CI&logo=githubactions&logoColor=white)](https://github.com/Hxueit/Devil-Connection-Sav-Manager/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE) ![Contains Spoilers](https://img.shields.io/badge/⚠-Contains_Spoilers-yellow) <img src="https://cdn.fastly.steamstatic.com/steamcommunity/public/images/apps/3054820/0cf0cb63d65311ed0b0f6f3cb5a2af88593b7361.jpg" alt="DC" width="20" height="20" style="border-radius: 20%;" />
 
 <p align="center">
   <img src="docs/images/demo.gif" alt="demo" width="760">
@@ -11,8 +11,6 @@
   <img src="docs/images/screenshots.png" alt="Screenshots" width="32%">
   <img src="docs/images/tyrano_saves.png" alt="Tyrano Management" width="32%">
 </p>
-
-**⬇ [Download / ダウンロード / 下载（Windows exe）](https://github.com/Hxueit/Devil-Connection-Sav-Manager/releases/latest)**
 
 <details>
 <summary>日本語 (Japanese)</summary>
