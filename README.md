@@ -112,7 +112,6 @@ python main.py
   - Linuxでは基本機能は動作しますが、「実行時変更」は現在 Steam版のみ対応しています。
   - macOSは未検証です。
 - 本ツールは《でびるコネクショん》公式および開発者とは一切関係ありません。完全に有志による非公式ツールです。ゲーム本体のファイルは変更せず、ローカルに保存されているスクリーンショット保存ファイルおよびセーブデータのみを操作します。
-- ネットワーク通信は、起動時の新バージョン確認（GitHub API）と、「実行時変更」でのローカル（127.0.0.1）のゲームとの通信のみです。データを外部に送信することはありません。
 
 ## ライセンス
 
@@ -230,7 +229,6 @@ pip install -r requirements.txt
   - Linux 下大部分功能可用，“运行时修改”目前仅支持 Steam 版本。
   - macOS 尚未测试。
 - 本工具与游戏《でびるコネクショん》官方及开发者完全无关，仅为玩家自制工具。工具不涉及修改游戏核心文件，仅操作本地存储的截图保存文件以及存档文件。
-- 联网行为只有两处：启动时通过 GitHub API 检查新版本；「运行时修改」连接本机（127.0.0.1）上运行的游戏。不会上传任何数据。
 
 ## 许可证
 
@@ -348,7 +346,6 @@ python main.py
   - On Linux, most features work. Runtime modification currently only works with the Steam version.
   - macOS has not been tested.
 - This tool is completely unofficial and has no affiliation with the developers of でびるコネクショん. It does not modify core game files, it only operates on locally stored screenshot save files and save files.
-- Network access is limited to checking for a new version on startup (GitHub API) and, in Runtime Modify, talking to the game running on your own machine (127.0.0.1). No data is ever uploaded.
 
 ## License
 
