@@ -1,9 +1,4 @@
-"""sf 存档变动提示（「其他」页里开启 toast 后才运行）
-
-- compare_saves：比较两份存档数据，生成「变量 旧值→新值」这样的变更列表
-- SaveChangeMonitor：在主线程定时检查 sf 存档，只在文件的修改时间/大小变化时才读取和比较
-- ChangeNotifier：用 toast 显示变更；同一个变量连续变化时合并成一行「a→b→c」
-"""
+"""存档变动提示（在"其他"页开启 toast 后才运行）"""
 import json
 import os
 import tkinter as tk
@@ -19,8 +14,6 @@ from src.utils.ui_utils import widget_alive
 ARROW = "→"
 FLOAT_EPSILON = 1e-10
 
-
-# ---------- 比较 ----------
 
 def parse_ignored_vars(text: str) -> set[str]:
     """'record, initialVars' -> {'record', 'initialVars'}"""
@@ -53,7 +46,6 @@ def _values_equal(old: Any, new: Any) -> bool:
 
 
 def _list_key(item: Any) -> str:
-    """列表元素的比较键（元素可能是不可哈希的 dict/list）"""
     if isinstance(item, (dict, list)):
         return json.dumps(item, sort_keys=True, ensure_ascii=False)
     return str(item)
@@ -74,8 +66,7 @@ def _is_ignored(full_key: str, key: str, ignored: set[str]) -> bool:
 def compare_saves(old: Any, new: Any, ignored: Iterable[str] = (), prefix: str = "") -> list[str]:
     """递归比较两份存档，返回变更列表
 
-    格式：「-键」删除，「+键 = 值」新增，「键 旧值→新值」修改，
-    「键.append(值)」/「键.remove(值)」列表增减。ignored 中的变量（及其子键）会被跳过。
+    格式："-键"、"+键 = 值"、"键 旧值→新值"、"键.append(值)"、"键.remove(值)"
     """
     ignored = set(ignored)
     old = old if isinstance(old, dict) else {}
@@ -113,14 +104,8 @@ def compare_saves(old: Any, new: Any, ignored: Iterable[str] = (), prefix: str =
     return changes
 
 
-# ---------- 监控 ----------
-
 class SaveChangeMonitor:
-    """定时检查 sf 存档，内容变化时调用 on_change(changes)
-
-    整个 _storage 文件夹消失时（游戏里的「AB INITIO」）调用一次 on_ab_initio()。
-    检查在主线程上执行：平时只做一次 os.stat，文件变化时才读取和解析。
-    """
+    """平时只 os.stat 一次，文件变了才读取比较；_storage 整个消失时调用 on_ab_initio()"""
 
     POLL_INTERVAL_MS = 300
 
@@ -188,8 +173,6 @@ class SaveChangeMonitor:
                 self.on_change(changes)
 
 
-# ---------- 显示 ----------
-
 def _parse_arrow_change(change: str) -> tuple[str, str, str] | None:
     """'var old→new' -> (var, old, new)；不是这种格式时返回 None"""
     if change.startswith(("+", "-")) or ARROW not in change:
@@ -202,7 +185,7 @@ def _parse_arrow_change(change: str) -> tuple[str, str, str] | None:
 
 
 class ChangeNotifier:
-    """用 toast 显示存档变更；变量的后续变化合并到仍在显示的那条 toast 里"""
+    """同一个变量的连续变化合并到还在显示的那条 toast 里"""
 
     TOAST_DURATION_MS = 15000
 
@@ -240,7 +223,6 @@ class ChangeNotifier:
 
 
 def _replace_line(message: str, var: str, new_line: str) -> str:
-    """把消息中该变量的那一行换成 new_line（找不到就追加）"""
     lines = message.split("\n")
     for i, line in enumerate(lines):
         if line.startswith(f"{var} ") and ARROW in line:

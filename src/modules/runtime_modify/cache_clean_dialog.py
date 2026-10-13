@@ -23,10 +23,7 @@ from src.utils.styles import Colors, get_cjk_font, white_button
 
 @dataclass
 class CleanupItemResult:
-    """一个清理项的结果；count 为 None 表示失败
-
-    script_failed 为 True 表示脚本没能执行完（除了逐项显示，还会列在「警告」里）。
-    """
+    """count 为 None 表示失败；script_failed 表示脚本没执行完"""
     name: str
     count: int | None
     error: str | None = None
@@ -34,7 +31,7 @@ class CleanupItemResult:
 
 
 class CannotCleanNowError(Exception):
-    """游戏正在转场/动画，现在清理会出问题；reason 是游戏给出的原因（可能为 None）"""
+    """游戏正在转场/动画，现在清理会出问题"""
 
     def __init__(self, reason: str | None) -> None:
         super().__init__(reason or "")
@@ -42,10 +39,7 @@ class CannotCleanNowError(Exception):
 
 
 def run_cleanup(ws_url: str, jobs: list[tuple[str, str, bool]]) -> tuple[list[CleanupItemResult], list[str]]:
-    """依次执行清理项 (名称, 脚本, 是否要求照片界面关闭)，返回 (各项结果, 因照片界面打开而跳过的项)
-
-    在后台线程调用。游戏现在不能清理时抛出 CannotCleanNowError，无法检查状态时抛出 CdpError。
-    """
+    """在后台线程调用。jobs 是 (名称, 脚本, 是否要求照片界面关闭)，返回 (各项结果, 跳过的项)"""
     state = evaluate(ws_url, JS_CHECK_STATE)
     if not state["canClean"]:
         raise CannotCleanNowError(state.get("reason"))
@@ -75,7 +69,6 @@ def run_cleanup(ws_url: str, jobs: list[tuple[str, str, bool]]) -> tuple[list[Cl
 
 
 class CacheCleanDialog(RuntimeDialog):
-    """左侧是执行按钮和结果，右侧是可勾选的清理项"""
 
     def __init__(self, parent: tk.Misc, t: Callable[..., str], get_ws_url: Callable[[], str | None]) -> None:
         super().__init__(parent, t, "cache_clean_dialog_title", "550x550", (500, 450))
@@ -137,7 +130,7 @@ class CacheCleanDialog(RuntimeDialog):
                         RISKY_CLEANUP_SCRIPTS, checked=False)
         ctk.CTkFrame(items_frame, height=1, fg_color=Colors.GRAY).pack(fill="x", pady=(10, 10))
 
-        # 「全部」分组：扫描后才列出可清理的项
+        # "全部"分组：扫描后才列出可清理的项
         self.dangerous_frame = ctk.CTkFrame(items_frame, fg_color=Colors.WHITE)
         self.dangerous_frame.pack(fill="x", pady=(0, 5))
         self._group_label(self.dangerous_frame, "cache_clean_all").pack(anchor="w", pady=(0, 5))
@@ -172,7 +165,6 @@ class CacheCleanDialog(RuntimeDialog):
 
     def _add_group(self, parent: tk.Misc, title_key: str, select_all_key: str, scripts: dict[str, str],
                    checked: bool) -> None:
-        """一个分组：标题、「全选」复选框、每个清理项的复选框"""
         self._group_label(parent, title_key).pack(anchor="w", pady=(0, 5))
 
         item_vars = [tk.BooleanVar(value=checked) for _ in scripts]
@@ -192,7 +184,6 @@ class CacheCleanDialog(RuntimeDialog):
             self._translated_widgets.append((checkbox, item_key))
             self._item_vars[key] = var
 
-    # ------------------------------------------------------------ 扫描
 
     def _scan_hint(self) -> str:
         if self._found_count is None:
@@ -232,7 +223,6 @@ class CacheCleanDialog(RuntimeDialog):
         self._found_count = len(self._dynamic_items)
         self.scan_hint_label.configure(text=self._scan_hint())
 
-    # ------------------------------------------------------------ 执行
 
     def _on_execute_clicked(self) -> None:
         if self._is_executing:
@@ -294,7 +284,6 @@ class CacheCleanDialog(RuntimeDialog):
         return "\n".join(lines)
 
     def _show_status_key(self, key: str) -> None:
-        """显示一条固定提示（切换语言时会重新翻译）"""
         set_textbox_text(self.status_text, self.t(key))
         self._status_key = key
 

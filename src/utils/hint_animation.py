@@ -1,4 +1,4 @@
-"""提示动画：用户尝试禁用的操作时，让"开启修改"复选框变色并左右抖动"""
+"""点了被禁用的操作时，让"开启修改"复选框变色并抖一下"""
 
 import time
 import tkinter as tk
@@ -14,10 +14,7 @@ WRAPPER_PADX = 5  # wrapper 原本的左右边距
 
 
 class HintAnimation:
-    """让复选框变成橙色并左右抖动一下
-
-    抖动是通过改变 wrapper（包着复选框、用 pack 布局的 tk.Frame）的 padx 实现的。
-    """
+    """抖动是通过改 wrapper（包着复选框的 Frame）的 padx 实现的"""
 
     def __init__(self, root: tk.Misc, target_widget: ttk.Checkbutton, wrapper: tk.Frame,
                  normal_style: str, hint_style: str) -> None:
@@ -29,7 +26,6 @@ class HintAnimation:
         self._last_trigger = 0.0
 
     def trigger(self) -> None:
-        """播放动画；DEBOUNCE_MS 内重复触发会被忽略"""
         now = time.monotonic() * 1000
         if now - self._last_trigger < DEBOUNCE_MS:
             return

@@ -1,10 +1,7 @@
-"""存档查看/编辑窗口
+"""存档查看/编辑窗口（JSON）
 
-以 JSON 文本显示存档内容，支持折叠大字段、搜索、复制、编辑后保存。
-窗口本身不知道数据存在哪里：调用方传入 load() 和 save(data) 两个函数。
-- sf 存档分析页的「查看存档文件」：读写 DevilConnection_sf.sav
-- tyrano 存档槽 / 自动存档：读写对应的存档槽或文件
-- 运行时修改页（runtime=True）：通过 CDP 读写游戏内存中的 sf 或 kag.stat
+窗口不关心数据存在哪里，调用方传入 load() 和 save(data)。
+sf 存档、tyrano 存档槽和运行时修改页都用它。
 """
 
 import copy
@@ -33,7 +30,7 @@ from .viewer_json import format_display_data, restore_collapsed_fields
 
 logger = logging.getLogger(__name__)
 
-# 「开启修改」复选框的 ttk 样式名（ttk 样式是全局的，名字不能和截图页的重复）
+# "开启修改"复选框的 ttk 样式名（ttk 样式是全局的，名字不能和截图页的重复）
 CHECKBOX_STYLE_NORMAL = "SfViewer.TCheckbutton"
 CHECKBOX_STYLE_HINT = "SfViewerHint.TCheckbutton"
 
@@ -86,7 +83,6 @@ def apply_json_syntax_highlight(text_widget: tk.Text, content: str) -> None:
 
 
 class SaveFileViewer:
-    """存档查看/编辑窗口"""
 
     @classmethod
     def open_or_focus(cls, viewer_id: str, **kwargs: Any) -> "SaveFileViewer":
@@ -116,10 +112,10 @@ class SaveFileViewer:
         find_outside_changes: Callable[[dict[str, Any]], list[str]] | None = None,
         on_saved: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
-        # load: 「刷新」和「启用编辑」时重新读取；出错抛异常，返回 None 表示数据已不存在（保持现状）
+        # load: "刷新"和"启用编辑"时重新读取；出错抛异常，返回 None 表示数据已不存在（保持现状）
         # save: 出错抛异常，返回 False 也算失败
         # collapsed_fields: 默认折叠的字段路径，支持 "stat.map_label" 这样的嵌套路径
-        # edit_checkbox: True 时默认只读，勾选「启用编辑」才能改
+        # edit_checkbox: True 时默认只读，勾选"启用编辑"才能改
         # runtime: load/save 要和运行中的游戏通信：放到后台线程，保存后再从游戏读回一次
         # find_outside_changes(打开时的数据): 返回打开后被别处改过的地方，非空时保存前让用户确认
         self.t = t
@@ -149,7 +145,6 @@ class SaveFileViewer:
         self._build_ui(show_collapse_toggle, edit_checkbox)
         self._render()
 
-    # ---------------------------------------------------------------- 界面
 
     def _build_ui(self, show_collapse_toggle: bool, edit_checkbox: bool) -> None:
         self._setup_styles()
@@ -256,7 +251,6 @@ class SaveFileViewer:
         tw.bind("<KeyPress>", self._on_key_press)
         tw.bind("<KeyRelease>", lambda e: self._update_line_numbers())
 
-    # ---------------------------------------------------------------- 显示
 
     def _get_text(self) -> str:
         return self.text_widget.get("1.0", "end-1c")
@@ -267,7 +261,6 @@ class SaveFileViewer:
         self.original_save_data = copy.deepcopy(data)
 
     def _render(self) -> None:
-        """按当前数据和折叠设置重新生成文本；之后的修改都相对于这次渲染的内容判断"""
         scroll_position = self.text_widget.yview()[0]
         self._clear_search()
         if self.disable_collapse_var.get():
@@ -303,7 +296,6 @@ class SaveFileViewer:
         self.viewer_window.clipboard_clear()
         self.viewer_window.clipboard_append(self._get_text())
 
-    # ---------------------------------------------------------------- 编辑
 
     def _has_unsaved_changes(self) -> bool:
         return self.enable_edit_var.get() and self._get_text() != self._baseline
@@ -317,7 +309,7 @@ class SaveFileViewer:
         if not self.enable_edit_var.get():
             if is_ctrl_c:
                 return None
-            # 只读时想删除选中内容，提示用户先勾选「启用编辑」
+            # 只读时想删除选中内容，提示用户先勾选"启用编辑"
             if (self._hint_animation and event.keysym in ("Delete", "BackSpace")
                     and self.text_widget.tag_ranges("sel")):
                 self._hint_animation.trigger()
@@ -371,13 +363,9 @@ class SaveFileViewer:
             return
         self._reload()
 
-    # ---------------------------------------------------------------- 读取 / 保存
 
     def _call(self, work: Callable[[], Any], on_done: Callable[[Any, BaseException | None], None]) -> None:
-        """执行调用方传入的 load/save，结果交给 on_done(结果, 异常)
-
-        运行时模式要等游戏回复，放到后台线程；读写文件很快，直接执行。
-        """
+        """运行时模式要等游戏回复，放到后台线程；读写文件很快，直接执行"""
         if self.runtime:
             run_in_background(self.viewer_window, work, on_done)
             return
@@ -398,7 +386,6 @@ class SaveFileViewer:
         showerror_relative(self.viewer_window, self.t("error"), message)
 
     def _reload(self, on_failed: Callable[[], None] | None = None) -> None:
-        """重新 load() 并显示；失败（或数据已不存在）时调用 on_failed"""
         def done(data: dict[str, Any] | None, error: BaseException | None) -> None:
             if error is not None:
                 self._show_load_error(error)
@@ -473,7 +460,6 @@ class SaveFileViewer:
 
         self._call(lambda: self.save(edited_data), done)
 
-    # ---------------------------------------------------------------- 搜索
 
     def _focus_search(self, event: tk.Event) -> str:
         self.search_entry.focus()
@@ -490,7 +476,6 @@ class SaveFileViewer:
         self.search_results_label.config(text="")
 
     def _find(self, backwards: bool = False) -> None:
-        """高亮所有匹配（不区分大小写）并跳到下一个/上一个"""
         term = self.search_entry.get().strip()
         if not term:
             self.search_results_label.config(text="")
@@ -521,7 +506,6 @@ class SaveFileViewer:
         tw.mark_set("insert", position)
         self.search_results_label.config(text=f"{self._search_index + 1}/{len(matches)}")
 
-    # ---------------------------------------------------------------- 关闭
 
     def _on_close(self) -> None:
         if self._has_unsaved_changes() and not self._confirm_discard_changes():

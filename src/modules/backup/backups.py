@@ -1,8 +1,7 @@
-"""备份文件操作：创建、扫描、还原、删除、重命名
+"""备份文件操作（不涉及界面，失败时抛异常）
 
-备份是 _storage 文件夹的 zip 压缩包，放在 _storage 同级的 dcsm_backups 文件夹里。
-压缩包内额外有一个 dcsmINFO.txt，第一行是创建时间，用于在列表中排序和显示。
-这里的函数都不碰界面，可以在后台线程中调用；失败时抛出异常。
+备份就是 _storage 的 zip，放在同级的 dcsm_backups 文件夹里；
+zip 里的 dcsmINFO.txt 第一行是创建时间。
 """
 import contextlib
 import io
@@ -71,11 +70,9 @@ def estimate_compressed_size(storage_dir: Path) -> int:
 
 
 def create_backup(storage_dir: Path, progress: Callable[[int, int], None] | None = None) -> Path:
-    """把 _storage 打包成新的备份文件，返回备份路径
+    """先写到 .partial，全部成功后才改名成 .zip，失败时不会留下残缺的备份。
 
-    先写到 .partial 临时文件，全部成功后才改名成 .zip，
-    所以失败时不会在备份列表里留下残缺的压缩包。任何文件无法读取都算失败。
-    progress(current, total) 会在后台线程中被调用。
+    progress(current, total) 在后台线程里被调用。
     """
     storage_dir = Path(storage_dir)
     if not storage_dir.is_dir():
@@ -133,7 +130,6 @@ def _read_backup_timestamp(zip_path: Path):
 
 
 def scan_backups(backup_dir: Path) -> list[BackupInfo]:
-    """列出备份：有时间戳的按时间倒序排在前面，其余排在后面"""
     backup_dir = Path(backup_dir)
     if not backup_dir.is_dir():
         return []
@@ -149,7 +145,6 @@ def scan_backups(backup_dir: Path) -> list[BackupInfo]:
 
 
 def missing_required_files(zip_path: Path) -> list[str]:
-    """返回备份中缺少的必需存档文件"""
     try:
         with zipfile.ZipFile(zip_path) as zf:
             names = set(zf.namelist())
@@ -222,7 +217,6 @@ def _replace_files(storage_dir: Path, staging_dir: Path) -> None:
 
 
 def delete_backup(zip_path: Path) -> None:
-    """删除备份；备份文件夹空了就一并删除"""
     zip_path = Path(zip_path)
     zip_path.unlink()
     with contextlib.suppress(OSError):
@@ -230,7 +224,6 @@ def delete_backup(zip_path: Path) -> None:
 
 
 def rename_backup(zip_path: Path, new_name: str) -> Path:
-    """重命名备份（自动补 .zip），返回新路径"""
     zip_path = Path(zip_path)
     if not new_name.endswith(".zip"):
         new_name += ".zip"

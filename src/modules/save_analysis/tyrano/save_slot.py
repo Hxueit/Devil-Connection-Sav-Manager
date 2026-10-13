@@ -1,10 +1,3 @@
-"""存档槽卡片和 Tyrano 标签页共用的界面小部件
-
-- PageNavBar：翻页导航栏
-- SlotCard：只负责显示（缩略图 + 天数/完成圆点/日期/副标题），删除对话框直接使用
-- TyranoSaveSlot：主界面用的卡片，多了「修改」「导出」按钮，点击缩略图打开图片详情
-"""
-
 import json
 import re
 import tkinter as tk
@@ -52,11 +45,7 @@ _INVALID_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*]')
 
 
 class PageNavBar:
-    """「上一页 / 下一页 / 当前页 / 跳转到第 N 页」导航栏，主界面和删除对话框共用
-
-    导航栏只算出要去的页码，然后调用 on_page_change(页码)；
-    使用者翻好页后再调用 show(当前页, 总页数) 更新页码显示。
-    """
+    """只算出要去的页码并调用 on_page_change(页码)；翻好页后由使用者调用 show() 更新显示"""
 
     def __init__(self, parent: tk.Misc, t: Callable[..., str], on_page_change: Callable[[int], None]) -> None:
         self.t = t
@@ -95,7 +84,6 @@ class PageNavBar:
         self.next_button.configure(state=state)
 
     def update_texts(self) -> None:
-        """切换语言后更新文字"""
         for widget, key in ((self.prev_button, "prev_page"), (self.next_button, "next_page"),
                             (self.jump_label, "jump_to_page"), (self.jump_button, "jump")):
             widget.configure(text=self.t(key))
@@ -146,7 +134,6 @@ def build_slot_grid(parent: tk.Misc) -> list[ctk.CTkFrame]:
 
 
 def slot_size_for_area(width: int, height: int) -> tuple[int, int] | None:
-    """由 build_slot_grid 所在区域的大小算出单个格子的大小；区域还没布局好时返回 None"""
     column_width = (width - 20 - 3 - 20) // 2   # 网格左右边距、分隔线及其两侧边距
     row_height = (height - 10) // TYRANO_ROWS_PER_PAGE
     if column_width > 1 and row_height > 1:
@@ -155,7 +142,6 @@ def slot_size_for_area(width: int, height: int) -> tuple[int, int] | None:
 
 
 def _date_for_name(save_date: str | None) -> str:
-    """把保存时间转成 YYYY-MM-DD，用在文件名和窗口标题里"""
     if not save_date:
         return datetime.now().strftime("%Y-%m-%d")
     date_part = save_date.partition(" ")[0]
@@ -168,7 +154,6 @@ def _date_for_name(save_date: str | None) -> str:
 
 
 class SlotCard:
-    """存档槽卡片：左边缩略图，右边天数、完成圆点、保存时间和副标题"""
 
     def __init__(self, parent: tk.Misc, t: Callable[..., str]) -> None:
         self.t = t
@@ -195,20 +180,18 @@ class SlotCard:
         return is_empty_save(self.slot_data)
 
     def bind_click(self, callback: Callable[[tk.Event], None]) -> None:
-        """点击卡片任意位置都调用 callback"""
         self._on_click = callback
         for widget in self._frames:
             widget.bind("<Button-1>", callback)
 
     def set_slot(self, slot_data: dict[str, Any] | None, index: int) -> None:
-        """换成另一个存档槽的数据；信息面板要等 show_info() 时才重新创建"""
+        """信息面板要等 show_info() 时才重新创建"""
         self.slot_data = slot_data
         self.slot_index = index
         for widget in self.text_frame.winfo_children():
             widget.destroy()
 
     def show_info(self, circle_diameter: int = 15) -> None:
-        """创建右侧信息面板"""
         def add_label(text: str, color: str, pady=(0, 5)) -> None:
             ctk.CTkLabel(self.text_frame, text=text, font=get_cjk_font(10), text_color=color,
                          fg_color="transparent", anchor="w").pack(side="top", anchor="w", pady=pady)
@@ -246,7 +229,6 @@ class SlotCard:
 
 
 class TyranoSaveSlot(SlotCard):
-    """主界面的存档槽卡片：右上角有「修改」「导出」按钮，点击缩略图查看/替换/导出图片"""
 
     def __init__(self, parent: tk.Misc, viewer: "TyranoSaveViewer") -> None:
         super().__init__(parent, viewer.t)
@@ -272,7 +254,7 @@ class TyranoSaveSlot(SlotCard):
             white_button(self._button_frame, self.t(key), command, width=30, height=20, corner_radius=4,
                          font=get_cjk_font(9)).pack(side="left", padx=2)
 
-    # --- 修改：用 JSON 编辑器打开这个存档槽 ---
+    # 修改：用 JSON 编辑器打开这个存档槽
 
     def _on_edit_click(self) -> None:
         # 记下当前的索引：编辑器不是模态的，期间卡片可能因为翻页换成别的存档槽
@@ -296,7 +278,7 @@ class TyranoSaveSlot(SlotCard):
         )
 
     def _edit_title(self) -> str:
-        """「存档:3日目_●●○_2024-05-01_副标题」"""
+        """例：存档:3日目_●●○_2024-05-01_副标题"""
         info = extract_save_info(self.slot_data)
         day = day_text(info, self.t) or self.t("tyrano_day_label", day=0)
         circles = info.circles() if info.day is not None and not info.is_epilogue else "○○○"
@@ -305,10 +287,10 @@ class TyranoSaveSlot(SlotCard):
             parts.append(info.subtitle)
         return f"{self.t('tyrano_slot_edit_title_prefix')}:{'_'.join(parts)}"
 
-    # --- 导出：保存为 JSON 文件（可以在「导入」中重新导入） ---
+    # 导出：保存为 JSON 文件（可以在"导入"中重新导入）
 
     def _export_basename(self) -> str:
-        """「3日目_XXO_2024-05-01_副标题」（X=已完成，O=未完成）"""
+        """例：3日目_XXO_2024-05-01_副标题（X=已完成，O=未完成）"""
         info = extract_save_info(self.slot_data)
         parts = [f"{info.day if info.day is not None else 0}日目", info.circles("X", "O"),
                  _date_for_name(info.save_date)]
@@ -333,7 +315,7 @@ class TyranoSaveSlot(SlotCard):
             return
         showinfo_relative(self.root, self.t("success"), self.t("tyrano_export_success", path=file_path))
 
-    # --- 图片详情对话框：预览、替换、导出 img_data ---
+    # 图片详情对话框：预览、替换、导出 img_data
 
     def _show_image_dialog(self) -> None:
         t = self.t

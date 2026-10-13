@@ -1,8 +1,4 @@
-"""截图管理标签页
-
-左边是选中截图的预览，右边是截图列表（与游戏画廊顺序一致，每 12 张一页，
-每页分左右两个半页）。勾选「开启修改」后才能新增/替换/删除/排序/拖拽。
-"""
+"""截图管理标签页。列表顺序和游戏画廊一致：每 12 张一页，分左右两个半页"""
 
 import tkinter as tk
 from collections.abc import Callable
@@ -20,7 +16,7 @@ from src.utils.hint_animation import HintAnimation
 from src.utils.styles import Colors, get_cjk_font
 from src.utils.ui_utils import askyesno_relative, showerror_relative, showinfo_relative, showwarning_relative
 
-# 「开启修改」复选框的 ttk 样式名
+# "开启修改"复选框的 ttk 样式名
 CHECKBOX_STYLE_NORMAL = "Screenshot.TCheckbutton"
 CHECKBOX_STYLE_HINT = "ScreenshotHint.TCheckbutton"
 
@@ -39,7 +35,6 @@ MARKS = {
 
 
 class ScreenshotManagerUI:
-    """截图管理标签页"""
 
     def __init__(self, parent_frame: tk.Frame, root: tk.Tk, storage_dir: str | None,
                  t: Callable[..., str]) -> None:
@@ -71,7 +66,6 @@ class ScreenshotManagerUI:
 
         self.load_screenshots(silent=True)
 
-    # ---------- 界面搭建 ----------
 
     def _build_ui(self) -> None:
         bg = Colors.LIGHT_GRAY
@@ -169,7 +163,6 @@ class ScreenshotManagerUI:
             button.bind('<Button-1>', self._on_edit_button_click, add='+')
 
     def update_language(self) -> None:
-        """切换语言后更新文字，并重新载入列表（列表里的日期等文字也要换）"""
         self.hint_label.config(text=self.t("select_dir_hint"))
         self.list_label.config(text=self.t("screenshot_list"))
         self.preview_label_text.config(text=self.t("preview"))
@@ -185,7 +178,6 @@ class ScreenshotManagerUI:
         self.enable_edit_checkbox.config(text=self.t("enable_edit"))
         self.load_screenshots(silent=True)
 
-    # ---------- 编辑模式 ----------
 
     def _set_edit_mode(self, enabled: bool) -> None:
         self.edit_enabled = enabled
@@ -194,13 +186,11 @@ class ScreenshotManagerUI:
             button.config(state="normal" if enabled else "disabled")
 
     def _on_edit_button_click(self, event: tk.Event) -> str | None:
-        """点了被禁用的修改按钮时，让「开启修改」复选框闪一下提示用户"""
         if event.widget.instate(['disabled']):
             self._hint.trigger()
             return "break"
         return None
 
-    # ---------- 列表 ----------
 
     def set_storage_dir(self, storage_dir: str | None) -> None:
         self.storage_dir = storage_dir
@@ -211,7 +201,6 @@ class ScreenshotManagerUI:
             self.hint_label.pack(pady=10)
 
     def load_screenshots(self, silent: bool = False) -> None:
-        """重新读取截图并刷新列表和画廊（silent 时出错不弹窗）"""
         if not self.storage_dir:
             return
         self.manager.storage_dir = Path(self.storage_dir)
@@ -254,7 +243,6 @@ class ScreenshotManagerUI:
         self.checked &= existing_ids
 
     def _mark_row(self, screenshot_id: str, kind: str) -> None:
-        """在行前显示一个临时标记（15 秒后消失）"""
         row = self._item_by_id.get(screenshot_id)
         if not row:
             return
@@ -273,7 +261,6 @@ class ScreenshotManagerUI:
         self.tree.item(row, tags=())
 
     def _on_tree_click(self, event: tk.Event) -> str | None:
-        """点击复选框列时切换勾选"""
         if self.tree.identify_region(event.x, event.y) != "cell" or self.tree.identify_column(event.x) != "#1":
             return None
         screenshot_id = self._id_by_item.get(self.tree.identify_row(event.y))
@@ -304,11 +291,9 @@ class ScreenshotManagerUI:
             self.batch_export_button.pack_forget()
 
     def _checked_ids(self) -> list[str]:
-        """勾选的截图ID，按列表顺序"""
         return [item['id'] for item in self.manager.ids_data if item['id'] in self.checked]
 
     def _selected_id(self) -> str | None:
-        """当前选中（高亮）行的截图ID；没选中时提示并返回 None"""
         selection = self.tree.selection()
         if not selection:
             showwarning_relative(self.root, self.t("warning"), self.t("select_screenshot"))
@@ -319,7 +304,6 @@ class ScreenshotManagerUI:
         return screenshot_id
 
     def _on_drop(self, from_index: int, to_index: int) -> None:
-        """拖拽排序：保存新顺序，并用箭头标出移动的截图和被挤开的截图"""
         moved_id = self.manager.ids_data[from_index]['id']
         try:
             self.manager.move_item(from_index, to_index)
@@ -334,7 +318,6 @@ class ScreenshotManagerUI:
         self._mark_row(moved_id, "down" if moving_down else "up")
         self._mark_row(self.manager.ids_data[from_index]['id'], "up" if moving_down else "down")
 
-    # ---------- 预览 ----------
 
     def _on_tree_select(self, event: tk.Event) -> None:
         selection = self.tree.selection()
@@ -365,7 +348,7 @@ class ScreenshotManagerUI:
         self._load_preview(path)
 
     def _load_preview(self, path: Path) -> None:
-        """在后台解码并缩放主图（大 PNG 解码较慢，放在主线程会卡住列表）"""
+        """大 PNG 解码较慢，放在后台免得卡住列表"""
         self._preview_request += 1
         request = self._preview_request
 
@@ -380,7 +363,6 @@ class ScreenshotManagerUI:
         run_in_background(self.preview_label,
                           lambda: load_resized_image(path, PREVIEW_SIZE, Image.Resampling.LANCZOS), done)
 
-    # ---------- 按钮操作 ----------
 
     def _sort(self, ascending: bool) -> None:
         if not self.storage_dir:

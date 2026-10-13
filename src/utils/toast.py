@@ -1,8 +1,4 @@
-"""屏幕右下角的 Toast 通知（存档变量变化提示等）
-
-多个 Toast 自下而上堆叠；点击 Toast 会将其固定（不再自动消失），点 × 关闭。
-淡入淡出只在 Windows 上生效（依赖窗口 -alpha 属性）。
-"""
+"""屏幕右下角的通知窗口：多个会向上堆叠，点击固定，点 × 关闭。淡入淡出只在 Windows 上有效"""
 
 import ctypes
 import platform
@@ -57,12 +53,10 @@ def _work_area(widget: tk.Misc) -> tuple[int, int, int, int]:
 
 
 class Toast:
-    """通知窗口。外部会用到 window / message / message_text / update_message / reset_timer"""
 
     _active_toasts: list["Toast"] = []
 
     def __init__(self, root: ctk.CTk, message: str, duration: int):
-        """duration: 淡入完成后停留的毫秒数"""
         self.root = root
         self.message = message
         self.duration = duration
@@ -81,7 +75,6 @@ class Toast:
         Toast._reposition_toasts()
         self._fade(0.0, ALPHA, self._schedule_fade_out)
 
-    # ---------- 界面 ----------
 
     def _build_ui(self) -> None:
         bg = Colors.TOAST_BG
@@ -155,10 +148,8 @@ class Toast:
                 text.insert("end", after, "default")
         text.configure(state="disabled")
 
-    # ---------- 尺寸与位置 ----------
 
     def _update_size(self) -> None:
-        """按当前消息估算高度，并据此设置 Text 高度"""
         left, top, right, bottom = _work_area(self.window)
         self.window_width = min(WIDTH, max(MIN_WIDTH, right - left - MARGIN_LEFT - MARGIN_RIGHT))
 
@@ -172,7 +163,6 @@ class Toast:
 
     @staticmethod
     def _reposition_toasts() -> None:
-        """移除已关闭的 Toast，其余从工作区右下角开始向上依次堆叠"""
         Toast._active_toasts = [t for t in Toast._active_toasts if widget_alive(t.window)]
         y_offset = 0
         for toast in Toast._active_toasts:
@@ -183,17 +173,15 @@ class Toast:
             toast.window.geometry(f"{w}x{h}+{x}+{y}")
             y_offset += h + SPACING
 
-    # ---------- 外部接口（调用方先确认窗口还在） ----------
+    # 外部接口（调用方先确认窗口还在）
 
     def update_message(self, new_message: str) -> None:
-        """替换消息内容（用于合并同一变量的连续变化）"""
         self.message = new_message
         self._show_text(new_message)
         self._update_size()
         Toast._reposition_toasts()
 
     def reset_timer(self) -> None:
-        """重新开始停留计时；正在淡出时恢复显示"""
         if self._pinned:
             return
         if self._fading_out:
@@ -202,7 +190,6 @@ class Toast:
             self._set_alpha(ALPHA)
         self._schedule_fade_out()
 
-    # ---------- 动画与关闭 ----------
 
     def _set_alpha(self, alpha: float) -> None:
         if _USE_ALPHA:
@@ -217,7 +204,6 @@ class Toast:
             self._fade_job = None
 
     def _fade(self, start: float, end: float, on_done, step: int = 0) -> None:
-        """每 FRAME_MS 毫秒把透明度从 start 线性过渡到 end（共 FADE_MS 毫秒），结束后调用 on_done"""
         self._fade_job = None
         if not widget_alive(self.window):
             return
@@ -244,7 +230,6 @@ class Toast:
         self._fade(current, 0.0, self._close)
 
     def _pin(self, event=None) -> None:
-        """点击 Toast：固定显示并闪一下作为反馈"""
         if self._pinned:
             return
         self._pinned = True

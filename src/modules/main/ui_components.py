@@ -19,7 +19,6 @@ MENU_COLORS = {
 
 
 def detect_windows_theme() -> str:
-    """读取 Windows 的深色/浅色模式设置，其他系统一律返回 'light'"""
     if platform.system() != "Windows":
         return "light"
     import winreg
@@ -34,7 +33,6 @@ def detect_windows_theme() -> str:
 
 
 class MenuBar:
-    """顶部菜单：目录 / Language / Help，颜色跟随 Windows 深浅色主题"""
 
     MENU_FONT_SCALE = 1.25  # 菜单文字比 Tk 默认菜单字体再大一些
     MIN_FONT_SIZE = 11
@@ -103,7 +101,6 @@ class MenuBar:
         self.directory_menu.entryconfig(1, label=self.t("auto_detect_steam"))
 
     def update_theme(self) -> None:
-        """系统主题改变时重新着色（主窗口每隔几秒调用一次）"""
         theme = detect_windows_theme()
         if theme == self.theme:
             return
@@ -118,7 +115,6 @@ class MenuBar:
 
 
 class VersionInfo:
-    """右下角的版本号；有新版本时在上方显示一个会轻轻抖动的「有更新」链接"""
 
     SHAKE_OFFSETS = [2, -2, 1, -1, 0, -1, 1, -2, 2, 0]
     SHAKE_STEP_MS = 50
@@ -158,7 +154,6 @@ class VersionInfo:
         self._stop_shake()
 
     def create_update_label(self, release_url: str) -> None:
-        """显示「有更新」链接，点击后在浏览器打开发布页"""
         if self.update_label is not None:
             return
         self.update_label_wrapper = tk.Frame(self.version_frame, bg=Colors.LIGHT_GRAY)

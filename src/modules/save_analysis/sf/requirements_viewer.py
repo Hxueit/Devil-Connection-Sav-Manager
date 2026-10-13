@@ -1,7 +1,4 @@
-"""「查看达成条件」窗口：结局 / 贴纸 / NG 场景的解锁条件，用 Canvas 画成卡片列表
-
-未收集的排在前面（红色卡片），已收集的在后面（绿色卡片）。
-"""
+"""达成条件窗口：用 Canvas 画成卡片列表，未收集的排在前面"""
 
 import platform
 import tkinter as tk
@@ -56,7 +53,6 @@ Kind = Literal["ending", "sticker", "ng_scene"]
 
 def create_rounded_rect(canvas: tk.Canvas, x1: float, y1: float, x2: float, y2: float,
                         radius: float, **kwargs) -> int:
-    """用平滑多边形在 Canvas 上画圆角矩形"""
     points = [
         x1 + radius, y1, x2 - radius, y1, x2, y1, x2, y1 + radius,
         x2, y2 - radius, x2, y2, x2 - radius, y2, x1 + radius, y2,
@@ -82,7 +78,7 @@ def wrap_text(text: str, font: tkfont.Font, max_width: int) -> list[str]:
 
 def show_requirements(window: tk.Misc, t: Callable[[str], str], title_key: str,
                       items: list[tuple[str, str]], collected: set[str], id_prefix: str, kind: Kind) -> None:
-    """打开达成条件窗口；items 是 [(编号, 条件文本)]，id_prefix 是卡片标题里编号前的 "END"、"#" 等"""
+    """items 是 [(编号, 条件文本)]"""
     top = tk.Toplevel(window.nametowidget("."))
     title_text = t(title_key) + " - " + t("view_requirements")
     top.title(title_text)

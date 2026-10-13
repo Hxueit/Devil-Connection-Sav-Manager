@@ -1,7 +1,6 @@
-"""运行时修改标签页：启动/停止游戏、显示连接状态，以及控制台、变量编辑、杂项功能的入口
+"""运行时修改标签页
 
-状态轮询：每隔几秒在后台线程检查一次调试端口（service.poll_status），
-结果回到主线程后更新界面；按钮、控制台等都只读取缓存的状态，不会阻塞界面。
+状态轮询在后台线程跑，按钮和控制台只读缓存的状态，不会卡界面。
 """
 import logging
 import threading
@@ -55,7 +54,7 @@ DEFAULT_KAG_STAT_COLLAPSED_FIELDS = [
     "map_label", "charas", "map_keyframe", "stack", "popopo", "map_macro", "fuki", "three",
 ]
 
-# 变量编辑器的「保存」是注入游戏内存，提示文字与保存文件不同
+# 变量编辑器的"保存"是注入游戏内存，提示文字与保存文件不同
 SF_EDITOR_TEXTS = ViewerTexts(
     save_button="runtime_modify_sf_save_inject_button",
     confirm_save="runtime_modify_sf_confirm_inject",
@@ -79,7 +78,6 @@ MARK_READ_REFUSED_MESSAGES = {
 
 
 class RuntimeModifyTab:
-    """运行时修改标签页"""
 
     def __init__(
         self,
@@ -94,7 +92,7 @@ class RuntimeModifyTab:
         self.root = root
         self.service = RuntimeModifyService(get_game_exe_path(storage_dir))
 
-        # 最近一次检查到的状态；「Hook 已启用」即能连上游戏页面（_ws_url 不为 None）
+        # 最近一次检查到的状态；"Hook 已启用"即能连上游戏页面（_ws_url 不为 None）
         self._game_running = False
         self._ws_url: str | None = None
         self._is_launching = False
@@ -121,7 +119,6 @@ class RuntimeModifyTab:
     def _hook_enabled(self) -> bool:
         return self._ws_url is not None
 
-    # ------------------------------------------------------------ 界面
 
     def _build_ui(self) -> None:
         # 所有控件都放在这个容器里，切换语言时只需销毁它再重建
@@ -130,7 +127,7 @@ class RuntimeModifyTab:
         content = ctk.CTkFrame(self.container, fg_color=Colors.WHITE, border_width=0)
         content.pack(fill="both", expand=True)
 
-        # 「这是什么」：点击展开/收起说明
+        # "这是什么"：点击展开/收起说明
         description_frame = ctk.CTkFrame(content, fg_color=Colors.WHITE, border_width=0)
         description_frame.pack(anchor="w", fill="x", pady=(0, 15))
         family, size = get_cjk_font(10)[:2]
@@ -245,7 +242,6 @@ class RuntimeModifyTab:
 
     @staticmethod
     def _separator(parent: tk.Misc) -> None:
-        """与按钮等高的竖线"""
         line = ctk.CTkFrame(parent, width=1, height=28, fg_color=Colors.GRAY)
         line.pack(side="left", padx=(10, 10))
         line.pack_propagate(False)
@@ -257,7 +253,6 @@ class RuntimeModifyTab:
         else:
             self.description_label.pack_forget()
 
-    # ------------------------------------------------------------ 状态
 
     def _set_game_status(self, running: bool, ws_url: str | None) -> None:
         ws_url = ws_url if running else None
@@ -268,7 +263,6 @@ class RuntimeModifyTab:
             self._update_status_widgets()
 
     def _update_status_widgets(self) -> None:
-        """按当前状态刷新标签、按钮以及已打开的弹窗"""
         if self._game_running:
             self.game_status_label.configure(text=self.t("runtime_modify_game_running"), text_color=Colors.TEXT_SUCCESS)
         else:
@@ -319,10 +313,8 @@ class RuntimeModifyTab:
             self.parent.after_cancel(self._poll_job)
         self._poll_job = self.parent.after(0, self._poll_status)
 
-    # ------------------------------------------------------------ 端口
 
     def _parse_port(self) -> tuple[int | None, str | None]:
-        """读取端口输入，返回 (端口, 错误提示)"""
         text = self.port_entry.get().strip()
         if not text:
             return None, self.t("runtime_modify_port_required")
@@ -351,7 +343,6 @@ class RuntimeModifyTab:
             self.port_status_label.configure(
                 text=self.t("runtime_modify_port_in_use"), text_color=Colors.TEXT_WARNING_ORANGE)
 
-    # ------------------------------------------------------------ 启动 / 停止
 
     def _on_launch_clicked(self) -> None:
         if self._is_launching:
@@ -403,7 +394,6 @@ class RuntimeModifyTab:
         showerror_relative(self.root, self.t("error"), message)
 
     def _format_launch_details(self, info: dict[str, Any]) -> str:
-        """启动详情（启动方式、页面标题、地址、TYRANO 类型）；没有时返回空字符串"""
         lines = []
         if "launch_mode" in info:   # "steam" 或 "direct"
             mode_text = self.t(f"runtime_modify_launch_mode_{info['launch_mode']}")
@@ -435,10 +425,8 @@ class RuntimeModifyTab:
         self._set_game_status(False, None)
         self._poll_soon()
 
-    # ------------------------------------------------------------ 变量编辑
 
     def _open_variable_editor(self, kind: str) -> None:
-        """后台读取 sf 或 kag.stat，然后打开可编辑的查看器（保存时注入回游戏）"""
         port = self._port_or_show_error()
         if port is None:
             return
@@ -496,7 +484,6 @@ class RuntimeModifyTab:
                 runtime=True,
             )
 
-    # ------------------------------------------------------------ 弹窗
 
     def _open_dialogs(self) -> list[RuntimeDialog]:
         dialogs = (self.console_window, self.misc_dialog, self.cache_clean_dialog)
@@ -523,7 +510,6 @@ class RuntimeModifyTab:
         else:
             self.cache_clean_dialog = CacheCleanDialog(self.root, self.t, lambda: self._ws_url)
 
-    # ------------------------------------------------------------ 强制快进（Alt+S）
 
     def _register_hotkey(self) -> None:
         """注册全局热键 Alt+S（游戏窗口在前台时也能用），失败时退回为本程序窗口内的快捷键"""
@@ -562,7 +548,6 @@ class RuntimeModifyTab:
             self.root.unbind("<Alt-S>")
 
     def _force_fast_forward(self) -> None:
-        """把当前 label 标记为已读，让游戏允许快进"""
         ws_url = self._ws_url
         if ws_url is None:
             showerror_relative(self.root, self.t("error"), self.t("runtime_modify_mark_read_websocket_error"))
@@ -578,7 +563,6 @@ class RuntimeModifyTab:
             message = self.t("runtime_modify_mark_read_failed", error=str(error))
         showerror_relative(self.root, self.t("error"), message)
 
-    # ------------------------------------------------------------ 生命周期
 
     def cleanup(self, stop_game: bool = True) -> None:
         """停止轮询、注销热键、关闭弹窗；stop_game 为 False 时（切换目录）保留游戏进程"""
@@ -595,7 +579,6 @@ class RuntimeModifyTab:
             self.service.stop_game(self._parse_port()[0])
 
     def update_language(self) -> None:
-        """切换语言：重建本页界面（保留端口输入），并刷新已打开弹窗的文字"""
         port_text = self.port_entry.get()
         self.container.destroy()
         self._build_ui()

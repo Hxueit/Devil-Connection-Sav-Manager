@@ -1,4 +1,4 @@
-"""删除存档对话框：分页显示存档槽，点击选中后可以「清空为空存档」或「删除槽位（后续存档前移）」"""
+"""删除存档对话框：可以把选中的存档槽清空，或者删掉槽位让后面的存档前移"""
 
 import tkinter as tk
 from typing import TYPE_CHECKING
@@ -30,7 +30,6 @@ MODE_REMOVE = "remove"
 
 
 class TyranoDeleteDialog:
-    """删除存档对话框"""
 
     def __init__(self, viewer: "TyranoSaveViewer") -> None:
         self.viewer = viewer
@@ -90,7 +89,6 @@ class TyranoDeleteDialog:
         self._current_page = page
         self._refresh_display()
 
-    # --- 显示 ---
 
     def _refresh_display(self) -> None:
         if not widget_alive(self.dialog):
@@ -136,7 +134,6 @@ class TyranoDeleteDialog:
 
         run_in_background(self.dialog, work, done)
 
-    # --- 选择 ---
 
     def _toggle_selection(self, card: SlotCard) -> None:
         self._selected ^= {card.slot_index}
@@ -147,7 +144,6 @@ class TyranoDeleteDialog:
         card.container.configure(fg_color=SELECTED_BG_COLOR if selected else Colors.LIGHT_GRAY,
                                  border_color=SELECTED_BORDER_COLOR if selected else Colors.GRAY)
 
-    # --- 删除 ---
 
     def _on_delete_click(self) -> None:
         t = self.t

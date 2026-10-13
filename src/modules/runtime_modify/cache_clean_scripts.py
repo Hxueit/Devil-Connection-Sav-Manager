@@ -278,7 +278,7 @@ RISKY_CLEANUP_SCRIPTS = {
 # 照片界面打开时清理这些项会弄坏照片界面，必须跳过
 REQUIRES_PHOTO_CLOSED = {"photo_assets"}
 
-# 「全部」分组：扫描页面里存在的元素/属性/函数，由用户自行决定是否清理（很可能弄坏游戏）
+# "全部"分组：扫描页面里存在的元素/属性/函数，由用户自行决定是否清理（很可能弄坏游戏）
 JS_SCAN_DANGEROUS_ITEMS = """(function() {
     const found = [];
     const lookup = path => path.reduce((obj, key) => (obj === undefined || obj === null) ? undefined : obj[key], window);

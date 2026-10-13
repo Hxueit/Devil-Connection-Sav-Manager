@@ -37,7 +37,6 @@ THUMB_QUALITY = 90
 
 
 def parse_screenshot_filename(filename: str) -> tuple[str, bool] | None:
-    """从文件名解析出 (截图ID, 是否缩略图)，不是截图文件时返回 None"""
     if not (filename.startswith(FILE_PREFIX) and filename.endswith(FILE_SUFFIX)) or filename == IDS_FILENAME:
         return None
     parts = filename[:-len(FILE_SUFFIX)].split('_')
@@ -65,7 +64,6 @@ def encode_main_image(image_bytes: bytes) -> str:
 
 
 def encode_thumbnail(image_bytes: bytes, size: tuple[int, int]) -> str:
-    """生成缩略图的 JPEG data URI"""
     with Image.open(BytesIO(image_bytes)) as img:
         thumb = img.resize(size, Image.Resampling.BILINEAR).convert('RGB')
     buffer = BytesIO()
@@ -74,7 +72,6 @@ def encode_thumbnail(image_bytes: bytes, size: tuple[int, int]) -> str:
 
 
 def generate_id() -> str:
-    """生成 8 位随机 ID（小写字母+数字）"""
     return ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
 
 
@@ -91,11 +88,7 @@ def is_valid_date(date_string: str) -> bool:
 
 
 class ScreenshotError(Exception):
-    """新增/替换截图失败
-
-    key 是界面显示提示用的翻译键（如 "id_exists"），detail 是底层错误信息，
-    对应翻译文字里的 {error}。
-    """
+    """key 是翻译键（如 "id_exists"），detail 对应翻译文字里的 {error}"""
 
     def __init__(self, key: str, detail: str = "") -> None:
         super().__init__(f"{key}: {detail}" if detail else key)
@@ -104,7 +97,6 @@ class ScreenshotError(Exception):
 
 
 class ScreenshotManager:
-    """截图索引和图片文件的管理（不涉及界面）"""
 
     def __init__(self, storage_dir: str | None = None) -> None:
         self.storage_dir: Path | None = Path(storage_dir) if storage_dir else None
@@ -113,10 +105,9 @@ class ScreenshotManager:
         # {截图ID: [主文件名, 缩略图文件名]}，缺失的文件为 None
         self.sav_pairs: dict[str, list[str | None]] = {}
 
-    # ---------- 读取 ----------
 
     def load_screenshots(self) -> bool:
-        """读取两个索引文件并扫描图片文件，缺少索引文件或读取失败时返回 False"""
+        """缺少索引文件或读取失败时返回 False"""
         ids_path = self.storage_dir / IDS_FILENAME
         all_ids_path = self.storage_dir / ALL_IDS_FILENAME
         if not (ids_path.exists() and all_ids_path.exists()):
@@ -144,23 +135,17 @@ class ScreenshotManager:
         return True
 
     def file_path(self, screenshot_id: str, thumb: bool = False) -> Path | None:
-        """截图文件的路径；文件不存在时返回 None"""
         pair = self.sav_pairs.get(screenshot_id)
         name = pair and pair[1 if thumb else 0]
         return self.storage_dir / name if name else None
 
     def get_image_data(self, screenshot_id: str) -> bytes | None:
-        """读取主图的图片字节，失败时返回 None"""
         path = self.file_path(screenshot_id)
         return read_image_file(path) if path else None
 
-    # ---------- 写入 ----------
 
     def _replace_index(self, ids_data: list[dict[str, str]], all_ids_data: list[str] | None = None) -> None:
-        """保存新的索引内容；写入失败时内存中的索引保持不变并抛出 OSError
-
-        all_ids_data 省略时按 ids_data 的顺序重建。
-        """
+        """写入失败时内存中的索引不变；all_ids_data 省略时按 ids_data 的顺序重建"""
         if all_ids_data is None:
             all_ids_data = [item['id'] for item in ids_data]
         write_sav(self.storage_dir / IDS_FILENAME, ids_data)
@@ -168,12 +153,6 @@ class ScreenshotManager:
         self.ids_data, self.all_ids_data = ids_data, all_ids_data
 
     def sort_by_date(self, ascending: bool = True) -> None:
-        """按日期排序并保存
-
-        Raises:
-            ValueError/KeyError: 有截图的日期格式不对
-            OSError: 保存失败
-        """
         self._replace_index(sorted(
             self.ids_data,
             key=lambda item: datetime.strptime(item['date'], DATE_FORMAT),
@@ -181,14 +160,12 @@ class ScreenshotManager:
         ))
 
     def move_item(self, from_index: int, to_index: int) -> None:
-        """把一张截图移动到新位置并保存（保存失败时抛出 OSError）"""
         new_order = list(self.ids_data)
         new_order.insert(to_index, new_order.pop(from_index))
         self._replace_index(new_order)
 
     def _write_image_files(self, screenshot_id: str, image_path: Path,
                            thumb_size: tuple[int, int]) -> list[Path]:
-        """把图片编码后写成主图和缩略图两个文件，返回写入的路径"""
         image_bytes = image_path.read_bytes()
         # 两个文件都编码成功后再写，避免只写了一半
         main_uri = encode_main_image(image_bytes)
@@ -201,7 +178,7 @@ class ScreenshotManager:
         return [main_path, thumb_path]
 
     def add_screenshot(self, screenshot_id: str, date_string: str, image_path: str) -> None:
-        """新增截图（失败时抛出 ScreenshotError，此时索引和文件都保持原样）"""
+        """失败时抛出 ScreenshotError，索引和文件都保持原样"""
         if screenshot_id in self.sav_pairs:
             raise ScreenshotError("id_exists")
         if not self.storage_dir:
@@ -221,7 +198,6 @@ class ScreenshotManager:
             raise ScreenshotError("save_failed", str(e)) from e
 
     def replace_screenshot(self, screenshot_id: str, new_image_path: str) -> None:
-        """用新图片替换已有截图（沿用原缩略图的尺寸），失败时抛出 ScreenshotError"""
         thumb_path = self.file_path(screenshot_id, thumb=True)
         if not self.file_path(screenshot_id) or not thumb_path:
             raise ScreenshotError("file_missing")
@@ -231,13 +207,7 @@ class ScreenshotManager:
             raise ScreenshotError("file_operation_failed", str(e)) from e
 
     def delete_screenshots(self, screenshot_ids: list[str]) -> list[str]:
-        """从索引中移除截图并删除文件
-
-        Returns:
-            删除失败的文件名列表（这些文件已不在索引里，游戏不会再用到）
-        Raises:
-            OSError: 索引保存失败，此时什么都没有改变
-        """
+        """返回删除失败的文件名（它们已经不在索引里了）；索引保存失败时抛出 OSError，什么都不变"""
         to_delete = set(screenshot_ids)
         self._replace_index(
             [item for item in self.ids_data if item['id'] not in to_delete],
@@ -256,7 +226,6 @@ class ScreenshotManager:
         return failed
 
     def _existing_thumb_size(self) -> tuple[int, int]:
-        """新截图的缩略图尺寸与已有的缩略图保持一致"""
         for screenshot_id in self.sav_pairs:
             thumb_path = self.file_path(screenshot_id, thumb=True)
             size = thumb_image_size(thumb_path) if thumb_path else None
@@ -266,12 +235,10 @@ class ScreenshotManager:
 
 
 def open_sav_image(sav_path: Path) -> Image.Image:
-    """打开截图 .sav 文件里的图片（未解码像素，用 with 关闭）；读不出来时抛出 OSError/ValueError"""
     return Image.open(BytesIO(data_uri_to_bytes(read_sav(sav_path))))
 
 
 def read_image_file(sav_path: Path) -> bytes | None:
-    """读取截图 .sav 文件里的图片字节，失败时返回 None"""
     try:
         return data_uri_to_bytes(read_sav(sav_path))
     except (OSError, ValueError):
@@ -280,7 +247,6 @@ def read_image_file(sav_path: Path) -> bytes | None:
 
 def load_resized_image(sav_path: Path, size: tuple[int, int],
                        resample: Image.Resampling = Image.Resampling.BILINEAR) -> Image.Image | None:
-    """读取截图文件并缩放到 size，读不出来时返回 None（给后台线程用，不碰界面）"""
     try:
         with open_sav_image(sav_path) as img:
             return img.resize(size, resample)

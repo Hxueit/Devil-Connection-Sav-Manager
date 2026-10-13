@@ -1,4 +1,3 @@
-"""运行时修改页的弹出窗口：公共基类和「杂项」窗口"""
 import tkinter as tk
 from collections.abc import Callable
 
@@ -9,7 +8,6 @@ from src.utils.ui_utils import center_window, create_dialog, restore_and_activat
 
 
 def set_textbox_text(textbox: ctk.CTkTextbox, text: str) -> None:
-    """替换只读文本框的全部内容"""
     textbox.configure(state="normal")
     textbox.delete("1.0", "end")
     textbox.insert("1.0", text)
@@ -17,10 +15,7 @@ def set_textbox_text(textbox: ctk.CTkTextbox, text: str) -> None:
 
 
 class RuntimeDialog:
-    """运行时修改页弹窗的公共部分：一个非模态的 CTk 窗口（self.window），居中显示
-
-    t 是标签页的翻译函数，语言切换后调用 update_language() 刷新文字。
-    """
+    """运行时修改页弹窗的公共部分：一个非模态的 CTk 窗口"""
 
     def __init__(self, parent: tk.Misc, t: Callable[..., str], title_key: str, size: str, min_size: tuple) -> None:
         self.t = t
@@ -40,7 +35,6 @@ class RuntimeDialog:
         return widget_alive(self.window)
 
     def show(self) -> None:
-        """把已打开的窗口还原并提到最前"""
         restore_and_activate_window(self.window)
 
     def close(self) -> None:
@@ -52,7 +46,6 @@ class RuntimeDialog:
 
 
 class RuntimeMiscDialog(RuntimeDialog):
-    """杂项功能入口：强制快进、缓存清理"""
 
     def __init__(
         self,

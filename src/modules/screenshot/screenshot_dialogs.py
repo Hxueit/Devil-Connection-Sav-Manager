@@ -1,5 +1,3 @@
-"""截图的新增 / 替换 / 导出对话框"""
-
 import tkinter as tk
 import zipfile
 from collections.abc import Callable
@@ -52,7 +50,6 @@ def show_screenshot_error(root: tk.Misc, t: Callable[..., str], error: Screensho
 
 def show_add_dialog(root: tk.Misc, manager: ScreenshotManager, t: Callable[..., str],
                     on_added: Callable[[str], None]) -> None:
-    """选择图片，填写 ID 和时间后新增截图；成功后调用 on_added(截图ID)"""
     path_str = filedialog.askopenfilename(title=t("select_new_image"), filetypes=IMAGE_FILE_TYPES)
     if not path_str:
         return
@@ -111,7 +108,6 @@ def show_add_dialog(root: tk.Misc, manager: ScreenshotManager, t: Callable[..., 
 
 def show_replace_dialog(root: tk.Misc, manager: ScreenshotManager, t: Callable[..., str],
                         screenshot_id: str, on_replaced: Callable[[str], None]) -> None:
-    """选择新图片替换截图；成功后调用 on_replaced(截图ID)"""
     if not manager.file_path(screenshot_id) or not manager.file_path(screenshot_id, thumb=True):
         showerror_relative(root, t("error"), t("file_missing"))
         return
@@ -141,7 +137,6 @@ def export_screenshot(root: tk.Misc, manager: ScreenshotManager, t: Callable[...
 
 
 def batch_export(root: tk.Misc, manager: ScreenshotManager, t: Callable[..., str], screenshot_ids: list[str]) -> None:
-    """选择格式后把多张截图导出到一个 ZIP 文件（后台线程执行，显示进度）"""
     ImageExportHelper(root, t).ask_format(
         lambda format_choice: _batch_export_to_zip(root, manager, t, screenshot_ids, format_choice))
 

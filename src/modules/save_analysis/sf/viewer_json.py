@@ -1,9 +1,4 @@
-"""存档查看器的 JSON 显示格式（不涉及界面）
-
-- 收藏类列表（结局、贴纸……）保持在一行内，其余按 2 空格缩进展开
-- 体积很大的字段（如 record）可以「折叠」：显示时替换成一段占位文字，
-  保存时再把仍是占位文字的字段换回原值
-"""
+"""存档查看器的 JSON 格式化，以及大字段的折叠/还原"""
 
 import json
 from collections.abc import Iterable
@@ -37,7 +32,6 @@ def format_json(obj: Any, indent: int = 0) -> str:
 
 
 def _locate(data: Any, path: str) -> tuple[dict[str, Any], str] | None:
-    """找到 'stat.map_label' 这类路径的 (所在字典, 键名)，路径不存在返回 None"""
     *parents, last = path.split(".")
     for part in parents:
         if not isinstance(data, dict) or part not in data:
@@ -49,7 +43,6 @@ def _locate(data: Any, path: str) -> tuple[dict[str, Any], str] | None:
 
 
 def format_display_data(save_data: Any, collapsed_fields: Iterable[str], placeholder: str) -> str:
-    """生成查看器中显示的文本：折叠字段替换为 placeholder"""
     if not isinstance(save_data, dict):
         return json.dumps(save_data, ensure_ascii=False, indent=2)
     display = json.loads(json.dumps(save_data))

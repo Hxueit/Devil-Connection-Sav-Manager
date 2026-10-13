@@ -24,7 +24,6 @@ AUTO_SAVE_FILES = [
 
 
 class TyranoAutoSavesDialog:
-    """自动存档列表"""
 
     def __init__(self, viewer: "TyranoSaveViewer") -> None:
         self.t = t = viewer.t

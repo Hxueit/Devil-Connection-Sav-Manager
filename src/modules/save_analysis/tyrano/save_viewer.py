@@ -1,5 +1,3 @@
-"""Tyrano 存档标签页：像游戏里一样分页显示存档槽，并提供导入、删除、重排序、自动存档编辑等入口"""
-
 import json
 import tkinter as tk
 from collections.abc import Callable
@@ -45,9 +43,8 @@ DEFAULT_SLOT_SIZE = (300, 150)
 class TyranoSaveViewer:
     """Tyrano 存档标签页
 
-    读取存档文件和生成缩略图都在后台线程进行（存档里嵌着 base64 图片，文件可能很大），
-    期间用「加载中」遮罩盖住存档区域。翻页时复用同一组 6 个卡片，缩略图全部生成后
-    再一次性更新文字和图片，避免看到逐个刷新的过程。
+    存档里嵌着 base64 图片，文件可能很大，所以读取和生成缩略图都在后台线程，
+    期间显示"加载中"。翻页时复用同一组卡片，缩略图都好了再一次性更新。
     """
 
     def __init__(
@@ -67,7 +64,7 @@ class TyranoSaveViewer:
         self._load_id = 0              # 每次加载页面图片时加一，用来丢弃过期的后台结果
         self._first_page_shown = False  # 第一页显示完成后才开始响应窗口大小变化
         self._prefetching = False
-        self._reading_file = False      # 正在后台读取存档文件，这时不能撤掉「加载中」遮罩
+        self._reading_file = False      # 正在后台读取存档文件，这时不能撤掉"加载中"遮罩
         self._page_timer: str | None = None
         self._resize_timer: str | None = None
         self._last_parent_size: tuple[int, int] | None = None
@@ -77,9 +74,6 @@ class TyranoSaveViewer:
         self.refresh()
         self._refresh_when_mapped(attempts_left=5)
 
-    # ------------------------------------------------------------------
-    # 界面
-    # ------------------------------------------------------------------
 
     def _create_ui(self) -> None:
         main = ctk.CTkFrame(self.parent, fg_color=Colors.WHITE)
@@ -101,7 +95,7 @@ class TyranoSaveViewer:
         self.auto_saves_button = self._button(nav, "tyrano_auto_saves_button",
                                               lambda: TyranoAutoSavesDialog(self), "right")
 
-        # 盖住存档区域的「加载中」遮罩，需要时才 place 出来
+        # 盖住存档区域的"加载中"遮罩，需要时才 place 出来
         self._loading_overlay = ctk.CTkFrame(self.slots_frame, fg_color=Colors.WHITE)
         loading_label = ctk.CTkLabel(self._loading_overlay, text=self.t("loading"), font=get_cjk_font(12),
                                      text_color=Colors.TEXT_SECONDARY, fg_color="transparent")
@@ -115,7 +109,6 @@ class TyranoSaveViewer:
         return button
 
     def update_language(self) -> None:
-        """切换语言后更新文字"""
         for widget, key in self._texts:
             widget.configure(text=self.t(key))
         self.page_bar.update_texts()
@@ -125,12 +118,8 @@ class TyranoSaveViewer:
         self._loading_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
         self._loading_overlay.lift()
 
-    # ------------------------------------------------------------------
-    # 显示当前页
-    # ------------------------------------------------------------------
 
     def refresh(self) -> None:
-        """在后台重新读取存档文件，读完后刷新显示（回到第一页）"""
         analyzer = self.analyzer
         data_before = analyzer.save_data
         self._reading_file = True
@@ -149,10 +138,7 @@ class TyranoSaveViewer:
         run_in_background(self.parent, analyzer.read_file, done)
 
     def refresh_display(self) -> None:
-        """按内存中的数据重新显示当前页
-
-        修改存档后调用这个就行：analyzer 修改成功后内存和文件是一致的，不用重新读文件。
-        """
+        """修改存档后调用：analyzer 改成功后内存和文件一致，不用重读文件"""
         if not widget_alive(self.slots_frame):
             return   # 标签页已经销毁（翻页/缩放的定时器、后台读取完成时会调用这里）
         if not self.slot_widgets:
@@ -166,7 +152,6 @@ class TyranoSaveViewer:
         self.page_bar.show(self.analyzer.current_page, self.analyzer.total_pages)
 
     def _load_page_images(self) -> None:
-        """在后台生成当前页的缩略图，完成后更新卡片"""
         self._load_id += 1
         load_id = self._load_id
         if not self._first_page_shown or self.parent.winfo_width() <= 1:
@@ -202,7 +187,6 @@ class TyranoSaveViewer:
         run_in_background(self.parent, work, done)
 
     def _slot_size(self) -> tuple[int, int]:
-        """单个存档槽卡片的大小（用来决定缩略图尺寸）"""
         width, height = self.slots_frame.winfo_width(), self.slots_frame.winfo_height()
         if width <= 1 or height <= 1:
             # 存档区域还没布局：用外层容器减去导航栏来估算
@@ -214,11 +198,9 @@ class TyranoSaveViewer:
         return slot_size_for_area(width, height) or DEFAULT_SLOT_SIZE
 
     def _circle_diameter(self) -> int:
-        """完成状态圆点的直径，随卡片宽度在 12~18 之间变化"""
         return max(12, min(18, int(self.slot_widgets[0].text_frame.winfo_width() * 0.10)))
 
     def _prefetch_adjacent_pages(self, slot_size: tuple[int, int]) -> None:
-        """在后台为前后两页生成缩略图，让翻页更快"""
         page, total = self.analyzer.current_page, self.analyzer.total_pages
         if self._prefetching or total <= 1:
             return
@@ -268,29 +250,20 @@ class TyranoSaveViewer:
             self.parent.after_cancel(timer_id)
 
     def cleanup(self) -> None:
-        """标签页被销毁前调用：停止定时器，释放缓存
-
-        标签页的外层 frame（self.parent）不会被销毁，所以定时器要手动取消；
-        之后才完成的后台任务会发现 slots_frame 已经不在了，直接丢弃结果。
-        """
+        """外层 frame 不会被销毁，所以定时器要手动取消"""
         self._cancel_timer(self._page_timer)
         self._cancel_timer(self._resize_timer)
         self.image_cache.clear()
 
-    # ------------------------------------------------------------------
-    # 翻页
-    # ------------------------------------------------------------------
 
     def _go_to_page(self, page: int) -> None:
-        """翻页；连续点击翻页时只刷新最后一次"""
+        """连续点击翻页时只刷新最后一次"""
         self.analyzer.current_page = page
         self.page_bar.show(self.analyzer.current_page, self.analyzer.total_pages)
         self._cancel_timer(self._page_timer)
         self._page_timer = self.parent.after(PAGE_SWITCH_DEBOUNCE_MS, self.refresh_display)
 
-    # ------------------------------------------------------------------
-    # 导入（「导出」按钮在每个存档槽卡片上）
-    # ------------------------------------------------------------------
+    # 导入（"导出"按钮在每个存档槽卡片上）
 
     def _on_import_click(self) -> None:
         t = self.t

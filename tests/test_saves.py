@@ -19,8 +19,6 @@ def slot(day):
     return {"title": "s", "save_date": "2024/05/01", "img_data": "", "stat": {"f": {"day": day}}}
 
 
-# ---------- Tyrano 存档槽 ----------
-
 @pytest.fixture
 def tyrano(tmp_path):
     slots = [slot(i) for i in range(8)]
@@ -66,8 +64,6 @@ def test_tyrano_failed_write_keeps_memory(tyrano, monkeypatch):
     assert tyrano.save_slots == before
 
 
-# ---------- 截图 ----------
-
 def png_data_uri(size=(40, 30)):
     buffer = BytesIO()
     Image.new("RGB", size, "red").save(buffer, "PNG")
@@ -111,8 +107,6 @@ def test_malformed_screenshot_index_is_rejected(tmp_path):
     write_sav(tmp_path / sm.ALL_IDS_FILENAME, [])
     assert sm.ScreenshotManager(str(tmp_path)).load_screenshots() is False
 
-
-# ---------- 备份 ----------
 
 @pytest.fixture
 def storage(tmp_path):

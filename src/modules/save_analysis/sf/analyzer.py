@@ -1,12 +1,7 @@
-"""sf 存档分析页（主窗口第一个标签页）
+"""sf 存档分析页
 
-左侧：按分区列出 DevilConnection_sf.sav 中的各项数据（fields.SECTIONS）
-右侧：统计面板（statistics_panel）和「查看存档文件」按钮
-
-每次切换到这个标签页都会调用 refresh()。存档文件没变时直接跳过（重建统计面板
-会重播 1.5 秒的进度环动画）；变了就重新读取。分区结构不变时只更新 StringVar 里的
-文字，不重建控件，避免闪烁和滚动位置跳动；进入/离开狂信徒路线时分区顺序和颜色
-都会变化，这时整体重建。
+存档文件没变时 refresh() 直接跳过（重建统计面板会重播进度环动画）。
+分区结构不变时只更新文字、不重建控件，避免闪烁；进入/离开狂信徒路线时整体重建。
 """
 
 import logging
@@ -59,7 +54,6 @@ class _Row:
 
 
 def _file_signature(path: str) -> tuple[int, int] | None:
-    """(修改时间, 大小)，用来判断文件有没有变；文件不存在时返回 None"""
     try:
         st = os.stat(path)
     except OSError:
@@ -90,7 +84,6 @@ class SaveAnalyzer:
         self._build_layout()
         self.window.after_idle(self.refresh)
 
-    # ---------------------------------------------------------------- 布局
 
     def _build_layout(self) -> None:
         control_frame = tk.Frame(self.window, bg=Colors.WHITE)
@@ -166,7 +159,6 @@ class SaveAnalyzer:
     def _scroll(self, direction: int) -> None:
         self.scrollable_canvas.yview_scroll(direction, "units")
 
-    # ---------------------------------------------------------------- 刷新
 
     def update_language(self) -> None:
         self.show_var_names_checkbox.config(text=self.t("show_var_names"))
@@ -175,7 +167,6 @@ class SaveAnalyzer:
         self.refresh(force=True)
 
     def refresh(self, force: bool = False) -> None:
-        """重新读取存档并更新页面；存档文件没变时跳过，force=True 时总是重新显示"""
         if not widget_alive(self.scrollable_frame):
             return
         files = (_file_signature(os.path.join(self.storage_dir, SF_SAVE_FILENAME)),
@@ -221,7 +212,6 @@ class SaveAnalyzer:
         ttk.Label(self.scrollable_frame, text=message, font=get_cjk_font(12), foreground="red",
                   wraplength=self._width, justify="left").pack(pady=20)
 
-    # ---------------------------------------------------------------- 分区
 
     def _clear_sections(self) -> None:
         for child in self.scrollable_frame.winfo_children():
@@ -260,7 +250,6 @@ class SaveAnalyzer:
                     row.tooltip_var.set(self.t(field.tooltip_key))
 
     def _create_section(self, section: Section, color: str | None) -> tk.Frame:
-        """创建带边框的分区，返回放内容的 Frame"""
         frame = tk.Frame(self.scrollable_frame, bg=Colors.WHITE, relief="ridge", borderwidth=2)
         frame.pack(fill="x", padx=10, pady=5)
         if section.button_text_key:
@@ -289,7 +278,6 @@ class SaveAnalyzer:
         return content
 
     def _create_row(self, parent: tk.Frame, field: Field, value: str, color: str | None) -> None:
-        """一行「[变量名] 标签: 值 ℹ」，点击 ℹ 展开/收起说明"""
         tooltip_text = self.t(field.tooltip_key) if field.tooltip_key else ""
         has_tooltip = bool(field.tooltip_key) and not (field.tooltip_optional and not tooltip_text)
 
@@ -340,7 +328,6 @@ class SaveAnalyzer:
             else:
                 var_label.pack_forget()
 
-    # ---------------------------------------------------------------- 按钮
 
     def show_endings_requirements(self) -> None:
         data = self.save_data or {}

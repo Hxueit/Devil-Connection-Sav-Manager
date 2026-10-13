@@ -1,9 +1,4 @@
-"""图片导出 / 替换对话框
-
-截图管理和 Tyrano 存档管理共用：
-    ImageExportHelper   选择格式 -> 选择保存位置 -> 导出单张图片
-    ImageReplaceHelper  选择新图片 -> 新旧对比确认 -> 回调
-"""
+"""截图页和 Tyrano 存档页共用的图片导出 / 替换对话框"""
 
 import tkinter as tk
 from collections.abc import Callable
@@ -29,7 +24,6 @@ EXPORT_FORMATS = {
 
 
 def convert_image(img: Image.Image, format_choice: str) -> bytes:
-    """把图片转成指定导出格式（png/jpeg/webp）的字节"""
     save_format = EXPORT_FORMATS[format_choice][1]
     if save_format == "JPEG" and img.mode != "RGB":
         img = img.convert("RGB")
@@ -42,18 +36,16 @@ def convert_image(img: Image.Image, format_choice: str) -> bytes:
 
 
 class ImageExportHelper:
-    """选择导出格式并保存图片"""
 
     def __init__(self, root: tk.Misc, t: Callable[..., str]) -> None:
         self.root = root
         self.t = t
 
     def show_format_dialog(self, image_data: bytes | Image.Image, default_filename: str) -> None:
-        """选择格式 -> 选择保存路径 -> 导出"""
         self.ask_format(lambda fmt: self._export(image_data, default_filename, fmt))
 
     def ask_format(self, on_confirm: Callable[[str], None]) -> None:
-        """弹出格式选择对话框，确认后以所选格式（如 "png"）调用 on_confirm"""
+        """确认后以所选格式（如 "png"）调用 on_confirm"""
         dialog = create_dialog(self.root, self.t("select_export_format"), "300x200")
         dialog_label(dialog, self.t("select_image_format")).pack(pady=10)
 
@@ -94,7 +86,6 @@ class ImageExportHelper:
 
 
 class ImageReplaceHelper:
-    """选择新图片并确认替换"""
 
     def __init__(self, root: tk.Misc, t: Callable[..., str]) -> None:
         self.root = root
@@ -103,7 +94,6 @@ class ImageReplaceHelper:
 
     def show_replace_flow(self, original_image: ImageSource, on_confirm_callback: Callable[[Path], None],
                           is_valid_image_check: Callable[[Path], bool]) -> None:
-        """选择新图片 -> 新旧对比确认 -> on_confirm_callback(新图片路径)"""
         path = filedialog.askopenfilename(title=self.t("select_new_image"), filetypes=IMAGE_FILE_TYPES)
         if not path:
             return
@@ -113,7 +103,6 @@ class ImageReplaceHelper:
 
     def _confirm_replace(self, original_image: ImageSource, new_image_path: Path,
                          is_valid_image: bool) -> bool:
-        """显示新旧图片对比，等待用户确认；确认返回 True"""
         self._photo_refs.clear()
         popup = create_dialog(self.root, self.t("replace_warning"), "900x500")
 

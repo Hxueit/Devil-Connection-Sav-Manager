@@ -41,7 +41,6 @@ CacheKey = tuple[str, int]
 
 
 class GalleryPreview:
-    """画廊预览窗口（同一时间只有一个）"""
 
     def __init__(self, root: tk.Misc, screenshot_manager: ScreenshotManager, t) -> None:
         self.root = root
@@ -65,10 +64,8 @@ class GalleryPreview:
     def total_pages(self) -> int:
         return max(1, (len(self.image_ids) + PER_PAGE - 1) // PER_PAGE)
 
-    # ---------- 窗口 ----------
 
     def show(self) -> None:
-        """打开画廊窗口；已经打开时把它提到前面"""
         if not self.manager.ids_data:
             showerror_relative(self.root, self.t("error"), self.t("select_dir_hint"))
             return
@@ -156,14 +153,12 @@ class GalleryPreview:
         self._build_page()
 
     def refresh(self) -> None:
-        """截图列表变化后重建当前页"""
         if not widget_alive(self.window):
             return
         self.image_ids = [item['id'] for item in self.manager.ids_data]
         self.page = min(self.page, self.total_pages)
         self._build_page()
 
-    # ---------- 页面 ----------
 
     def _image_path(self, screenshot_id: str) -> Path | None:
         # 优先用缩略图，没有时用主图
@@ -226,7 +221,6 @@ class GalleryPreview:
         self.next_button.config(state="normal" if self.page < self.total_pages else "disabled")
 
     def _load_page_images(self, to_load: list[tuple[tk.Frame, tk.Label, str, CacheKey]]) -> None:
-        """在一个后台任务里读取整页缺少的缩略图，读完后一起显示"""
         token, size = self._page_token, self.image_size
         keys = [key for _, _, _, key in to_load]
 

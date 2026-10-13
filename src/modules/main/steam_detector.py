@@ -28,7 +28,6 @@ def get_steam_path() -> str:
 
 
 def _read_text(path: str) -> str:
-    """读取 Steam 的配置文件；不存在或读不了时返回空字符串"""
     try:
         with open(path, encoding="utf-8") as f:
             return f.read()
@@ -37,7 +36,6 @@ def _read_text(path: str) -> str:
 
 
 def get_steam_libraries(steam_path: str) -> list[str]:
-    """Steam 主目录 + libraryfolders.vdf 里登记的其他库"""
     libraries = [steam_path] if os.path.exists(steam_path) else []
     content = _read_text(os.path.join(steam_path, "steamapps", "libraryfolders.vdf"))
     for match in re.findall(r'"path"\s+"([^"]+)"', content):
@@ -63,7 +61,6 @@ def find_game_directory(library_path: str) -> str | None:
 
 
 def auto_detect_storage() -> str | None:
-    """返回游戏 _storage 文件夹的绝对路径，找不到时返回 None"""
     steam_path = get_steam_path()
     if not os.path.exists(steam_path):
         return None

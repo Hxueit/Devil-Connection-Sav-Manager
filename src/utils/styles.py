@@ -10,7 +10,7 @@ import customtkinter as ctk
 
 # 字体整体放大倍率（影响 get_cjk_font / get_mono_font 与 Tk 系统默认字体）
 _FONT_SCALE = 1.25
-# Tk 缩放（每个「点」对应的像素数）的下限，见 _set_tk_scaling
+# Tk 缩放（每个"点"对应的像素数）的下限，见 _set_tk_scaling
 _MIN_TK_SCALING = 1.25
 
 _SYSTEM = platform.system()
@@ -23,14 +23,12 @@ def _scaled(size: int) -> int:
 
 
 def get_cjk_font(size: int = 10, weight: str = "normal") -> tuple:
-    """适合中日文的字体元组，weight 为 "bold" 时加粗"""
     if weight == "bold":
         return (_CJK_FONT_NAME, _scaled(size), "bold")
     return (_CJK_FONT_NAME, _scaled(size))
 
 
 def get_mono_font(size: int = 10) -> tuple[str, int]:
-    """等宽字体元组（代码/行号）"""
     return (_MONO_FONT_NAME, _scaled(size))
 
 
@@ -77,7 +75,6 @@ class Colors:
 
 
 def init_styles(root: tk.Tk) -> None:
-    """初始化 customtkinter 主题、Tk 缩放/系统字体和全部 ttk 样式（启动时调用一次）"""
     # 关闭 CTk 自带的 DPI 感知，保持与系统缩放一致（尤其是 Canvas 绘制）
     ctk.deactivate_automatic_dpi_awareness()
     ctk.set_appearance_mode("system")
@@ -97,11 +94,7 @@ def init_styles(root: tk.Tk) -> None:
 
 
 def _set_tk_scaling(root: tk.Tk) -> None:
-    """设置 Tk 缩放（程序里只在这里设置）
-
-    Windows 上按窗口 DPI 计算（96dpi 为 1.0）。结果小于 _MIN_TK_SCALING 时用下限，
-    否则在普通 DPI 的屏幕上 Tk 控件和菜单的文字显得太小。
-    """
+    """Windows 上按窗口 DPI 计算；不低于 _MIN_TK_SCALING，否则普通屏幕上文字太小"""
     scaling = float(root.tk.call("tk", "scaling"))
     if _SYSTEM == "Windows":
         try:
@@ -162,7 +155,6 @@ def _configure_ttk_styles(style: ttk.Style) -> None:
 
 
 def white_button(parent: tk.Misc, text: str, command, **options) -> ctk.CTkButton:
-    """程序里统一的白底灰边圆角按钮；options 可以覆盖默认样式（如 width、height、font）"""
     style = dict(
         corner_radius=8,
         fg_color=Colors.WHITE,

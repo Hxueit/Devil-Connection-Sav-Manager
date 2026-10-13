@@ -1,8 +1,4 @@
-"""备份/还原标签页
-
-创建备份、显示备份列表，以及还原、删除、重命名备份。
-耗时的估算、打包和还原都在后台线程执行，期间禁用按钮，避免重复点击。
-"""
+"""备份/还原标签页。打包、还原等耗时操作放在后台线程，期间禁用按钮。"""
 import re
 import tkinter as tk
 from collections.abc import Callable
@@ -19,11 +15,6 @@ INVALID_FILENAME_CHARS = '<>:"/\\|?*'
 
 
 class BackupRestoreTab:
-    """备份还原标签页
-
-    on_restore_start / on_restore_done(success) 让主窗口在还原期间暂停存档监控，
-    并在还原后刷新其他标签页。
-    """
 
     def __init__(
         self,
@@ -52,7 +43,6 @@ class BackupRestoreTab:
         self._create_restore_section()
         self.refresh_backup_list()
 
-    # ---------- 界面 ----------
 
     def _create_backup_section(self) -> None:
         backup_frame = tk.Frame(self.frame, bg=Colors.LIGHT_GRAY)
@@ -148,20 +138,18 @@ class BackupRestoreTab:
                 button.pack_forget()
 
     def _set_busy(self, busy: bool) -> None:
-        """后台任务运行期间禁用所有按钮"""
         self._busy = busy
         state = "disabled" if busy else "!disabled"
         for button in (self.backup_button, self.refresh_button) + self.action_buttons:
             button.state([state])
 
     def _ask_yesno(self, title: str, message: str) -> bool:
-        """确认对话框（按钮文字使用当前语言）"""
         dialog = create_dialog(self.root, title, "400x250")
         dialog_label(dialog, message, wraplength=350, justify="left").pack(pady=20, padx=20)
         return self._wait_for_yes(dialog)
 
     def _wait_for_yes(self, dialog: tk.Toplevel) -> bool:
-        """在弹窗底部加「是/否」按钮（回车/Esc 同效），等弹窗关闭后返回是否点了「是」"""
+        """在弹窗底部加 是/否 按钮，等弹窗关闭后返回用户是否确认"""
         answer = tk.BooleanVar(self.root, value=False)
 
         def yes() -> None:
@@ -184,7 +172,6 @@ class BackupRestoreTab:
             message += f"\n\n{error}"
         showerror_relative(self.root, self.t("error"), message)
 
-    # ---------- 创建备份 ----------
 
     def create_backup(self) -> None:
         if self._busy:
@@ -248,10 +235,9 @@ class BackupRestoreTab:
             )
         self.refresh_backup_list()
 
-    # ---------- 备份列表 ----------
 
     def refresh_backup_list(self) -> None:
-        """在后台扫描备份文件夹（要打开每个 zip 读时间戳），完成后更新列表"""
+        """要打开每个 zip 读时间戳，所以放在后台扫描"""
         self._scan_count += 1
         scan_id = self._scan_count
         backup_dir = backups.get_backup_dir(self.storage_dir)
@@ -275,13 +261,11 @@ class BackupRestoreTab:
         self.on_backup_select()
 
     def on_backup_select(self) -> None:
-        """记下选中的备份，有选中时才显示还原/删除/重命名按钮"""
         selected = self.backup_tree.selection()
         tags = self.backup_tree.item(selected[0], "tags") if selected else ()
         self.selected_backup_path = Path(tags[0]) if tags else None
         self._show_action_buttons(self.selected_backup_path is not None)
 
-    # ---------- 删除 / 重命名 ----------
 
     def delete_backup(self) -> None:
         path = self.selected_backup_path
@@ -326,7 +310,6 @@ class BackupRestoreTab:
         self.refresh_backup_list()
 
     def _ask_new_name(self, path: Path) -> str | None:
-        """弹出重命名输入框，取消时返回 None"""
         dialog = create_dialog(self.root, self.t("rename_backup_title"), "450x250")
         dialog_label(
             dialog, self.t("rename_backup_prompt", filename=path.name), wraplength=400, justify="left"
@@ -341,7 +324,6 @@ class BackupRestoreTab:
         entry.focus()
         return name.get() if self._wait_for_yes(dialog) else None
 
-    # ---------- 还原 ----------
 
     def restore_backup(self) -> None:
         path = self.selected_backup_path
@@ -367,7 +349,6 @@ class BackupRestoreTab:
             showinfo_relative(self.root, self.t("success"), self.t("restore_success"))
         self.on_restore_done(error is None)
 
-    # ---------- 语言 ----------
 
     def update_language(self) -> None:
         self._update_hint_text()
@@ -378,4 +359,4 @@ class BackupRestoreTab:
         self.restore_button.config(text=self.t("restore_button"))
         self.delete_button.config(text=self.t("delete_backup_button"))
         self.rename_button.config(text=self.t("rename_backup_button"))
-        self.refresh_backup_list()  # 「无 INFO 文件」状态列也需要翻译
+        self.refresh_backup_list()  # "无 INFO 文件"状态列也需要翻译

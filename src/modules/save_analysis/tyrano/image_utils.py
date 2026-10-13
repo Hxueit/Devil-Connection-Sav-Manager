@@ -1,7 +1,4 @@
-"""存档缩略图：解码 img_data、计算缩略图尺寸、缓存、占位图和完成状态圆点
-
-这里的函数和 ImageCache 都可以在后台线程中调用（不涉及 Tk）。
-"""
+"""存档缩略图（不涉及 Tk，可以在后台线程调用）"""
 
 import hashlib
 import platform
@@ -33,10 +30,7 @@ def thumbnail_size(slot_size: Size, image_size: Size | None = None) -> Size:
 
 
 class ImageCache:
-    """解码后的原图和缩略图的 LRU 缓存（线程安全）
-
-    翻页时主界面、删除对话框和邻页预取可能同时在不同线程里读写，所以所有操作都加锁。
-    """
+    """原图和缩略图的 LRU 缓存；主界面、删除对话框和预取可能在不同线程同时用，所以加锁"""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -58,7 +52,6 @@ class ImageCache:
                 store.popitem(last=False)
 
     def get_thumbnail(self, image_data: str, slot_size: Size) -> Image.Image | None:
-        """返回适合放进 slot_size 大小的存档槽卡片的缩略图；图片无法解码时返回 None"""
         if not isinstance(image_data, str):
             return None   # 游戏数据里的 img_data 不是字符串
         # 用 md5 而不是 base64 字符串本身作键：缓存就不会一直引用几百 KB 的字符串
@@ -86,7 +79,6 @@ class ImageCache:
 
 def slot_thumbnail(image_data: str | None, slot_size: Size, cache: ImageCache,
                    no_image_text: str, decode_failed_text: str) -> Image.Image:
-    """存档槽要显示的图片：缩略图，或者写着原因的灰色占位图"""
     if not image_data:
         return create_placeholder_image(thumbnail_size(slot_size), no_image_text)
     thumbnail = cache.get_thumbnail(image_data, slot_size)
@@ -123,7 +115,7 @@ def _has_cjk(text: str) -> bool:
 
 @lru_cache(maxsize=64)
 def create_placeholder_image(size: Size, text: str) -> Image.Image:
-    """浅灰底、居中灰字的占位图（结果会被缓存，调用方不要修改返回的图片）"""
+    """结果会被缓存，调用方不要修改返回的图片"""
     image = Image.new('RGB', size, color='lightgray')
     draw = ImageDraw.Draw(image)
     font_size = max(10, min(size[0] // len(text) if text else 12, size[1] // 4))
@@ -135,7 +127,6 @@ def create_placeholder_image(size: Size, text: str) -> Image.Image:
 
 @lru_cache(maxsize=16)
 def create_status_circle_image(diameter: int, is_active: bool) -> Image.Image:
-    """事件完成状态的圆点：已完成为青到粉的竖向渐变，未完成为深色，都带金色描边"""
     padding = 2
     size = diameter + padding * 2
     image = Image.new('RGBA', (size, size), (0, 0, 0, 0))

@@ -1,9 +1,4 @@
-"""「其他」标签页
-
-- 开关存档变动提示（toast），设置不监听的变量
-- 导出 / 导入 tyrano 存档（明文 JSON）
-- 手动检查更新
-"""
+"""“其他”标签页：toast 设置、导出/导入 tyrano 存档、检查更新"""
 import json
 import webbrowser
 from collections.abc import Callable
@@ -23,10 +18,7 @@ TYRANO_JSON_FILENAME = "DevilConnection_tyrano_data.json"
 
 
 class OthersTab:
-    """「其他」标签页：tyrano 存档导出/导入、存档变化通知（toast）设置、检查更新
-
-    toast 设置保存在主窗口里（本页会随语言切换重建），修改时通过两个回调通知主窗口。
-    """
+    """toast 设置存在主窗口里（本页切换语言时会重建），修改时通过回调通知主窗口"""
 
     def __init__(self, parent: ctk.CTkFrame, storage_dir: str, t: Callable[..., str], *,
                  toast_enabled: bool, toast_ignore_record: str,
@@ -45,7 +37,6 @@ class OthersTab:
     def tyrano_path(self) -> Path:
         return Path(self.storage_dir) / TYRANO_SAVE_FILENAME
 
-    # ---------- 界面 ----------
 
     def _build_ui(self) -> None:
         self.container = ctk.CTkFrame(self.parent, fg_color=Colors.WHITE)
@@ -106,11 +97,10 @@ class OthersTab:
         self.update_button.pack(fill="x", pady=10)
 
     def update_language(self) -> None:
-        """整个页面按新语言重建（t 已经切换了语言）"""
+        """整个页面按新语言重建"""
         self.container.destroy()
         self._build_ui()
 
-    # ---------- toast 设置 ----------
 
     def _on_toast_toggle(self) -> None:
         self.toast_enabled = self.toast_var.get()
@@ -132,13 +122,11 @@ class OthersTab:
                 border_color=Colors.DARK_GRAY,
             )
 
-    # ---------- 导出 / 导入 ----------
 
     def _show_error(self, key: str, **kwargs) -> None:
         showerror_relative(self.parent, self.t("error"), self.t(key, **kwargs))
 
     def _export_tyrano_data(self) -> None:
-        """把 tyrano 存档解码后另存为格式化的 JSON"""
         if not self.tyrano_path.exists():
             self._show_error("tyrano_file_not_found")
             return
@@ -164,7 +152,6 @@ class OthersTab:
         showinfo_relative(self.parent, self.t("success"), self.t("export_tyrano_success", path=file_path))
 
     def _import_tyrano_data(self) -> None:
-        """读取 JSON，确认后编码写回 tyrano 存档"""
         file_path = filedialog.askopenfilename(
             title=self.t("select_json_file"),
             filetypes=[(self.t("json_files"), "*.json"), (self.t("all_files"), "*.*")],
@@ -203,7 +190,6 @@ class OthersTab:
             return
         showinfo_relative(self.parent, self.t("success"), self.t("import_tyrano_success"))
 
-    # ---------- 检查更新 ----------
 
     def _check_for_updates(self) -> None:
         self.update_button.configure(state="disabled")

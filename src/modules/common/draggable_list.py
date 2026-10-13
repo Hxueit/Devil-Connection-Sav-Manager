@@ -1,9 +1,3 @@
-"""Treeview 拖拽排序
-
-TreeDragReorder  给任意 Treeview 加上「按住一行拖到另一行」的排序手势（截图列表使用）
-DraggableList    基于它的现成可排序列表（Tyrano 存档重排对话框使用）
-"""
-
 import tkinter as tk
 from collections.abc import Callable
 from tkinter import ttk
@@ -18,11 +12,10 @@ ITEMS_PER_PAGE = 6
 
 
 class TreeDragReorder:
-    """把 Treeview 上的拖拽手势翻译成 on_drop(from_index, to_index)
+    """给 Treeview 加上拖拽排序，拖完调用 on_drop(from_index, to_index)
 
-    index 只数「数据行」（is_data_row 返回 True 的行），页眉之类的辅助行不计。
-    拖动时被拖的行加上 "Dragging" 标签，目标位置显示一条黑色指示线。
-    事件用 add="+" 绑定：如果调用方先绑定的 <Button-1> 返回 "break"，这里就不会开始拖拽。
+    index 只数数据行（is_data_row 为 True 的行），页眉行不算。
+    事件用 add="+" 绑定：调用方先绑定的 <Button-1> 返回 "break" 时不会开始拖拽。
     """
 
     def __init__(self, tree: ttk.Treeview, is_data_row: Callable[[str], bool],
@@ -101,7 +94,6 @@ class TreeDragReorder:
         self.tree.item(item, tags=tags)
 
     def data_index(self, item: str) -> int:
-        """item 是第几个数据行"""
         index = 0
         for child in self.tree.get_children():
             if child == item:
@@ -112,11 +104,7 @@ class TreeDragReorder:
 
 
 class DraggableList:
-    """可拖拽排序的列表，每 ITEMS_PER_PAGE 项插入一行页码
-
-    format_item(数据, 原始索引) 返回每一行显示的文字。
-    顺序用「原始索引列表」表示，改变后调用 on_order_changed(新顺序)。
-    """
+    """可拖拽排序的列表，每 ITEMS_PER_PAGE 项插一行页码；顺序变化时调用 on_order_changed(新顺序)"""
 
     def __init__(
         self,
@@ -173,7 +161,6 @@ class DraggableList:
         self.on_order_changed(self._current_order.copy())
 
     def _highlight(self, data_index: int) -> None:
-        """高亮刚移动的行，3 秒后恢复"""
         if self._highlight_timer:
             self.root.after_cancel(self._highlight_timer)
         rows = [item for item in self.tree.get_children() if self._is_data_row(item)]

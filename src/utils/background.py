@@ -1,20 +1,7 @@
-"""在后台线程执行耗时操作，并把结果交回 Tk 主线程
+"""在后台线程执行耗时操作，结果交回 Tk 主线程
 
-Tkinter 不是线程安全的：后台线程里不能创建/修改控件，也不能调用 after()。
-run_in_background 让后台线程只负责计算，结果由主线程定时检查后再回调，
-所以回调函数里可以放心地更新界面。
-
-用法：
-    def work():
-        return read_something_slow()        # 在后台线程执行，不要碰界面
-
-    def done(result, error):
-        if error:                           # 出错时 result 为 None，error 是异常对象
-            show_error(str(error))
-        else:
-            label.config(text=result)       # 在主线程执行，可以更新界面
-
-    run_in_background(root, work, done)
+Tkinter 不是线程安全的，后台线程里不能碰控件，也不能调用 after()。
+所以后台只负责计算，主线程定时检查，算完后调用 on_done(result, error)。
 """
 
 import logging
@@ -52,10 +39,7 @@ def run_in_background(
     work: Callable[[], Any],
     on_done: Callable[[Any, BaseException | None], None],
 ) -> None:
-    """在后台线程执行 work()，完成后在主线程调用 on_done(result, error)
-
-    widget 用来在主线程上定时检查结果；widget 已经被销毁时不会调用 on_done。
-    """
+    """widget 已经被销毁时不会调用 on_done"""
     outcome: dict = {}
     finished = threading.Event()
 

@@ -1,7 +1,6 @@
 """主窗口
 
-选择 _storage 目录后，SF 存档分析和截图管理页立即创建，
-其余标签页等用户第一次切换过去时才创建（懒加载），避免启动时卡顿。
+选好目录后 sf 分析页和截图页立即创建，其余标签页第一次切过去时才创建，免得启动时卡。
 """
 import locale
 import logging
@@ -49,7 +48,6 @@ HELP_URL = "https://github.com/Hxueit/Devil-Connection-Sav-Manager"
 
 
 def detect_system_language() -> str:
-    """根据环境变量或系统区域设置选择界面语言，默认英文"""
     candidates = [os.environ.get(name) for name in ("APP_LANG", "LANGUAGE", "LANG", "LC_ALL", "LC_MESSAGES")]
     try:
         candidates.append(locale.getlocale()[0])
@@ -71,7 +69,6 @@ def detect_system_language() -> str:
 
 
 class SavTool:
-    """存档管理工具主窗口"""
 
     def __init__(self, root: ctk.CTk) -> None:
         self.root = root
@@ -87,7 +84,7 @@ class SavTool:
         self.others_tab: OthersTab | None = None
         self._pending_tabs: set = set()  # 还没创建的懒加载标签页
 
-        # 存档变动提示（在「其他」页中开关）
+        # 存档变动提示（在"其他"页中开关）
         self.toast_enabled = False
         self.toast_ignore_record = DEFAULT_TOAST_IGNORE_RECORD
         self.save_monitor: SaveChangeMonitor | None = None
@@ -126,12 +123,11 @@ class SavTool:
         root.after(THEME_CHECK_INTERVAL_MS, self._check_theme)
 
     def t(self, key: str, **kwargs) -> str:
-        """翻译函数：返回当前语言的文字，找不到时返回 key 本身。各标签页共用这一个函数"""
+        """各标签页共用的翻译函数，找不到 key 时返回 key 本身"""
         text = TRANSLATIONS[self.language].get(key, key)
         return text.format(**kwargs) if kwargs else text
 
     def _create_hint_label(self, frame: ctk.CTkFrame) -> ctk.CTkLabel:
-        """「请先选择目录」提示"""
         label = ctk.CTkLabel(
             frame, text=self.t("select_dir_hint"), text_color=Colors.TEXT_HINT,
             font=get_cjk_font(12, "bold"), fg_color="transparent",
@@ -141,7 +137,6 @@ class SavTool:
 
     @staticmethod
     def _fetch_release_quietly():
-        """启动时的静默更新检查（后台线程），离线等错误只记日志"""
         try:
             return fetch_latest_release()
         except (OSError, ValueError) as e:
@@ -149,7 +144,6 @@ class SavTool:
             return None
 
     def _on_update_checked(self, release, error) -> None:
-        """有新版本时在右下角显示提示"""
         if release and is_newer(release["tag_name"], VERSION) and release.get("html_url"):
             self.version_info.create_update_label(release["html_url"])
 
@@ -160,7 +154,6 @@ class SavTool:
     def _current_tab(self) -> int:
         return self.notebook.index(self.notebook.select())
 
-    # ---------- 选择目录 ----------
 
     def select_dir(self) -> None:
         dir_path = filedialog.askdirectory()
@@ -178,7 +171,6 @@ class SavTool:
             showinfo_relative(self.root, self.t("warning"), self.t("steam_detect_not_found"))
 
     def _load_storage_dir(self, storage_dir: str) -> None:
-        """切换到新的存档目录：重建 SF 分析页和截图页，其余标签页标记为待创建"""
         self.storage_dir = storage_dir
         for index in LAZY_TABS:
             self._teardown_lazy_tab(index)
@@ -210,10 +202,7 @@ class SavTool:
                 widget.destroy()
 
     def _teardown_lazy_tab(self, index: int) -> None:
-        """销毁已创建的懒加载标签页，下次切换过去时按当前目录重新创建
-
-        否则再次选择目录后，旧页面会显示旧目录的数据，运行时修改页的状态轮询和热键也不会停止。
-        """
+        """不销毁的话，重新选目录后这些页还显示旧目录的数据，运行时修改页的轮询和热键也停不下来"""
         if index == BACKUP_TAB:
             self.backup_restore_tab = None
         elif index == TYRANO_TAB:
@@ -230,7 +219,6 @@ class SavTool:
         self.hint_labels[index].pack(pady=50)
         self._pending_tabs.add(index)
 
-    # ---------- 懒加载 ----------
 
     def on_tab_changed(self, event=None) -> None:
         index = self._current_tab()
@@ -242,7 +230,6 @@ class SavTool:
         self._update_version_info_visibility()
 
     def _create_tab_if_pending(self, index: int) -> bool:
-        """第一次切换到懒加载标签页时创建它；返回这次是否新建了"""
         if not self.storage_dir or index not in self._pending_tabs:
             return False
         self._pending_tabs.discard(index)
@@ -268,10 +255,9 @@ class SavTool:
             )
         return True
 
-    # ---------- 还原备份 ----------
 
     def _on_restore_start(self) -> None:
-        # 还原时 _storage 会被短暂改名，暂停监控以免误报「AB INITIO」
+        # 还原时 _storage 会被短暂改名，暂停监控以免误报"AB INITIO"
         if self.save_monitor:
             self.save_monitor.stop()
 
@@ -285,7 +271,6 @@ class SavTool:
         if self.tyrano_tab is not None:
             self._teardown_lazy_tab(TYRANO_TAB)
 
-    # ---------- 存档变动提示 ----------
 
     def set_toast_enabled(self, enabled: bool) -> None:
         self.toast_enabled = enabled
@@ -297,7 +282,6 @@ class SavTool:
             self.save_monitor.ignored_vars = parse_ignored_vars(text)
 
     def _restart_save_monitor(self) -> None:
-        """只有开启了 toast 时才监控存档"""
         if self.save_monitor:
             self.save_monitor.stop()
             self.save_monitor = None
@@ -309,7 +293,7 @@ class SavTool:
             self.save_monitor.start()
 
     def _show_ab_initio(self) -> None:
-        """_storage 被整个删除时（游戏的「AB INITIO」）显示蓝色提示"""
+        """_storage 被整个删除时（游戏的 AB INITIO）显示提示"""
         toast = Toast(self.root, "AB INITIO", duration=30000)
         # message_text 是底层的 tk.Text（CTkTextbox 的 tag 不能设置字体）
         text = toast.message_text
@@ -319,7 +303,6 @@ class SavTool:
         text.insert("1.0", "AB INITIO", "ab_initio_blue")
         text.config(state="disabled")
 
-    # ---------- 语言 ----------
 
     def change_language(self, lang: str) -> None:
         self.language = lang
@@ -336,10 +319,8 @@ class SavTool:
             if tab is not None:
                 tab.update_language()
 
-    # ---------- 其他 ----------
 
     def _update_version_info_visibility(self) -> None:
-        """版本信息只在未选择目录时和「其他」页显示"""
         if self.storage_dir is None or self._current_tab() == OTHERS_TAB:
             self.version_info.show()
         else:

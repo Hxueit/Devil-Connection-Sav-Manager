@@ -1,10 +1,4 @@
-"""sf 存档分析页的数据部分（不涉及界面）
-
-- load_save_file: 读取 DevilConnection_sf.sav
-- compute_shared_data: 计算各分区共用的统计数据（结局、贴纸、角色……）
-- SECTIONS: 左侧各分区及其字段的定义
-- field_value: 算出某个字段要显示的值
-"""
+"""sf 存档分析页的数据部分：读取存档、统计数据和各分区的字段定义"""
 
 import logging
 from collections.abc import Callable
@@ -28,7 +22,6 @@ logger = logging.getLogger(__name__)
 
 
 def load_save_file(storage_dir: str) -> dict[str, Any]:
-    """读取 sf 存档；文件不存在/读不了时抛 OSError，内容损坏时抛 ValueError"""
     data = read_sav(Path(storage_dir) / SF_SAVE_FILENAME)
     if not isinstance(data, dict):
         raise ValueError(f"{SF_SAVE_FILENAME} 的内容不是 JSON 对象")
@@ -56,7 +49,7 @@ def _numeric_order(item: Any) -> int:
 
 
 def compute_shared_data(save_data: dict[str, Any]) -> dict[str, Any]:
-    """计算各分区共用的数据（字段定义里叫 stats），避免每个字段各算一遍"""
+    """各字段共用的统计数据（字段定义里叫 stats）"""
     endings = set(save_data.get("endings", []))
     collected_endings = set(save_data.get("collectedEndings", []))
 
@@ -90,12 +83,11 @@ ValueFunc = Callable[[dict[str, Any], dict[str, Any], Callable[[str], str]], Any
 
 @dataclass
 class Field:
-    """左侧分区中的一行「标签: 值」"""
     label_key: str                        # 标签的翻译键，同时作为这一行的唯一标识
     path: str | None = None            # 直接读取的存档路径；不填 compute 时显示该值
     default: Any = 0                      # 存档里没有该变量时显示的值
     compute: ValueFunc | None = None   # 需要计算的字段
-    var_name: str | None = None        # 勾选「显示变量名」时显示在标签前的 [变量名]
+    var_name: str | None = None        # 勾选"显示变量名"时显示在标签前的 [变量名]
     tooltip_key: str | None = None     # 有值时行尾显示可点击的 ℹ，点开显示该说明
     tooltip_optional: bool = False        # 说明翻译为空时不显示 ℹ
 
@@ -109,7 +101,6 @@ class Section:
 
 
 def _var(path: str, **kwargs: Any) -> Field:
-    """直接显示存档变量的字段：变量名就是路径"""
     return Field(path=path, var_name=path, **kwargs)
 
 
@@ -209,7 +200,6 @@ SECTIONS: dict[str, Section] = {s.key: s for s in [
 
 
 def section_order(fanatic_route: bool) -> list[str]:
-    """分区显示顺序：狂信徒路线时「狂信徒相关」放最前，否则放在「角色信息」之前"""
     order = [key for key in SECTIONS if key != FANATIC_SECTION_KEY]
     if fanatic_route:
         return [FANATIC_SECTION_KEY, *order]

@@ -134,7 +134,6 @@ class DevToolsConsoleWindow(RuntimeDialog):
             buttons, self.t("runtime_modify_console_shortcut_button"), self._toggle_shortcut_popup, width=80)
         self.shortcut_button.pack(side="left")
 
-    # ------------------------------------------------------------ 输入与历史
 
     def _on_output_clicked(self, _event: tk.Event) -> str | None:
         # 输出区为空时点击直接跳到输入框；有内容时保留默认行为以便选择复制
@@ -202,7 +201,6 @@ class DevToolsConsoleWindow(RuntimeDialog):
             self._draft = ""
         self._history_index = -1
 
-    # ------------------------------------------------------------ 执行
 
     def _on_send_clicked(self) -> None:
         if self._is_executing:
@@ -246,7 +244,6 @@ class DevToolsConsoleWindow(RuntimeDialog):
         self.output_textbox.see("end")
 
     def set_enabled(self, enabled: bool) -> None:
-        """游戏未连接时禁用输入并显示提示"""
         state = "normal" if enabled else "disabled"
         self.input_entry.configure(state=state)
         self.send_button.configure(state=state)
@@ -264,7 +261,6 @@ class DevToolsConsoleWindow(RuntimeDialog):
         self.disabled_hint_label.configure(text=self.t("runtime_modify_console_disabled_hint"))
         self._destroy_shortcut_popup()
 
-    # ------------------------------------------------------------ 快捷指令弹层
 
     def _toggle_shortcut_popup(self) -> None:
         if self._shortcut_popup is not None:
@@ -305,7 +301,7 @@ class DevToolsConsoleWindow(RuntimeDialog):
             row.bind("<ButtonRelease-1>", lambda event, cmd=command: self._on_shortcut_selected(event, cmd))
 
             if key == "runtime_modify_console_cmd_set_quick_save":
-                # 在「快速存档」下面显示当前快速存档的内容，方便判断是否要覆盖
+                # 在"快速存档"下面显示当前快速存档的内容，方便判断是否要覆盖
                 ctk.CTkLabel(
                     panel, text=describe_quick_save(self.storage_dir, self.t), anchor="w", justify="left",
                     font=get_cjk_font(9), text_color=Colors.TEXT_SECONDARY,

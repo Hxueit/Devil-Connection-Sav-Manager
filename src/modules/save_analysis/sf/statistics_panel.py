@@ -1,8 +1,4 @@
-"""sf 存档分析页右侧的统计面板
-
-从上到下：贴纸收集进度环、总 MP、判定统计（perfect - good - bad）、NEO.sav 的内容。
-狂信徒路线时所有文字变成深红色并不断随机变成乱码。
-"""
+"""sf 存档分析页右侧的统计面板：贴纸进度环、总 MP、判定统计、NEO.sav"""
 
 import logging
 import math
@@ -66,8 +62,6 @@ NEO_WRAPLENGTH = 400
 _NUMERIC_STRING = re.compile(r"^[+-]?\d+(?:\.\d+)?$")
 
 
-# ---------------------------------------------------------------- 数据提取
-
 def get_progress_color(stickers_percent: float, fanatic_route: bool) -> str:
     if fanatic_route:
         return FANATIC_RING_COLOR
@@ -75,7 +69,6 @@ def get_progress_color(stickers_percent: float, fanatic_route: bool) -> str:
 
 
 def extract_sticker_data(save_data: dict[str, Any]) -> tuple[int, float]:
-    """返回 (已收集贴纸数, 百分比)"""
     stickers = save_data.get("sticker")
     count = len(set(stickers)) if isinstance(stickers, list) else 0
     return count, count / TOTAL_STICKERS * 100.0
@@ -99,10 +92,7 @@ def _format_number(value: float) -> str:
 
 
 def format_mp_value_for_display(mp: Any) -> tuple[str, bool]:
-    """格式化总 MP，返回 (显示文本, 是否异常)
-
-    存档被改坏时 wholeTotalMP 可能是任意字符串，原样显示并标记为异常。
-    """
+    """返回 (显示文本, 是否异常)；存档被改坏时 wholeTotalMP 可能是任意字符串"""
     if mp is None:
         return "0", False
     if isinstance(mp, (bool, int)):
@@ -144,7 +134,6 @@ def load_neo_content(storage_dir: str) -> tuple[str | None, str] | None:
 
 
 def generate_gibberish_text(original_text: str) -> str:
-    """把 20%~50% 的字符替换成随机字符"""
     if not original_text:
         return original_text
     count = max(1, int(len(original_text) * random.uniform(0.2, 0.5)))
@@ -154,10 +143,7 @@ def generate_gibberish_text(original_text: str) -> str:
     return "".join(result)
 
 
-# ---------------------------------------------------------------- 进度环绘制
-
 def ease_out_cubic(progress: float) -> float:
-    """三次缓出：progress ∈ [0, 1] -> [0, 1]，开始快、结束慢"""
     return 1.0 - pow(1.0 - progress, 3)
 
 
@@ -178,10 +164,7 @@ def _ring_bbox(cx: int, cy: int) -> tuple[int, int, int, int]:
 
 def draw_progress_ring(canvas: tk.Canvas, cx: int, cy: int, percent: float, color: str,
                        skip_full_highlight: bool = False) -> None:
-    """画进度环：带外发光，末端 8 段渐变高亮；100% 时整环高亮
-
-    skip_full_highlight: 100% 时先不整环高亮（庆祝动画会把高亮蔓延到整环）
-    """
+    """skip_full_highlight: 100% 时先不整环高亮，留给庆祝动画"""
     rounded = round(percent)
     if rounded <= 0:
         canvas.delete("progress", "progress_glow", "progress_highlight")
@@ -235,10 +218,7 @@ def draw_background_ring(canvas: tk.Canvas, cx: int, cy: int) -> None:
                            width=int(width), tags="background_ring")
 
 
-# ---------------------------------------------------------------- 面板
-
 class StatisticsPanel:
-    """统计面板；每次 update 都会重建内容并重新播放进度环动画"""
 
     def __init__(self, parent: tk.Widget, storage_dir: str, t: Callable[..., str]) -> None:
         self.storage_dir = storage_dir
@@ -275,7 +255,6 @@ class StatisticsPanel:
         self._ring_job = self._gibberish_job = None
         self._gibberish_targets.clear()
 
-    # ---- 贴纸进度环
 
     def _create_sticker_ring(self, save_data: dict[str, Any], fanatic: bool) -> None:
         collected, percent = extract_sticker_data(save_data)
@@ -310,7 +289,6 @@ class StatisticsPanel:
 
     def _animate_ring(self, canvas: tk.Canvas, center: int, target: float, color: str,
                       percent_text_id: int | None) -> None:
-        """进度环从 0 增长到目标值（缓出）并更新中间的百分比文字（有的话）；到 100% 时再播放庆祝动画"""
         start_time = time.time()
 
         def frame() -> None:
@@ -367,7 +345,6 @@ class StatisticsPanel:
 
         frame()
 
-    # ---- MP / 判定 / NEO
 
     def _create_mp_display(self, mp: Any, fanatic: bool) -> None:
         frame = tk.Frame(self.container, bg=Colors.WHITE)
@@ -397,7 +374,6 @@ class StatisticsPanel:
         canvas.pack()
 
         def draw(parts: list[str], colors: list[str], separator_color: str) -> None:
-            """把三个数字和分隔符居中排成一行，每段单独着色"""
             canvas.delete("all")
             separator_width = font.measure(JUDGE_SEPARATOR)
             x = width // 2 - font.measure(JUDGE_SEPARATOR.join(parts)) // 2
@@ -436,7 +412,6 @@ class StatisticsPanel:
         if fanatic:
             self._gibberish_targets.append((lambda s: label.config(text=s), text))
 
-    # ---- 狂信徒路线的乱码效果
 
     def _update_gibberish(self) -> None:
         self._gibberish_job = None

@@ -29,7 +29,6 @@ PREVIEW_THUMB_SIZE = (80, 60)
 
 
 class TyranoReorderDialog:
-    """拖拽调整存档顺序，确认后写回存档文件"""
 
     def __init__(self, viewer: "TyranoSaveViewer") -> None:
         self.viewer = viewer
@@ -75,7 +74,6 @@ class TyranoReorderDialog:
         self.dialog.destroy()
 
     def _changed_pages(self) -> list[int]:
-        """顺序有变化的页码（从 1 开始）"""
         pages = []
         for start in range(0, len(self._slots), TYRANO_SAVES_PER_PAGE):
             end = start + TYRANO_SAVES_PER_PAGE
