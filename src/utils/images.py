@@ -76,6 +76,6 @@ def open_image(source: ImageSource) -> Image.Image:
 def decode_image_data(data_uri: object) -> Image.Image | None:
     """解码存档里的 data URI 图片，失败返回 None"""
     try:
-        return open_image(data_uri) if isinstance(data_uri, str) else None
+        return open_image(data_uri_to_bytes(data_uri))
     except (OSError, ValueError):
         return None

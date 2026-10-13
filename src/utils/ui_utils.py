@@ -28,11 +28,7 @@ def _icon_path() -> str | None:
         path = os.path.join(tempfile.gettempdir(), "dcsm_icon.ico")
         try:
             if not os.path.exists(path) or Path(path).read_bytes() != data:
-                # 先写临时文件再替换，避免同时启动的多个实例读到半个文件
-                fd, tmp = tempfile.mkstemp(suffix=".ico", dir=os.path.dirname(path))
-                with os.fdopen(fd, "wb") as f:
-                    f.write(data)
-                os.replace(tmp, path)
+                Path(path).write_bytes(data)
         except OSError:
             return None
         _icon_file = path
@@ -54,7 +50,7 @@ def _show_relative(func, parent, title, message, **options):
     try:
         parent.update_idletasks()
         return func(title, message, parent=parent, **options)
-    except (tk.TclError, AttributeError):
+    except tk.TclError:   # parent 已被关闭
         return func(title, message, **options)
 
 
