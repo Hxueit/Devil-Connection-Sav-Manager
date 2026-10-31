@@ -1,6 +1,10 @@
 # Devil Connection .sav Manager
 
-[![CTk](https://img.shields.io/badge/GUI-CTk-blue?logo=python&logoColor=white)](https://github.com/TomSchimansky/CustomTkinter) [![GitHub release (latest by date)](https://img.shields.io/github/v/release/Hxueit/Devil-Connection-Sav-Manager)](https://github.com/Hxueit/Devil-Connection-Sav-Manager/releases) ![Contains Spoilers](https://img.shields.io/badge/⚠-Contains_Spoilers-yellow) <img src="https://cdn.fastly.steamstatic.com/steamcommunity/public/images/apps/3054820/0cf0cb63d65311ed0b0f6f3cb5a2af88593b7361.jpg" alt="DC" width="20" height="20" style="border-radius: 20%;" />
+[![CTk](https://img.shields.io/badge/GUI-CTk-blue?logo=python&logoColor=white)](https://github.com/TomSchimansky/CustomTkinter) [![GitHub release (latest by date)](https://img.shields.io/github/v/release/Hxueit/Devil-Connection-Sav-Manager)](https://github.com/Hxueit/Devil-Connection-Sav-Manager/releases) ![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white) [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE) ![Contains Spoilers](https://img.shields.io/badge/⚠-Contains_Spoilers-yellow) <img src="https://cdn.fastly.steamstatic.com/steamcommunity/public/images/apps/3054820/0cf0cb63d65311ed0b0f6f3cb5a2af88593b7361.jpg" alt="DC" width="20" height="20" style="border-radius: 20%;" />
+
+<p align="center">
+  <img src="docs/images/demo.gif" alt="demo" width="480">
+</p>
 
 <details>
 <summary>日本語 (Japanese)</summary>
@@ -32,8 +36,8 @@
   - 追加
   - 削除
   - 変更
-  - 並び替え
-  - 一括エクスポート
+  - 並び替え（「編集ON」にするとドラッグで並び替えでき、ゲーム内ギャラリーにも反映されます）
+  - 一括エクスポート（選択した画像を ZIP にまとめます）
 - ゲーム内の表示形式に近いプレビューページを用意しており、編集時の確認がしやすいです
 
 ### 💾 バックアップ/復元
@@ -66,7 +70,7 @@
 
 ### 必要環境
 
-- Python 3.8 以上
+- Python 3.10 以上
 
 ### インストール手順
 
@@ -89,57 +93,36 @@ python main.py
 
 2. ゲームディレクトリを選択
 
-- 「参照」ボタンをクリック
-- 手動選択、または自動検出でゲームの `_storage` フォルダを指定します
+- 左上のメニュー「ディレクトリ選択」から「参照」または「自動検出（Steam）」を選び、ゲームの `_storage` フォルダを指定します
   例：`C:\Program Files (x86)\Steam\steamapps\common\でびるコネクショん\_storage`
 
 3. `_storage` 配下のファイルを自動取得して解析し、各機能が使用できるようになります
 
-## 補足説明
+## 補足説明：セーブデータの閲覧、編集ウィンドウ
 
-### 共通
-
-#### セーブデータ閲覧、編集ウィンドウ
-
-- ツール内のボタン（例：sfセーブ解析 内の「sf.savセーブファイルを表示」など）から、セーブファイルを URL デコードして JSON 形式で表示できます
-- 一部のウィンドウ右上には「編集ON」のチェックがあります。チェックを入れた場合のみ編集可能です。チェックが無いウィンドウはデフォルトで編集可能です
-- 編集後は「保存」ボタンで保存できます
-  **誤った編集はセーブ破損の原因になります。内容を理解している場合のみ操作してください。バックアップを強く推奨します**
-- 折りたたまれている項目（情報量が多く、編集の必要性が低いものが多い）を編集したい場合は、「折りたたみ/横置きを解除」系のチェックを有効にしてください
-
-### アルバム画像管理 タブ
-
-#### ドラッグで並び替え
-
-- 並び替えはドラッグ操作で行えます。右上の「編集ON」をオンにする必要があります
-- リスト項目をクリックしてドラッグすると順序変更できます（ゲーム内ギャラリーにもこの順序が反映されます）
-- ドラッグ完了後、どのファイルが移動したか矢印インジケーターで表示されます
-
-#### 一括エクスポート
-
-- 選択した画像は ZIP にまとめて一括エクスポートされます
-
-### Q：このツールは何の役に立つの？
-
-- A：大きな実用性はそこまでありません。個人的にはステッカーの埋め作業で抜けをすぐ確認できる点や、セーブ数値を弄りながら様々な差分を探りたい場合に重宝すると思います。
+- ツール内のボタン（例：sfセーブ解析 内の「sf.savセーブファイルを表示」など）から、セーブファイルを JSON 形式で表示できます
+- 右上に「編集ON」のチェックがあるウィンドウは、チェックを入れた場合のみ編集できます
+- 編集後は「保存」ボタンで保存できます。**誤った編集はセーブ破損の原因になります。内容を理解している場合のみ操作し、事前にバックアップを取ってください**
+- 折りたたまれている項目（情報量が多く、編集の必要性が低いもの）を編集したい場合は、「折りたたみ/横置きを解除」にチェックを入れてください
 
 ## 注意事項
 
 - セーブデータを変更する前に、必ず `_storage` フォルダ全体のバックアップを取ることを強く推奨します（ツール内にバックアップ機能があります）
-- 本ツールは Windows および Linux（EndeavourOS, Linux 6.12.73-1-lts）で動作確認しています。
+- 本ツールは Windows および Linux で動作確認しています。
   - Linuxでは基本機能は動作しますが、「実行時変更」は現在 Steam版のみ対応しています。
   - macOSは未検証です。
-- 本ツールは《でびるコネクショん》公式および開発者とは一切関係ありません。完全に有志による非公式ツールです。ゲーム本体のファイルは変更せず、ローカルに保存されているスクリーンショット保存ファイルおよびセーブデータのみを操作します。もし開発者様にとって不都合がございましたら、GitHub Issues にてご連絡ください。直ちに公開停止など対応いたします。
+- 本ツールは《でびるコネクショん》公式および開発者とは一切関係ありません。完全に有志による非公式ツールです。ゲーム本体のファイルは変更せず、ローカルに保存されているスクリーンショット保存ファイルおよびセーブデータのみを操作します。
 
 ## ライセンス
 
 MIT License
 
-## 貢献
+## フィードバック・開発
 
-- 本ツールは個人用途として、ゲームの調査や差分確認のために作成したものです。自分の環境でのテストでは問題は見つかりませんでしたが、見落としがある可能性があります
-- 開発では AI の補助も利用しています。機能は特定ゲーム向けに作られており、一部は汎用化していますが、長期的な汎用メンテナンスを目的とした設計ではありません。そのため、コアロジックへの大規模な改造は推奨しません
+- 不具合や要望は [Issues](https://github.com/Hxueit/Devil-Connection-Sav-Manager/issues) までお願いします。操作手順とスクリーンショットを添えていただけると助かります
+- 開発では AI の補助も利用しています。機能は特定ゲーム向けに作られています
 - ツール内の翻訳文を修正したい場合は、`/src/utils/translations.py` を直接編集してください。ツール内テキストはすべてこのファイルにあります
+- コードの構成は [ARCHITECTURE.md](ARCHITECTURE.md)（中国語）を参照してください
 
 
 </details>
@@ -172,8 +155,8 @@ MIT License
   - 增
   - 删
   - 改
-  - 重排序
-  - 批量导出
+  - 重排序（勾选"开启修改"后可拖拽排序，游戏内画廊会同步这个顺序）
+  - 批量导出（选中的图片打包成一个 ZIP）
 - 提供一个类似游戏内截图展现形式的预览页，方便修改时快速核对
 
 ### 💾 备份/还原
@@ -205,7 +188,7 @@ MIT License
 
 ### 前置要求
 
-- Python 3.8 或更高版本
+- Python 3.10 或更高版本
 
 ### 安装步骤
 
@@ -228,43 +211,22 @@ pip install -r requirements.txt
     ```
 
 2. 选择游戏目录：
-   - 点击"浏览目录"按钮
-   - 手动选择或者自动检测游戏的 `_storage` 目录（例如：`C:\Program Files (x86)\Steam\steamapps\common\でびるコネクショん\_storage`）
+   - 在左上角菜单「目录选择」中选择「浏览目录」或「自动检测(Steam)」，指定游戏的 `_storage` 目录（例如：`C:\Program Files (x86)\Steam\steamapps\common\でびるコネクショん\_storage`）
 
 3. 程序会自动获取所有该目录下的文件并解析他们，使用功能。
 
-## 额外说明
+## 额外说明：存档查看/编辑窗口
 
-### 通用
-
-#### 存档文件查看/编辑框
-
-- 通过程序内的一些按钮（例如，sf存档分析中的"查看存档文件"按钮），可以自动对存档文件进行url解码并以JSON格式查看存档文件内容。
-- 有一些窗口的右上角设有"开启修改"的勾选框，勾选其后才可以进行编辑。没有该框的窗口默认可以编辑。
-- 编辑后的内容可以通过"保存"按钮保存，**错误的编辑可能导致存档损坏，请务必在知道你在干什么的情况下再做操作**。强烈建议**做好备份**，这样即使发生错误也可以回溯。
-- 要编辑折叠的字段（一般为比较冗杂且实际修改意义不大的东西），需要先勾选"取消折叠/横置"复选框。
-
-### 截图管理标签页
-
-#### 拖拽排序
-
-- 此功能支持拖拽重排序图片，需要勾选右上角的"开启修改"才可以进行
-- 点击并拖拽列表项可以调整顺序（实际游戏内的画廊中会反映这个顺序）
-- 拖拽完成后会显示箭头指示器提示哪个文件被拖拽
-
-#### 批量导出
-
-- 批量导出会将所有选中的图片打包成一个 ZIP 文件。
-
-### Q：这个项目有什么用？
-
-- A：没什么很大的实际用途。我个人认为最实用的大概就是快速的查漏补缺贴纸，以及如果想要通过改存档数值来探寻不同差分大概会比较趁手，可以玩玩。
+- 通过程序内的一些按钮（例如 sf 存档分析中的"查看存档文件"），可以以 JSON 格式查看存档文件内容
+- 右上角有"开启修改"勾选框的窗口，勾选后才可以编辑
+- 编辑后点"保存"即可写入。**错误的编辑可能导致存档损坏，请在清楚自己在做什么的情况下操作，并事先备份**
+- 要编辑折叠的字段（一般是比较冗杂、实际修改意义不大的内容），需要先勾选"取消折叠/横置"
 
 ## 注意事项
 
 - 修改存档文件前，强烈建议先**备份**你的存档文件夹（工具内提供此功能）。
-- 当前版本仅在 Windows 和 Linux（EndeavourOS, Linux 6.12.73-1-lts）测试过。
-  - Linux 下大部分功能应当可用，“运行时修改”目前仅支持 Steam 版本。
+- 当前版本仅在 Windows 和 Linux 测试过。
+  - Linux 下大部分功能可用，“运行时修改”目前仅支持 Steam 版本。
   - macOS 尚未测试。
 - 本工具与游戏《でびるコネクショん》官方及开发者完全无关，仅为玩家自制工具。工具不涉及修改游戏核心文件，仅操作本地存储的截图保存文件以及存档文件。
 
@@ -272,11 +234,12 @@ pip install -r requirements.txt
 
 MIT License
 
-## 贡献
+## 反馈与开发
 
-- 本项目本质上是个人用来调试游戏/查差分制出的，经个人测试未发现使用问题，但难免会有疏漏，请多多包涵。
-- 本项目在开发过程中使用了 AI 辅助编写代码，功能实现主要针对该特定游戏。虽然部分功能有做通用化接口，但整体逻辑并非以长期通用维护为目标，因此不建议对核心逻辑代码进行大规模修改。
+- 遇到问题或有建议欢迎提 [Issue](https://github.com/Hxueit/Devil-Connection-Sav-Manager/issues)，请写明操作步骤，最好附上截图
+- 本项目在开发过程中使用了 AI 辅助编写代码，功能实现主要针对该特定游戏。
 - 如果想对程序内的翻译进行修改与纠正，请直接查看`/src/utils/translations.py`，工具内所有文本均在该文件中
+- 代码结构说明见 [ARCHITECTURE.md](ARCHITECTURE.md)
 
 </details>
 
@@ -308,8 +271,8 @@ The tool consists of multiple tabs:
   - Add
   - Delete
   - Modify
-  - Reorder
-  - Batch export
+  - Reorder (with "Enable Edit" checked, drag items to reorder; the in-game gallery follows this order)
+  - Batch export (selected images are packed into one ZIP)
 - Provides a preview page that resembles the in-game screenshot gallery, making it easy to verify changes quickly
 
 ### 💾 Backup/Restore
@@ -341,7 +304,7 @@ The tool consists of multiple tabs:
 
 ### Requirements
 
-- Python 3.8 or higher
+- Python 3.10 or higher
 
 ### Installation steps
 
@@ -357,62 +320,42 @@ pip install -r requirements.txt
 
 ## How to Use
 
-1.Launch the program:
+1. Launch the program:
 
 ```bash
 python main.py
 ```
 
-2.Select the game folder:
+2. Select the game folder:
 
-  - Click the “Browse Directory” button
-  - Choose or autodetect the game’s `_storage` folder (example: `C:\Program Files (x86)\Steam\steamapps\common\でびるコネクショん\_storage`)
+  - In the “Directory” menu at the top left, choose “Browse Directory” or “Auto Detect (Steam)” to pick the game’s `_storage` folder (example: `C:\Program Files (x86)\Steam\steamapps\common\でびるコネクショん\_storage`)
 
-3.The tool will automatically load and parse files under that directory, then you can use the features.
+3. The tool will automatically load and parse files under that directory, then you can use the features.
 
-## Additional Notes
+## Additional Notes: Save File Viewer/Editor
 
-### General
-
-#### Save File Viewer/Editor
-
-- Through some buttons in the app (for example, “View sf.sav File” in SF Analyzer), the tool can automatically URL-decode the save file and show its content in JSON format.
-- Some windows have an “Enable Edit” checkbox in the top-right. You must check it before editing. Windows without this checkbox are editable by default.
-- After editing, click “Save” to write changes. **Incorrect edits may corrupt your save file**, only edit if you know what you are doing. Strongly recommended making a **backup** - so you can roll back if something goes wrong.
-- To edit collapsed fields (usually verbose and not very meaningful to modify), first check “Unfold All / Expand Horizontally”.
-
-### Screenshots Tab
-
-#### Drag and Drop Reordering
-
-- Drag and drop reordering is supported, and requires enabling “Enable Edit” in the top-right
-- Click and drag list items to change order (the in-game gallery will reflect the new order)
-- An arrow indicator shows which file is being moved during drag
-
-#### Batch Export
-
-- Batch export packs all selected images into a single ZIP file.
-
-### Q: What is this tool actually useful for?
-
-- A: It does not have huge practical value. The most useful part IMO is probably checking missing stickers, and if you want to tweak save values to explore different dialog variations it may come in handy. Feel free to try it out.
+- Some buttons in the app (for example, “View sf.sav File” in SF Analyzer) show a save file's content as JSON
+- Windows with an “Enable Edit” checkbox in the top-right can only be edited after checking it
+- Click “Save” to write your changes. **Incorrect edits may corrupt your save file** - only edit if you know what you are doing, and make a **backup** first
+- To edit collapsed fields (usually verbose and not very meaningful to modify), first check “Unfold All / Expand Horizontally”
 
 ## Important Notes
 
 - Before modifying save files, it is strongly recommended to **backup** your save folder (the tool provides this feature).
-- This tool has only been tested on Windows and Linux (EndeavourOS, Linux 6.12.73-1-lts).
-  - On Linux, most features should work fine. Runtime modification currently only works with the Steam version.
+- This tool has only been tested on Windows and Linux.
+  - On Linux, most features work. Runtime modification currently only works with the Steam version.
   - macOS has not been tested.
-- This tool is completely unofficial and has no affiliation with the developers of でびるコネクショん. It does not modify core game files, it only operates on locally stored screenshot save files and save files. If the developers have any issues with it, please let me know via GitHub Issues, and I will handle it immediately.
+- This tool is completely unofficial and has no affiliation with the developers of でびるコネクショん. It does not modify core game files, it only operates on locally stored screenshot save files and save files.
 
 ## License
 
 MIT License
 
-## Contributions
+## Feedback & Development
 
-- This project was mainly made for personal debugging and diff checking. It works fine in my own testing, but there may be oversights.
-- AI assistance was used during development. The implementation mainly targets this specific game. Some parts are generalized, but overall it is not designed for long-term general maintenance, thus large-scale commits to the core logic are not recommended.
+- Found a bug or have a suggestion? Please open an [issue](https://github.com/Hxueit/Devil-Connection-Sav-Manager/issues) with the steps to reproduce and, ideally, a screenshot.
+- AI assistance was used during development. The implementation mainly targets this specific game.
 - If you want to modify or correct translations in the app, check `/src/utils/translations.py`, all UI text is in that file.
+- See [ARCHITECTURE.md](ARCHITECTURE.md) (in Chinese) for an overview of the code structure.
 
 </details>

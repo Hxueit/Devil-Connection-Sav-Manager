@@ -1,0 +1,231 @@
+"""存档变动提示（在"其他"页开启 toast 后才运行）"""
+import json
+import os
+import tkinter as tk
+from collections.abc import Callable, Iterable
+from pathlib import Path
+from typing import Any
+
+from src.constants import SF_SAVE_FILENAME
+from src.utils.sav_io import read_sav
+from src.utils.toast import Toast
+from src.utils.ui_utils import widget_alive
+
+ARROW = "→"
+FLOAT_EPSILON = 1e-10
+
+
+def parse_ignored_vars(text: str) -> set[str]:
+    """'record, initialVars' -> {'record', 'initialVars'}"""
+    return {name.strip() for name in text.split(",") if name.strip()}
+
+
+def _format_value(value: Any) -> str:
+    if isinstance(value, str):
+        return f'"{value}"'
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    return str(value)
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _values_equal(old: Any, new: Any) -> bool:
+    """宽松的相等判断：1 和 1.0 相等，"1" 和 1 也视为相等（游戏有时会改变值的类型）"""
+    if old is None or new is None:
+        return old is new
+    if type(old) is type(new):
+        return old == new
+    if _is_number(old) and _is_number(new):
+        return abs(float(old) - float(new)) < FLOAT_EPSILON
+    if isinstance(old, (dict, list)) or isinstance(new, (dict, list)):
+        return False
+    return str(old) == str(new)
+
+
+def _list_key(item: Any) -> str:
+    if isinstance(item, (dict, list)):
+        return json.dumps(item, sort_keys=True, ensure_ascii=False)
+    return str(item)
+
+
+def _compare_lists(key: str, old: list, new: list) -> list[str]:
+    old_keys = {_list_key(item) for item in old}
+    new_keys = {_list_key(item) for item in new}
+    changes = [f"{key}.append({_format_value(item)})" for item in new if _list_key(item) not in old_keys]
+    changes += [f"{key}.remove({_format_value(item)})" for item in old if _list_key(item) not in new_keys]
+    return changes
+
+
+def _is_ignored(full_key: str, key: str, ignored: set[str]) -> bool:
+    return key in ignored or any(full_key == name or full_key.startswith(name + ".") for name in ignored)
+
+
+def compare_saves(old: Any, new: Any, ignored: Iterable[str] = (), prefix: str = "") -> list[str]:
+    """递归比较两份存档，返回变更列表
+
+    格式："-键"、"+键 = 值"、"键 旧值→新值"、"键.append(值)"、"键.remove(值)"
+    """
+    ignored = set(ignored)
+    old = old if isinstance(old, dict) else {}
+    new = new if isinstance(new, dict) else {}
+    changes: list[str] = []
+    for key in list(old) + [k for k in new if k not in old]:
+        full_key = f"{prefix}.{key}" if prefix else key
+        if _is_ignored(full_key, key, ignored):
+            continue
+        if key not in new:
+            changes.append(f"-{full_key}")
+            continue
+        new_value = new[key]
+        if key not in old:
+            if isinstance(new_value, dict):
+                changes += compare_saves({}, new_value, ignored, full_key)
+            else:
+                changes.append(f"+{full_key} = {_format_value(new_value)}")
+            continue
+
+        old_value = old[key]
+        if _values_equal(old_value, new_value):
+            # 数值相同但类型变了（如 1 → 1.0），也提示一下
+            if type(old_value) is not type(new_value) and _is_number(old_value) and _is_number(new_value):
+                changes.append(
+                    f"{full_key} {_format_value(old_value)} ({type(old_value).__name__}){ARROW}"
+                    f"{_format_value(new_value)} ({type(new_value).__name__})"
+                )
+        elif isinstance(old_value, dict) and isinstance(new_value, dict):
+            changes += compare_saves(old_value, new_value, ignored, full_key)
+        elif isinstance(old_value, list) and isinstance(new_value, list):
+            changes += _compare_lists(full_key, old_value, new_value)
+        else:
+            changes.append(f"{full_key} {_format_value(old_value)}{ARROW}{_format_value(new_value)}")
+    return changes
+
+
+class SaveChangeMonitor:
+    """平时只 os.stat 一次，文件变了才读取比较；_storage 整个消失时调用 on_ab_initio()"""
+
+    POLL_INTERVAL_MS = 300
+
+    def __init__(
+        self,
+        widget: tk.Misc,
+        storage_dir: str,
+        ignored_vars: set[str],
+        on_change: Callable[[list[str]], None],
+        on_ab_initio: Callable[[], None],
+    ) -> None:
+        self.widget = widget
+        self.save_path = Path(storage_dir) / SF_SAVE_FILENAME
+        self.ignored_vars = ignored_vars
+        self.on_change = on_change
+        self.on_ab_initio = on_ab_initio
+        self._stamp: tuple[int, int] | None = None  # (mtime_ns, size)
+        self._data: Any = None
+        self._ab_initio_fired = False
+        self._job: str | None = None
+
+    def start(self) -> None:
+        self.stop()
+        self._stamp, self._data = None, None
+        self._ab_initio_fired = False
+        self._check(notify=False)  # 记录当前内容作为比较基准
+        self._job = self.widget.after(self.POLL_INTERVAL_MS, self._poll)
+
+    def stop(self) -> None:
+        if self._job is not None:
+            self.widget.after_cancel(self._job)
+            self._job = None
+
+    def _poll(self) -> None:
+        self._job = self.widget.after(self.POLL_INTERVAL_MS, self._poll)
+        self._check(notify=True)
+
+    def _check(self, notify: bool) -> None:
+        try:
+            stat = os.stat(self.save_path)
+        except FileNotFoundError:
+            if not self.save_path.parent.exists():
+                if notify and not self._ab_initio_fired:
+                    self._ab_initio_fired = True
+                    self.on_ab_initio()
+            else:
+                self._stamp, self._data = None, None  # 存档被删除，重新出现时作为新的基准
+            return
+        except OSError:
+            return
+
+        stamp = (stat.st_mtime_ns, stat.st_size)
+        if stamp == self._stamp:
+            return
+        try:
+            data = read_sav(self.save_path)
+        except (OSError, ValueError):
+            # 游戏可能正在写入或占用文件（Windows），不更新 stamp，下次再试
+            return
+        old_data = self._data
+        self._stamp, self._data = stamp, data
+        if notify and old_data is not None:
+            changes = compare_saves(old_data, data, self.ignored_vars)
+            if changes:
+                self.on_change(changes)
+
+
+def _parse_arrow_change(change: str) -> tuple[str, str, str] | None:
+    """'var old→new' -> (var, old, new)；不是这种格式时返回 None"""
+    if change.startswith(("+", "-")) or ARROW not in change:
+        return None
+    prefix, new_value = change.split(ARROW, 1)
+    last_space = prefix.rfind(" ")
+    if last_space <= 0 or not prefix[:last_space].strip():
+        return None
+    return prefix[:last_space].strip(), prefix[last_space + 1:].strip(), new_value.strip()
+
+
+class ChangeNotifier:
+    """同一个变量的连续变化合并到还在显示的那条 toast 里"""
+
+    TOAST_DURATION_MS = 15000
+
+    def __init__(self, root: tk.Misc, t: Callable[[str], str]) -> None:
+        self.root = root
+        self.t = t
+        # 变量名 -> (依次出现过的值, 显示它的 toast)
+        self._chains: dict[str, tuple[list[str], Toast]] = {}
+
+    def show(self, changes: list[str]) -> None:
+        # 忘掉已经关闭的 toast
+        self._chains = {var: chain for var, chain in self._chains.items() if widget_alive(chain[1].window)}
+        new_lines: list[str] = []
+        new_chains: dict[str, list[str]] = {}
+        for change in changes:
+            parsed = _parse_arrow_change(change)
+            if parsed is None:
+                new_lines.append(change)
+                continue
+            var, old_value, new_value = parsed
+            if var in self._chains:
+                values, toast = self._chains[var]
+                values.append(new_value)
+                toast.reset_timer()
+                toast.update_message(_replace_line(toast.message, var, f"{var} {ARROW.join(values)}"))
+            else:
+                new_chains[var] = [old_value, new_value]
+                new_lines.append(f"{var} {old_value}{ARROW}{new_value}")
+
+        if new_lines:
+            message = "\n".join([self.t("sf_sav_changes_notification")] + new_lines)
+            toast = Toast(self.root, message, duration=self.TOAST_DURATION_MS)
+            for var, values in new_chains.items():
+                self._chains[var] = (values, toast)
+
+
+def _replace_line(message: str, var: str, new_line: str) -> str:
+    lines = message.split("\n")
+    for i, line in enumerate(lines):
+        if line.startswith(f"{var} ") and ARROW in line:
+            lines[i] = new_line
+            return "\n".join(lines)
+    return "\n".join(lines + [new_line])

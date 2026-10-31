@@ -7,13 +7,15 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Release tag (e.g. v0.5.2)'
+        description: 'Release tag (e.g. v0.5.2), must equal VERSION in src/constants.py'
         required: true
 
 jobs:
   build-windows:
     name: Build Windows EXE
     runs-on: windows-latest
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
 
@@ -22,44 +24,33 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Determine tag
+      # 用户输入只经环境变量传入脚本，不直接拼进 shell 代码
+      - name: Determine tag and check it matches VERSION
         id: tag
         shell: bash
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-          else
-            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
+          tag="${INPUT_TAG:-$REF_NAME}"
+          version="$(python -c 'from src.constants import VERSION; print(VERSION)' | tr -d '\r')"
+          if [ "$tag" != "$version" ]; then
+            echo "::error::Tag does not match VERSION ($version) in src/constants.py"
+            exit 1
           fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
 
       - name: Install dependencies
         run: |
           pip install -r requirements.txt
           pip install "nuitka[onefile]"
 
+      # 编译参数统一维护在 nuitka_build.bat 中
       - name: Build with Nuitka
-        run: |
-          python -m nuitka `
-            --onefile `
-            --assume-yes-for-downloads `
-            --windows-icon-from-ico=icon.ico `
-            --enable-plugin=tk-inter `
-            --output-dir=dist `
-            --output-filename=dcsm_${{ steps.tag.outputs.tag }}.exe `
-            --windows-console-mode=disable `
-            --lto=yes `
-            --nofollow-import-to=src.modules.save_analysis.sf.debug `
-            --nofollow-import-to=pythonnet `
-            --nofollow-import-to=clr_loader `
-            --nofollow-import-to=cryptography `
-            --nofollow-import-to=bcrypt `
-            --nofollow-import-to=zstandard `
-            --nofollow-import-to=unittest `
-            --nofollow-import-to=pydoc `
-            --nofollow-import-to=doctest `
-            --nofollow-import-to=test `
-            --include-package=websockets `
-            main.py
+        shell: cmd
+        env:
+          OUTPUT_NAME: dcsm_${{ steps.tag.outputs.tag }}.exe
+        run: call nuitka_build.bat "%OUTPUT_NAME%"
 
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4
@@ -77,19 +68,10 @@ jobs:
       - name: Download artifacts
         uses: actions/download-artifact@v4
 
-      - name: Determine tag
-        id: tag
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-          else
-            echo "tag=${{ github.ref_name }}" >> $GITHUB_OUTPUT
-          fi
-
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.tag }}
-          name: DCSM ${{ steps.tag.outputs.tag }}
+          tag_name: ${{ needs.build-windows.outputs.tag }}
+          name: DCSM ${{ needs.build-windows.outputs.tag }}
           draft: true
-          files: dcsm-windows/dcsm_${{ steps.tag.outputs.tag }}.exe
+          files: dcsm-windows/dcsm_${{ needs.build-windows.outputs.tag }}.exe
