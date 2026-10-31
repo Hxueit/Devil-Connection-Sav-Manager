@@ -66,6 +66,9 @@
   - デフォルトはオフです。有効にすると `DevilConnection_sf.sav` をリアルタイム監視し、変更があった場合に画面右下へ通知を表示します
   - 通知はデフォルトで15秒後に閉じます。固定表示も可能で、手動で早めに閉じることもできます
 
+- 多言語対応：日本語 / 簡体字中国語（古今狐白日本語社の翻訳版）/ 簡体字中国語（公式）/ 繁体字中国語（公式）/ 英語（公式）
+  - キャラ名や選択肢などのゲーム内容は、選んだ言語のゲーム内表記に合わせています
+
 ## インストール
 
 ### 必要環境
@@ -183,6 +186,8 @@ MIT License
 - toast功能
   - 默认关闭。开启后实时监听`DevilConnection_sf.sav`并在有改动的时候在屏幕右下角弹出弹窗显示变化
   - 弹窗默认15秒后关闭，可固定也可提前关闭
+- 支持语言：日文 / 简体中文（古今狐白日语社汉化）/ 简体中文（官方）/ 繁体中文（官方）/ 英文（官方）
+  - 角色名、选项等游戏内容与所选语言版本的游戏内文字一致。感谢古今狐白日语社的汉化
 
 ## 安装
 
@@ -299,6 +304,8 @@ The tool consists of multiple tabs:
 - Toast notifications
   - Disabled by default. When enabled, it monitors `DevilConnection_sf.sav` and shows a toast at the bottom-right when changes are detected
   - Toasts disappear after 15 seconds by default, can be pinned or manually closed
+- Languages: Japanese / Simplified Chinese (fan translation by 古今狐白日语社) / Simplified Chinese (official) / Traditional Chinese (official) / English (official)
+  - Character names, choices and other game content match the in-game text of the selected language
 
 ## Installation
 

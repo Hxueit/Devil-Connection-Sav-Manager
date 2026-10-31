@@ -1,6 +1,11 @@
 """几个容易出错的纯逻辑函数"""
+from src.characters import CHARACTER_NAMES
+from src.constants import TOTAL_CHARACTERS
+from src.modules.main.main_window import detect_system_language
 from src.modules.main.save_change_monitor import compare_saves, parse_ignored_vars
 from src.modules.main.update_checker import is_newer
+from src.modules.save_analysis.sf.fields import SECTIONS, compute_shared_data, field_value
+from src.utils.translations import TRANSLATIONS
 
 
 def test_compare_saves():
@@ -22,3 +27,24 @@ def test_is_newer():
     assert is_newer("v0.10.0", "v0.9.0")
     assert not is_newer("v0.5.2", "v0.5.2")
     assert not is_newer("v0.5", "v0.5.0")
+
+
+def test_character_table_matches_total():
+    assert len(CHARACTER_NAMES) == TOTAL_CHARACTERS
+
+
+def test_missing_characters_use_translated_names_in_collection_order():
+    save = {"characters": ["ペイン", "新キャラ", "リリカ", "  "], "collectedCharacters": []}
+    field = next(f for f in SECTIONS["characters_statistics"].fields if f.label_key == "missing_characters")
+
+    def text(lang):
+        return field_value(field, save, compute_shared_data(save), TRANSLATIONS[lang].get)
+
+    assert text("en_US") == "Lyrica, Paine, 新キャラ"
+    assert text("ja_JP") == "リリカ, ペイン, 新キャラ"
+
+
+def test_detect_system_language(monkeypatch):
+    for value, expected in [("zh_TW", "zh_TW"), ("zh_HK.UTF-8", "zh_TW"), ("zh_CN.UTF-8", "zh_CN"), ("ja_JP", "ja_JP")]:
+        monkeypatch.setenv("APP_LANG", value)
+        assert detect_system_language() == expected

@@ -6,10 +6,11 @@ sf 分析和截图两页在选好 `_storage` 后创建，其他页第一次打�
 ```
 src/
   constants.py        版本号、文件名、各类内容总数
+  characters.py       角色名对照（日文名 -> 各语言）
   utils/              公用工具
     sav_io.py         .sav 读写
     background.py     后台任务
-    translations.py   界面文字（中/英/日）
+    translations.py   界面文字（日/简中×2/繁中/英）
   modules/
     main/             主窗口、Steam 路径检测、检查更新、存档变动提示
     save_analysis/
@@ -39,7 +40,7 @@ src/
 
 - 后台线程不要碰 Tk，用 `run_in_background(widget, work, on_done)`。
 - 写存档用 `write_sav` / `write_text_atomic`，写之前重新读一遍，游戏可能同时在存档。
-- 新加的文字三种语言都要加，测试会检查。
+- 新加的文字各语言都要加，测试会检查。`zh_CN` 是古今狐白汉化的叫法，`zh_CN_official` 只覆盖游戏内容（名字、选项），界面文字沿用 `zh_CN`。
 - 弹窗用 `create_dialog`，按钮用 `white_button`。
 
 ## 开发

@@ -5,6 +5,7 @@
 import locale
 import logging
 import os
+import re
 import webbrowser
 from tkinter import filedialog, ttk
 
@@ -60,7 +61,8 @@ def detect_system_language() -> str:
         code = (candidate or "").lower()
         # Windows 上 getlocale() 返回的是 "Chinese (Simplified)_China" 这种名字
         if code.startswith(("zh", "chinese")):
-            return "zh_CN"
+            # zh_TW、zh_HK、"Chinese (Traditional)_Taiwan" 等
+            return "zh_TW" if re.search(r"tw|hk|mo|hant|traditional", code) else "zh_CN"
         if code.startswith(("ja", "japanese")):
             return "ja_JP"
         if code.startswith(("en", "english")):

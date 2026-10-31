@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from src.characters import CHARACTER_NAMES
 from src.constants import (
     SF_SAVE_FILENAME,
     STICKER_ID_RANGES,
@@ -48,6 +49,14 @@ def _numeric_order(item: Any) -> int:
     return int(text) if text.isdigit() else 999
 
 
+_CHARACTER_ORDER = {name: i for i, name in enumerate(CHARACTER_NAMES)}
+
+
+def _character_order(name: str) -> tuple[int, str]:
+    """按图鉴顺序排，表里没有的角色排在最后"""
+    return _CHARACTER_ORDER.get(name, len(_CHARACTER_ORDER)), name
+
+
 def compute_shared_data(save_data: dict[str, Any]) -> dict[str, Any]:
     """各字段共用的统计数据（字段定义里叫 stats）"""
     endings = set(save_data.get("endings", []))
@@ -71,7 +80,7 @@ def compute_shared_data(save_data: dict[str, Any]) -> dict[str, Any]:
         "missing_stickers": sorted(all_sticker_ids - stickers),
         "characters": characters,
         "collected_characters": collected_characters,
-        "missing_characters": sorted(characters - collected_characters),
+        "missing_characters": sorted(characters - collected_characters, key=_character_order),
         "collected_omakes": collected_omakes,
         "missing_omakes": sorted(set(TOTAL_OMAKES) - collected_omakes, key=_numeric_order),
     }
@@ -106,6 +115,11 @@ def _var(path: str, **kwargs: Any) -> Field:
 
 def _join(items: list[Any], t: Callable[[str], str]) -> str:
     return ", ".join(str(i) for i in items) if items else t("none")
+
+
+def _missing_characters(save: dict[str, Any], stats: dict[str, Any], t: Callable[[str], str]) -> str:
+    names = [t(f"chara_{c}") if c in CHARACTER_NAMES else c for c in stats["missing_characters"]]
+    return _join(names, t)
 
 
 def _killed(save: dict[str, Any], stats: dict[str, Any], t: Callable[[str], str]) -> Any:
@@ -156,7 +170,7 @@ SECTIONS: dict[str, Section] = {s.key: s for s in [
         Field("total_collected_characters", var_name="collectedCharacters",
               tooltip_key="total_collected_characters_tooltip",
               compute=lambda save, stats, t: len(stats["collected_characters"])),
-        Field("missing_characters", compute=lambda save, stats, t: _join(stats["missing_characters"], t)),
+        Field("missing_characters", compute=_missing_characters),
     ]),
     Section("omakes_statistics", [
         Field("total_omakes", compute=lambda save, stats, t: len(TOTAL_OMAKES)),

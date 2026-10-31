@@ -9,7 +9,13 @@ from tkinter import Menu, ttk
 from src.constants import LATEST_GAME_PATCH_AT_BUILD, VERSION
 from src.utils.styles import Colors, get_cjk_font
 
-LANGUAGE_OPTIONS = [("日本語", "ja_JP"), ("中文", "zh_CN"), ("English", "en_US")]
+LANGUAGE_OPTIONS = [
+    ("日本語", "ja_JP"),
+    ("简体中文（古今狐白汉化）", "zh_CN"),
+    ("简体中文（官方）", "zh_CN_official"),
+    ("繁體中文（官方）", "zh_TW"),
+    ("English", "en_US"),
+]
 
 MENU_COLORS = {
     "light": {"bg": Colors.LIGHT_GRAY, "fg": Colors.TEXT_PRIMARY, "active_bg": Colors.ACCENT_PINK,
