@@ -1,0 +1,237 @@
+"""sf 存档分析页的数据部分：读取存档、统计数据和各分区的字段定义"""
+
+import logging
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+from src.characters import CHARACTER_NAMES
+from src.constants import (
+    SF_SAVE_FILENAME,
+    STICKER_ID_RANGES,
+    TOTAL_CHARACTERS,
+    TOTAL_ENDINGS,
+    TOTAL_GALLERY,
+    TOTAL_NG_SCENE,
+    TOTAL_OMAKES,
+    TOTAL_STICKERS,
+)
+from src.utils.sav_io import read_sav
+
+logger = logging.getLogger(__name__)
+
+
+def load_save_file(storage_dir: str) -> dict[str, Any]:
+    data = read_sav(Path(storage_dir) / SF_SAVE_FILENAME)
+    if not isinstance(data, dict):
+        raise ValueError(f"{SF_SAVE_FILENAME} 的内容不是 JSON 对象")
+    return data
+
+
+def get_nested_value(data: dict[str, Any], path: str) -> Any:
+    """按 'memory.name' 这样的路径取值，路径不存在时返回 None"""
+    value: Any = data
+    for part in path.split("."):
+        if not isinstance(value, dict):
+            return None
+        value = value.get(part)
+    return value
+
+
+def is_fanatic_route(save_data: dict[str, Any]) -> bool:
+    """kill 或 killed 为 1 表示当前处于狂信徒路线"""
+    return save_data.get("kill") == 1 or save_data.get("killed") == 1
+
+
+def _numeric_order(item: Any) -> int:
+    text = str(item)
+    return int(text) if text.isdigit() else 999
+
+
+_CHARACTER_ORDER = {name: i for i, name in enumerate(CHARACTER_NAMES)}
+
+
+def _character_order(name: str) -> tuple[int, str]:
+    """按图鉴顺序排，表里没有的角色排在最后"""
+    return _CHARACTER_ORDER.get(name, len(_CHARACTER_ORDER)), name
+
+
+def compute_shared_data(save_data: dict[str, Any]) -> dict[str, Any]:
+    """各字段共用的统计数据（字段定义里叫 stats）"""
+    endings = set(save_data.get("endings", []))
+    collected_endings = set(save_data.get("collectedEndings", []))
+
+    stickers = set(save_data.get("sticker", []))
+    all_sticker_ids = {i for start, end in STICKER_ID_RANGES for i in range(start, end)}
+
+    # 游戏里偶尔会写入空字符串，忽略
+    characters = {c for c in save_data.get("characters", []) if c and c.strip()}
+    collected_characters = {c for c in save_data.get("collectedCharacters", []) if c and c.strip()}
+
+    collected_omakes = set(save_data.get("omakes", []))
+
+    return {
+        "is_fanatic_route": is_fanatic_route(save_data),
+        "endings": endings,
+        "collected_endings": collected_endings,
+        "missing_endings": sorted(endings - collected_endings, key=_numeric_order),
+        "stickers": stickers,
+        "missing_stickers": sorted(all_sticker_ids - stickers),
+        "characters": characters,
+        "collected_characters": collected_characters,
+        "missing_characters": sorted(characters - collected_characters, key=_character_order),
+        "collected_omakes": collected_omakes,
+        "missing_omakes": sorted(set(TOTAL_OMAKES) - collected_omakes, key=_numeric_order),
+    }
+
+
+# 计算函数的参数：(save 存档数据, stats = compute_shared_data 的结果, t 翻译函数)
+ValueFunc = Callable[[dict[str, Any], dict[str, Any], Callable[[str], str]], Any]
+
+
+@dataclass
+class Field:
+    label_key: str                        # 标签的翻译键，同时作为这一行的唯一标识
+    path: str | None = None            # 直接读取的存档路径；不填 compute 时显示该值
+    default: Any = 0                      # 存档里没有该变量时显示的值
+    compute: ValueFunc | None = None   # 需要计算的字段
+    var_name: str | None = None        # 勾选"显示变量名"时显示在标签前的 [变量名]
+    tooltip_key: str | None = None     # 有值时行尾显示可点击的 ℹ，点开显示该说明
+    tooltip_optional: bool = False        # 说明翻译为空时不显示 ℹ
+
+
+@dataclass
+class Section:
+    key: str                              # 同时是标题的翻译键
+    fields: list[Field]
+    button_text_key: str | None = None  # 有值时标题右侧显示按钮（查看达成条件）
+    hint_key: str | None = None        # 分区底部的灰色提示
+
+
+def _var(path: str, **kwargs: Any) -> Field:
+    return Field(path=path, var_name=path, **kwargs)
+
+
+def _join(items: list[Any], t: Callable[[str], str]) -> str:
+    return ", ".join(str(i) for i in items) if items else t("none")
+
+
+def _missing_characters(save: dict[str, Any], stats: dict[str, Any], t: Callable[[str], str]) -> str:
+    names = [t(f"chara_{c}") if c in CHARACTER_NAMES else c for c in stats["missing_characters"]]
+    return _join(names, t)
+
+
+def _killed(save: dict[str, Any], stats: dict[str, Any], t: Callable[[str], str]) -> Any:
+    return t("variable_not_exist") if save.get("killed") is None else save["killed"]
+
+
+def _missing_endings(save: dict[str, Any], stats: dict[str, Any], t: Callable[[str], str]) -> str:
+    missing = stats["missing_endings"]
+    return f"{len(missing)}: {_join(missing, t)}" if missing else t("none")
+
+
+def _gender(save: dict[str, Any], stats: dict[str, Any], t: Callable[[str], str]) -> str:
+    value = get_nested_value(save, "memory.seibetu")
+    return {1: t("gender_male"), 2: t("gender_female")}.get(value, t("not_set"))
+
+
+FANATIC_SECTION_KEY = "fanatic_related"
+
+SECTIONS: dict[str, Section] = {s.key: s for s in [
+    Section(FANATIC_SECTION_KEY, [
+        _var("NEO", label_key="neo_value", tooltip_key="neo_value_tooltip"),
+        _var("Lamia_noroi", label_key="lamia_curse"),
+        _var("trauma", label_key="trauma_value"),
+        _var("killWarning", label_key="kill_warning"),
+        _var("killed", label_key="killed", tooltip_key="killed_tooltip", compute=_killed),
+        _var("kill", label_key="kill_count", tooltip_key="kill_count_tooltip"),
+    ]),
+    Section("endings_statistics", [
+        Field("total_endings", compute=lambda save, stats, t: TOTAL_ENDINGS),
+        Field("current_collected_endings", var_name="endings",
+              compute=lambda save, stats, t: len(stats["endings"])),
+        Field("total_collected_endings", var_name="collectedEndings",
+              tooltip_key="total_collected_endings_tooltip",
+              compute=lambda save, stats, t: len(stats["collected_endings"])),
+        Field("missing_endings", compute=_missing_endings),
+    ], button_text_key="view_requirements"),
+    Section("stickers_statistics", [
+        Field("total_stickers", compute=lambda save, stats, t: TOTAL_STICKERS),
+        Field("collected_stickers", var_name="sticker",
+              compute=lambda save, stats, t: len(stats["stickers"])),
+        Field("missing_stickers_count", compute=lambda save, stats, t: len(stats["missing_stickers"])),
+        Field("missing_stickers", compute=lambda save, stats, t: _join(stats["missing_stickers"], t)),
+    ], button_text_key="view_requirements"),
+    Section("characters_statistics", [
+        Field("total_characters", compute=lambda save, stats, t: TOTAL_CHARACTERS),
+        Field("current_collected_characters", var_name="characters",
+              compute=lambda save, stats, t: len(stats["characters"])),
+        Field("total_collected_characters", var_name="collectedCharacters",
+              tooltip_key="total_collected_characters_tooltip",
+              compute=lambda save, stats, t: len(stats["collected_characters"])),
+        Field("missing_characters", compute=_missing_characters),
+    ]),
+    Section("omakes_statistics", [
+        Field("total_omakes", compute=lambda save, stats, t: len(TOTAL_OMAKES)),
+        Field("collected_omakes", var_name="omakes",
+              compute=lambda save, stats, t: len(stats["collected_omakes"])),
+        Field("missing_omakes", compute=lambda save, stats, t: _join(stats["missing_omakes"], t)),
+        Field("gallery_count", var_name="gallery",
+              compute=lambda save, stats, t: f"{len(save.get('gallery', []))}/{len(TOTAL_GALLERY)}"),
+        Field("ng_scene_count", var_name="ngScene", tooltip_key="ng_scene_count_tooltip",
+              tooltip_optional=True,
+              # 游戏每次启动都会再追加一个 'extra'，所以要去重
+              compute=lambda save, stats, t: f"{len(set(save.get('ngScene', [])))}/{len(TOTAL_NG_SCENE)}"),
+    ], button_text_key="ng_scene_quick_check"),
+    Section("game_statistics", [
+        _var("wholeTotalMP", label_key="total_mp"),
+        _var("judgeCounts.perfect", label_key="judge_perfect"),
+        _var("judgeCounts.good", label_key="judge_good"),
+        _var("judgeCounts.bad", label_key="judge_bad"),
+        _var("secretEndOpen", label_key="secret_end_open"),
+        _var("trueCount", label_key="true_count"),
+        _var("epilogue", label_key="epilogue_count"),
+        _var("loopCount", label_key="loop_count"),
+        _var("loopRecord", label_key="loop_record", tooltip_key="loop_record_tooltip"),
+    ]),
+    Section("character_info", [
+        _var("memory.name", label_key="character_name",
+             compute=lambda save, stats, t: get_nested_value(save, "memory.name") or t("not_set")),
+        _var("memory.seibetu", label_key="character_gender", compute=_gender),
+        _var("memory.hutanari", label_key="hutanari"),
+        _var("memory.cameraEnable", label_key="camera_enable"),
+        _var("memory.yubiwa", label_key="yubiwa"),
+    ]),
+    Section("other_info", [
+        _var("saveListNo", label_key="save_list_no"),
+        # 相册页码从 0 开始，显示时 +1
+        _var("albumPageNo", label_key="album_page_no",
+             compute=lambda save, stats, t: (save.get("albumPageNo") or 0) + 1),
+        _var("system.autosave", label_key="autosave_enabled", default=False),
+        _var("fullscreen", label_key="fullscreen", default=False),
+    ], hint_key="other_info_hint"),
+]}
+
+
+def section_order(fanatic_route: bool) -> list[str]:
+    order = [key for key in SECTIONS if key != FANATIC_SECTION_KEY]
+    if fanatic_route:
+        return [FANATIC_SECTION_KEY, *order]
+    index = order.index("character_info")
+    return [*order[:index], FANATIC_SECTION_KEY, *order[index:]]
+
+
+def field_value(field: Field, save_data: dict[str, Any], stats: dict[str, Any],
+                t: Callable[[str], str]) -> str:
+    """字段显示的文本；存档里的值类型异常时退回显示原始值"""
+    raw = get_nested_value(save_data, field.path) if field.path else None
+    try:
+        if field.compute is not None:
+            value = field.compute(save_data, stats, t)
+        else:
+            value = field.default if raw is None else raw
+    except (TypeError, ValueError, KeyError, AttributeError) as e:
+        logger.warning("Failed to compute field %s: %s", field.label_key, e)
+        value = "" if raw is None else raw
+    return str(value)

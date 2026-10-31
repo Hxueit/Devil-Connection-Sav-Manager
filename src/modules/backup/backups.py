@@ -1,0 +1,234 @@
+"""备份文件操作（不涉及界面，失败时抛异常）
+
+备份就是 _storage 的 zip，放在同级的 dcsm_backups 文件夹里；
+zip 里的 dcsmINFO.txt 第一行是创建时间。
+"""
+import contextlib
+import io
+import logging
+import os
+import shutil
+import zipfile
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+
+from src.constants import SF_SAVE_FILENAME, TYRANO_SAVE_FILENAME, VERSION
+
+logger = logging.getLogger(__name__)
+
+BACKUP_DIR_NAME = "dcsm_backups"
+BACKUP_INFO_FILENAME = "dcsmINFO.txt"
+REQUIRED_SAVE_FILES = [SF_SAVE_FILENAME, TYRANO_SAVE_FILENAME]
+TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M:%S"
+COMPRESSION_LEVEL = 7
+
+
+@dataclass
+class BackupInfo:
+    zip_path: Path
+    timestamp: datetime | None  # INFO 文件缺失或无法解析时为 None
+    has_info: bool
+    file_size: int
+
+
+def get_backup_dir(storage_dir: Path) -> Path:
+    return (Path(storage_dir).parent / BACKUP_DIR_NAME).resolve()
+
+
+def format_size(size_bytes: int) -> str:
+    if size_bytes < 1024:
+        return f"{size_bytes} B"
+    for unit in ("KB", "MB", "GB"):
+        size_bytes /= 1024
+        if size_bytes < 1024 or unit == "GB":
+            return f"{size_bytes:.2f} {unit}"
+
+
+def _list_files(storage_dir: Path) -> list[Path]:
+    return sorted(p for p in Path(storage_dir).rglob("*") if p.is_file())
+
+
+def estimate_compressed_size(storage_dir: Path) -> int:
+    """压缩前 10% 的文件测出压缩率，再按总大小估算整个备份的大小"""
+    files = [(p, p.stat().st_size) for p in _list_files(storage_dir)]
+    if not files:
+        return 0
+    total_size = sum(size for _, size in files)
+    sample = files[:max(1, len(files) // 10)]
+    sample_size = sum(size for _, size in sample)
+    if sample_size == 0:
+        return int(total_size * 0.7)
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED, compresslevel=COMPRESSION_LEVEL) as zf:
+        for path, _ in sample:
+            zf.write(path, path.name)
+    ratio = min(1.0, max(0.1, len(buffer.getvalue()) / sample_size))
+    return int(total_size * ratio)
+
+
+def create_backup(storage_dir: Path, progress: Callable[[int, int], None] | None = None) -> Path:
+    """先写到 .partial，全部成功后才改名成 .zip，失败时不会留下残缺的备份。
+
+    progress(current, total) 在后台线程里被调用。
+    """
+    storage_dir = Path(storage_dir)
+    if not storage_dir.is_dir():
+        raise FileNotFoundError(storage_dir)
+    backup_dir = get_backup_dir(storage_dir)
+    backup_dir.mkdir(parents=True, exist_ok=True)
+
+    now = datetime.now()
+    stem = f"DC_storage_backup_{now:%Y%m%d_%H%M%S}"
+    backup_path = backup_dir / f"{stem}.zip"
+    counter = 1
+    while backup_path.exists():  # 同一秒内再次备份时不覆盖已有的
+        backup_path = backup_dir / f"{stem}_{counter}.zip"
+        counter += 1
+
+    info_text = (
+        f"{now.strftime(TIMESTAMP_FORMAT)}\n"
+        f"This backup .zip was created using https://github.com/Hxueit/Devil-Connection-Sav-Manager/\n"
+        f"ver:{VERSION}\n"
+    )
+    files = _list_files(storage_dir)
+    total = len(files) + 1
+    partial_path = backup_path.with_name(backup_path.name + ".partial")
+    try:
+        with zipfile.ZipFile(partial_path, "w", zipfile.ZIP_DEFLATED, compresslevel=COMPRESSION_LEVEL) as zf:
+            zf.writestr(BACKUP_INFO_FILENAME, info_text)
+            if progress:
+                progress(1, total)
+            for index, path in enumerate(files, start=2):
+                zf.write(path, path.relative_to(storage_dir))
+                if progress:
+                    progress(index, total)
+        os.replace(partial_path, backup_path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            partial_path.unlink()
+        raise
+    return backup_path
+
+
+def _read_backup_timestamp(zip_path: Path):
+    """返回 (时间戳, 是否有 INFO 文件)"""
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            if BACKUP_INFO_FILENAME not in zf.namelist():
+                return None, False
+            with zf.open(BACKUP_INFO_FILENAME) as f:
+                first_line = f.readline().decode("utf-8").strip()
+        return datetime.strptime(first_line, TIMESTAMP_FORMAT), True
+    except ValueError:  # 时间格式不对 / 编码错误
+        return None, True
+    except (zipfile.BadZipFile, OSError) as e:
+        logger.warning(f"无法读取备份文件: {zip_path}, 错误: {e}")
+        return None, False
+
+
+def scan_backups(backup_dir: Path) -> list[BackupInfo]:
+    backup_dir = Path(backup_dir)
+    if not backup_dir.is_dir():
+        return []
+    dated, undated = [], []
+    for zip_path in backup_dir.glob("*.zip"):
+        if not zip_path.is_file():
+            continue
+        timestamp, has_info = _read_backup_timestamp(zip_path)
+        info = BackupInfo(zip_path, timestamp, has_info, zip_path.stat().st_size)
+        (dated if timestamp else undated).append(info)
+    dated.sort(key=lambda b: b.timestamp, reverse=True)
+    return dated + undated
+
+
+def missing_required_files(zip_path: Path) -> list[str]:
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            names = set(zf.namelist())
+    except (zipfile.BadZipFile, OSError):
+        return list(REQUIRED_SAVE_FILES)  # 打不开的备份当作全都缺，让用户确认
+    return [name for name in REQUIRED_SAVE_FILES if name not in names]
+
+
+def restore_backup(zip_path: Path, storage_dir: Path) -> None:
+    """用备份替换 _storage
+
+    先校验并完整解压到同级临时目录（这一步失败不会动到 _storage），
+    然后整体交换目录；目录被占用无法交换时，改为逐个文件替换。
+    """
+    storage_dir = Path(storage_dir)
+    staging_dir = storage_dir.with_name(f".{storage_dir.name}.restoring")
+    old_dir = storage_dir.with_name(f".{storage_dir.name}.old")
+
+    try:
+        with zipfile.ZipFile(zip_path) as zf:
+            bad_member = zf.testzip()
+            if bad_member is not None:
+                raise zipfile.BadZipFile(f"Corrupted file in backup: {bad_member}")
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            staging_dir.mkdir(parents=True)
+            for member in zf.namelist():
+                if member != BACKUP_INFO_FILENAME:
+                    zf.extract(member, staging_dir)
+    except BaseException:
+        shutil.rmtree(staging_dir, ignore_errors=True)
+        raise
+
+    try:
+        _swap_directories(storage_dir, staging_dir, old_dir)
+    except OSError as e:
+        # Windows 下只要有程序（资源管理器、游戏、杀毒软件）打开着 _storage，整个文件夹就无法重命名。
+        # 这时退回到逐个文件替换：解压好的备份已经校验过，逐个 os.replace 通常仍然能成功。
+        logger.warning(f"无法整体替换 {storage_dir}（{e}），改为逐个文件替换")
+        try:
+            _replace_files(storage_dir, staging_dir)
+        finally:
+            shutil.rmtree(staging_dir, ignore_errors=True)
+
+
+def _swap_directories(storage_dir: Path, staging_dir: Path, old_dir: Path) -> None:
+    """storage_dir → old_dir，staging_dir → storage_dir；第二步失败时把原目录换回来"""
+    shutil.rmtree(old_dir, ignore_errors=True)
+    if storage_dir.exists():
+        storage_dir.rename(old_dir)
+    try:
+        staging_dir.rename(storage_dir)
+    except OSError:
+        if old_dir.exists():
+            old_dir.rename(storage_dir)
+        raise
+    shutil.rmtree(old_dir, ignore_errors=True)
+
+
+def _replace_files(storage_dir: Path, staging_dir: Path) -> None:
+    """把 staging_dir 里的文件逐个移到 storage_dir，并删除备份里没有的文件"""
+    backup_files = {p.relative_to(staging_dir) for p in staging_dir.rglob("*") if p.is_file()}
+    storage_dir.mkdir(parents=True, exist_ok=True)
+    for rel in backup_files:
+        target = storage_dir / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(staging_dir / rel, target)
+    for path in list(storage_dir.rglob("*")):
+        if path.is_file() and path.relative_to(storage_dir) not in backup_files:
+            path.unlink()
+
+
+def delete_backup(zip_path: Path) -> None:
+    zip_path = Path(zip_path)
+    zip_path.unlink()
+    with contextlib.suppress(OSError):
+        zip_path.parent.rmdir()  # 只有空文件夹才会删除成功
+
+
+def rename_backup(zip_path: Path, new_name: str) -> Path:
+    zip_path = Path(zip_path)
+    if not new_name.endswith(".zip"):
+        new_name += ".zip"
+    new_path = zip_path.with_name(new_name)
+    if new_path.exists() and new_path != zip_path:
+        raise FileExistsError(new_path)
+    zip_path.rename(new_path)
+    return new_path
