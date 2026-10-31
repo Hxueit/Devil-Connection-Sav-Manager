@@ -154,7 +154,6 @@ class SavTool:
     def _current_tab(self) -> int:
         return self.notebook.index(self.notebook.select())
 
-
     def select_dir(self) -> None:
         dir_path = filedialog.askdirectory()
         if not dir_path:
@@ -219,7 +218,6 @@ class SavTool:
         self.hint_labels[index].pack(pady=50)
         self._pending_tabs.add(index)
 
-
     def on_tab_changed(self, event=None) -> None:
         index = self._current_tab()
         created = self._create_tab_if_pending(index)
@@ -255,7 +253,6 @@ class SavTool:
             )
         return True
 
-
     def _on_restore_start(self) -> None:
         # 还原时 _storage 会被短暂改名，暂停监控以免误报"AB INITIO"
         if self.save_monitor:
@@ -270,7 +267,6 @@ class SavTool:
         self.save_analyzer.refresh(force=True)
         if self.tyrano_tab is not None:
             self._teardown_lazy_tab(TYRANO_TAB)
-
 
     def set_toast_enabled(self, enabled: bool) -> None:
         self.toast_enabled = enabled
@@ -303,7 +299,6 @@ class SavTool:
         text.insert("1.0", "AB INITIO", "ab_initio_blue")
         text.config(state="disabled")
 
-
     def change_language(self, lang: str) -> None:
         self.language = lang
         self.menubar.update_language(lang)
@@ -318,7 +313,6 @@ class SavTool:
                     self.others_tab, self.save_analyzer, self.tyrano_tab):
             if tab is not None:
                 tab.update_language()
-
 
     def _update_version_info_visibility(self) -> None:
         if self.storage_dir is None or self._current_tab() == OTHERS_TAB:

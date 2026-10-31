@@ -64,7 +64,6 @@ class GalleryPreview:
     def total_pages(self) -> int:
         return max(1, (len(self.image_ids) + PER_PAGE - 1) // PER_PAGE)
 
-
     def show(self) -> None:
         if not self.manager.ids_data:
             showerror_relative(self.root, self.t("error"), self.t("select_dir_hint"))
@@ -158,7 +157,6 @@ class GalleryPreview:
         self.image_ids = [item['id'] for item in self.manager.ids_data]
         self.page = min(self.page, self.total_pages)
         self._build_page()
-
 
     def _image_path(self, screenshot_id: str) -> Path | None:
         # 优先用缩略图，没有时用主图

@@ -75,7 +75,6 @@ class Toast:
         Toast._reposition_toasts()
         self._fade(0.0, ALPHA, self._schedule_fade_out)
 
-
     def _build_ui(self) -> None:
         bg = Colors.TOAST_BG
         self.window = ctk.CTkToplevel(self.root)
@@ -148,7 +147,6 @@ class Toast:
                 text.insert("end", after, "default")
         text.configure(state="disabled")
 
-
     def _update_size(self) -> None:
         left, top, right, bottom = _work_area(self.window)
         self.window_width = min(WIDTH, max(MIN_WIDTH, right - left - MARGIN_LEFT - MARGIN_RIGHT))
@@ -189,7 +187,6 @@ class Toast:
             self._fading_out = False
             self._set_alpha(ALPHA)
         self._schedule_fade_out()
-
 
     def _set_alpha(self, alpha: float) -> None:
         if _USE_ALPHA:

@@ -43,7 +43,6 @@ class BackupRestoreTab:
         self._create_restore_section()
         self.refresh_backup_list()
 
-
     def _create_backup_section(self) -> None:
         backup_frame = tk.Frame(self.frame, bg=Colors.LIGHT_GRAY)
         backup_frame.pack(pady=15, fill="x")
@@ -172,7 +171,6 @@ class BackupRestoreTab:
             message += f"\n\n{error}"
         showerror_relative(self.root, self.t("error"), message)
 
-
     def create_backup(self) -> None:
         if self._busy:
             return
@@ -235,7 +233,6 @@ class BackupRestoreTab:
             )
         self.refresh_backup_list()
 
-
     def refresh_backup_list(self) -> None:
         """要打开每个 zip 读时间戳，所以放在后台扫描"""
         self._scan_count += 1
@@ -265,7 +262,6 @@ class BackupRestoreTab:
         tags = self.backup_tree.item(selected[0], "tags") if selected else ()
         self.selected_backup_path = Path(tags[0]) if tags else None
         self._show_action_buttons(self.selected_backup_path is not None)
-
 
     def delete_backup(self) -> None:
         path = self.selected_backup_path
@@ -324,7 +320,6 @@ class BackupRestoreTab:
         entry.focus()
         return name.get() if self._wait_for_yes(dialog) else None
 
-
     def restore_backup(self) -> None:
         path = self.selected_backup_path
         if not path or self._busy:
@@ -348,7 +343,6 @@ class BackupRestoreTab:
         else:
             showinfo_relative(self.root, self.t("success"), self.t("restore_success"))
         self.on_restore_done(error is None)
-
 
     def update_language(self) -> None:
         self._update_hint_text()

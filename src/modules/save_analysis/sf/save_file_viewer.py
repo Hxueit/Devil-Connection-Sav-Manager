@@ -145,7 +145,6 @@ class SaveFileViewer:
         self._build_ui(show_collapse_toggle, edit_checkbox)
         self._render()
 
-
     def _build_ui(self, show_collapse_toggle: bool, edit_checkbox: bool) -> None:
         self._setup_styles()
         main_frame = tk.Frame(self.viewer_window, bg=Colors.MODAL_BG)
@@ -251,7 +250,6 @@ class SaveFileViewer:
         tw.bind("<KeyPress>", self._on_key_press)
         tw.bind("<KeyRelease>", lambda e: self._update_line_numbers())
 
-
     def _get_text(self) -> str:
         return self.text_widget.get("1.0", "end-1c")
 
@@ -295,7 +293,6 @@ class SaveFileViewer:
     def _copy_to_clipboard(self) -> None:
         self.viewer_window.clipboard_clear()
         self.viewer_window.clipboard_append(self._get_text())
-
 
     def _has_unsaved_changes(self) -> bool:
         return self.enable_edit_var.get() and self._get_text() != self._baseline
@@ -362,7 +359,6 @@ class SaveFileViewer:
         if self._has_unsaved_changes() and not self._confirm_discard_changes():
             return
         self._reload()
-
 
     def _call(self, work: Callable[[], Any], on_done: Callable[[Any, BaseException | None], None]) -> None:
         """运行时模式要等游戏回复，放到后台线程；读写文件很快，直接执行"""
@@ -460,7 +456,6 @@ class SaveFileViewer:
 
         self._call(lambda: self.save(edited_data), done)
 
-
     def _focus_search(self, event: tk.Event) -> str:
         self.search_entry.focus()
         self.search_entry.select_range(0, "end")
@@ -505,7 +500,6 @@ class SaveFileViewer:
         tw.see(position)
         tw.mark_set("insert", position)
         self.search_results_label.config(text=f"{self._search_index + 1}/{len(matches)}")
-
 
     def _on_close(self) -> None:
         if self._has_unsaved_changes() and not self._confirm_discard_changes():

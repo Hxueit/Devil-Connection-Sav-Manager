@@ -74,7 +74,6 @@ class TyranoSaveViewer:
         self.refresh()
         self._refresh_when_mapped(attempts_left=5)
 
-
     def _create_ui(self) -> None:
         main = ctk.CTkFrame(self.parent, fg_color=Colors.WHITE)
         main.pack(fill="both", expand=True, padx=10, pady=10)
@@ -117,7 +116,6 @@ class TyranoSaveViewer:
     def _show_loading_overlay(self) -> None:
         self._loading_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
         self._loading_overlay.lift()
-
 
     def refresh(self) -> None:
         analyzer = self.analyzer
@@ -254,7 +252,6 @@ class TyranoSaveViewer:
         self._cancel_timer(self._page_timer)
         self._cancel_timer(self._resize_timer)
         self.image_cache.clear()
-
 
     def _go_to_page(self, page: int) -> None:
         """连续点击翻页时只刷新最后一次"""

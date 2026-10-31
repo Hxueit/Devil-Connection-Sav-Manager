@@ -37,7 +37,6 @@ class OthersTab:
     def tyrano_path(self) -> Path:
         return Path(self.storage_dir) / TYRANO_SAVE_FILENAME
 
-
     def _build_ui(self) -> None:
         self.container = ctk.CTkFrame(self.parent, fg_color=Colors.WHITE)
         self.container.pack(fill="both", expand=True, padx=20, pady=20)
@@ -101,7 +100,6 @@ class OthersTab:
         self.container.destroy()
         self._build_ui()
 
-
     def _on_toast_toggle(self) -> None:
         self.toast_enabled = self.toast_var.get()
         self._on_toast_enabled_changed(self.toast_enabled)
@@ -121,7 +119,6 @@ class OthersTab:
                 state="disabled", fg_color=Colors.LIGHT_GRAY, text_color=Colors.TEXT_DISABLED,
                 border_color=Colors.DARK_GRAY,
             )
-
 
     def _show_error(self, key: str, **kwargs) -> None:
         showerror_relative(self.parent, self.t("error"), self.t(key, **kwargs))
@@ -189,7 +186,6 @@ class OthersTab:
             self._show_error("import_tyrano_failed", error=str(e))
             return
         showinfo_relative(self.parent, self.t("success"), self.t("import_tyrano_success"))
-
 
     def _check_for_updates(self) -> None:
         self.update_button.configure(state="disabled")

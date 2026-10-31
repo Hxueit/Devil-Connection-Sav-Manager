@@ -89,7 +89,6 @@ class TyranoDeleteDialog:
         self._current_page = page
         self._refresh_display()
 
-
     def _refresh_display(self) -> None:
         if not widget_alive(self.dialog):
             return
@@ -134,7 +133,6 @@ class TyranoDeleteDialog:
 
         run_in_background(self.dialog, work, done)
 
-
     def _toggle_selection(self, card: SlotCard) -> None:
         self._selected ^= {card.slot_index}
         self._update_card_color(card)
@@ -143,7 +141,6 @@ class TyranoDeleteDialog:
         selected = card.slot_index in self._selected
         card.container.configure(fg_color=SELECTED_BG_COLOR if selected else Colors.LIGHT_GRAY,
                                  border_color=SELECTED_BORDER_COLOR if selected else Colors.GRAY)
-
 
     def _on_delete_click(self) -> None:
         t = self.t

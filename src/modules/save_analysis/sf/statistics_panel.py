@@ -255,7 +255,6 @@ class StatisticsPanel:
         self._ring_job = self._gibberish_job = None
         self._gibberish_targets.clear()
 
-
     def _create_sticker_ring(self, save_data: dict[str, Any], fanatic: bool) -> None:
         collected, percent = extract_sticker_data(save_data)
         frame = tk.Frame(self.container, bg=Colors.WHITE)
@@ -345,7 +344,6 @@ class StatisticsPanel:
 
         frame()
 
-
     def _create_mp_display(self, mp: Any, fanatic: bool) -> None:
         frame = tk.Frame(self.container, bg=Colors.WHITE)
         frame.pack(pady=(0, 15))
@@ -411,7 +409,6 @@ class StatisticsPanel:
         label.pack()
         if fanatic:
             self._gibberish_targets.append((lambda s: label.config(text=s), text))
-
 
     def _update_gibberish(self) -> None:
         self._gibberish_job = None

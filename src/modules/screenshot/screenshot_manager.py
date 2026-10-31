@@ -105,7 +105,6 @@ class ScreenshotManager:
         # {截图ID: [主文件名, 缩略图文件名]}，缺失的文件为 None
         self.sav_pairs: dict[str, list[str | None]] = {}
 
-
     def load_screenshots(self) -> bool:
         """缺少索引文件或读取失败时返回 False"""
         ids_path = self.storage_dir / IDS_FILENAME
@@ -142,7 +141,6 @@ class ScreenshotManager:
     def get_image_data(self, screenshot_id: str) -> bytes | None:
         path = self.file_path(screenshot_id)
         return read_image_file(path) if path else None
-
 
     def _replace_index(self, ids_data: list[dict[str, str]], all_ids_data: list[str] | None = None) -> None:
         """写入失败时内存中的索引不变；all_ids_data 省略时按 ids_data 的顺序重建"""

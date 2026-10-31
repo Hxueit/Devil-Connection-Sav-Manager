@@ -139,7 +139,6 @@ class TyranoAnalyzer:
         page = self.save_slots[start:start + TYRANO_SAVES_PER_PAGE]
         return page + [None] * (TYRANO_SAVES_PER_PAGE - len(page))
 
-
     def _modify_slots(self, change: Callable[[list[dict[str, Any]]], list[dict[str, Any]] | None],
                       back_to_first_page: bool = False) -> bool:
         """读磁盘上最新的存档 → change(存档槽列表) → 写回 → 更新内存

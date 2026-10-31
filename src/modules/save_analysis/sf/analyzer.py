@@ -84,7 +84,6 @@ class SaveAnalyzer:
         self._build_layout()
         self.window.after_idle(self.refresh)
 
-
     def _build_layout(self) -> None:
         control_frame = tk.Frame(self.window, bg=Colors.WHITE)
         control_frame.pack(fill="x", padx=10, pady=5)
@@ -159,7 +158,6 @@ class SaveAnalyzer:
     def _scroll(self, direction: int) -> None:
         self.scrollable_canvas.yview_scroll(direction, "units")
 
-
     def update_language(self) -> None:
         self.show_var_names_checkbox.config(text=self.t("show_var_names"))
         self.refresh_button.config(text=self.t("refresh"))
@@ -211,7 +209,6 @@ class SaveAnalyzer:
         self._clear_sections()
         ttk.Label(self.scrollable_frame, text=message, font=get_cjk_font(12), foreground="red",
                   wraplength=self._width, justify="left").pack(pady=20)
-
 
     def _clear_sections(self) -> None:
         for child in self.scrollable_frame.winfo_children():
@@ -327,7 +324,6 @@ class SaveAnalyzer:
                 var_label.pack(side="left", padx=2, before=label)
             else:
                 var_label.pack_forget()
-
 
     def show_endings_requirements(self) -> None:
         data = self.save_data or {}

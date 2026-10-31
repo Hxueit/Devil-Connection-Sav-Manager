@@ -66,7 +66,6 @@ class ScreenshotManagerUI:
 
         self.load_screenshots(silent=True)
 
-
     def _build_ui(self) -> None:
         bg = Colors.LIGHT_GRAY
         self.hint_label = tk.Label(self.parent_frame, text=self.t("select_dir_hint"), fg=Colors.TEXT_HIGHLIGHT,
@@ -178,7 +177,6 @@ class ScreenshotManagerUI:
         self.enable_edit_checkbox.config(text=self.t("enable_edit"))
         self.load_screenshots(silent=True)
 
-
     def _set_edit_mode(self, enabled: bool) -> None:
         self.edit_enabled = enabled
         self.edit_var.set(enabled)
@@ -190,7 +188,6 @@ class ScreenshotManagerUI:
             self._hint.trigger()
             return "break"
         return None
-
 
     def set_storage_dir(self, storage_dir: str | None) -> None:
         self.storage_dir = storage_dir
@@ -318,7 +315,6 @@ class ScreenshotManagerUI:
         self._mark_row(moved_id, "down" if moving_down else "up")
         self._mark_row(self.manager.ids_data[from_index]['id'], "up" if moving_down else "down")
 
-
     def _on_tree_select(self, event: tk.Event) -> None:
         selection = self.tree.selection()
         if not selection:
@@ -362,7 +358,6 @@ class ScreenshotManagerUI:
 
         run_in_background(self.preview_label,
                           lambda: load_resized_image(path, PREVIEW_SIZE, Image.Resampling.LANCZOS), done)
-
 
     def _sort(self, ascending: bool) -> None:
         if not self.storage_dir:

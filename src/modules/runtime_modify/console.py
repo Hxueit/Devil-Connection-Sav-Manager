@@ -134,7 +134,6 @@ class DevToolsConsoleWindow(RuntimeDialog):
             buttons, self.t("runtime_modify_console_shortcut_button"), self._toggle_shortcut_popup, width=80)
         self.shortcut_button.pack(side="left")
 
-
     def _on_output_clicked(self, _event: tk.Event) -> str | None:
         # 输出区为空时点击直接跳到输入框；有内容时保留默认行为以便选择复制
         if not self.output_textbox.get("1.0", "end-1c").strip():
@@ -201,7 +200,6 @@ class DevToolsConsoleWindow(RuntimeDialog):
             self._draft = ""
         self._history_index = -1
 
-
     def _on_send_clicked(self) -> None:
         if self._is_executing:
             return
@@ -260,7 +258,6 @@ class DevToolsConsoleWindow(RuntimeDialog):
         self.shortcut_button.configure(text=self.t("runtime_modify_console_shortcut_button"))
         self.disabled_hint_label.configure(text=self.t("runtime_modify_console_disabled_hint"))
         self._destroy_shortcut_popup()
-
 
     def _toggle_shortcut_popup(self) -> None:
         if self._shortcut_popup is not None:

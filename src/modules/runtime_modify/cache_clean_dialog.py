@@ -184,7 +184,6 @@ class CacheCleanDialog(RuntimeDialog):
             self._translated_widgets.append((checkbox, item_key))
             self._item_vars[key] = var
 
-
     def _scan_hint(self) -> str:
         if self._found_count is None:
             return self.t("cache_clean_scan_hint")
@@ -222,7 +221,6 @@ class CacheCleanDialog(RuntimeDialog):
 
         self._found_count = len(self._dynamic_items)
         self.scan_hint_label.configure(text=self._scan_hint())
-
 
     def _on_execute_clicked(self) -> None:
         if self._is_executing:

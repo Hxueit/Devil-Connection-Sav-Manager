@@ -119,7 +119,6 @@ class RuntimeModifyTab:
     def _hook_enabled(self) -> bool:
         return self._ws_url is not None
 
-
     def _build_ui(self) -> None:
         # 所有控件都放在这个容器里，切换语言时只需销毁它再重建
         self.container = ctk.CTkFrame(self.parent, fg_color=Colors.WHITE)
@@ -253,7 +252,6 @@ class RuntimeModifyTab:
         else:
             self.description_label.pack_forget()
 
-
     def _set_game_status(self, running: bool, ws_url: str | None) -> None:
         ws_url = ws_url if running else None
         changed = (running, ws_url is not None) != (self._game_running, self._hook_enabled)
@@ -313,7 +311,6 @@ class RuntimeModifyTab:
             self.parent.after_cancel(self._poll_job)
         self._poll_job = self.parent.after(0, self._poll_status)
 
-
     def _parse_port(self) -> tuple[int | None, str | None]:
         text = self.port_entry.get().strip()
         if not text:
@@ -342,7 +339,6 @@ class RuntimeModifyTab:
         else:
             self.port_status_label.configure(
                 text=self.t("runtime_modify_port_in_use"), text_color=Colors.TEXT_WARNING_ORANGE)
-
 
     def _on_launch_clicked(self) -> None:
         if self._is_launching:
@@ -425,7 +421,6 @@ class RuntimeModifyTab:
         self._set_game_status(False, None)
         self._poll_soon()
 
-
     def _open_variable_editor(self, kind: str) -> None:
         port = self._port_or_show_error()
         if port is None:
@@ -484,7 +479,6 @@ class RuntimeModifyTab:
                 runtime=True,
             )
 
-
     def _open_dialogs(self) -> list[RuntimeDialog]:
         dialogs = (self.console_window, self.misc_dialog, self.cache_clean_dialog)
         return [dialog for dialog in dialogs if dialog is not None and dialog.is_open()]
@@ -509,7 +503,6 @@ class RuntimeModifyTab:
             self.cache_clean_dialog.show()
         else:
             self.cache_clean_dialog = CacheCleanDialog(self.root, self.t, lambda: self._ws_url)
-
 
     def _register_hotkey(self) -> None:
         """注册全局热键 Alt+S（游戏窗口在前台时也能用），失败时退回为本程序窗口内的快捷键"""
@@ -562,7 +555,6 @@ class RuntimeModifyTab:
         else:
             message = self.t("runtime_modify_mark_read_failed", error=str(error))
         showerror_relative(self.root, self.t("error"), message)
-
 
     def cleanup(self, stop_game: bool = True) -> None:
         """停止轮询、注销热键、关闭弹窗；stop_game 为 False 时（切换目录）保留游戏进程"""
