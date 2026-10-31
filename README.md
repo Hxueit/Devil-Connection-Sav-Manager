@@ -122,7 +122,7 @@ MIT License
 - 不具合や要望は [Issues](https://github.com/Hxueit/Devil-Connection-Sav-Manager/issues) までお願いします。操作手順とスクリーンショットを添えていただけると助かります
 - 開発では AI の補助も利用しています。機能は特定ゲーム向けに作られています
 - ツール内の翻訳文を修正したい場合は、`/src/utils/translations.py` を直接編集してください。ツール内テキストはすべてこのファイルにあります
-- コードの構成は [ARCHITECTURE.md](ARCHITECTURE.md)（中国語）を参照してください
+- コードの構成は [ARCHITECTURE.md](docs/ARCHITECTURE.md)（中国語）を参照してください
 
 
 </details>
@@ -239,7 +239,7 @@ MIT License
 - 遇到问题或有建议欢迎提 [Issue](https://github.com/Hxueit/Devil-Connection-Sav-Manager/issues)，请写明操作步骤，最好附上截图
 - 本项目在开发过程中使用了 AI 辅助编写代码，功能实现主要针对该特定游戏。
 - 如果想对程序内的翻译进行修改与纠正，请直接查看`/src/utils/translations.py`，工具内所有文本均在该文件中
-- 代码结构说明见 [ARCHITECTURE.md](ARCHITECTURE.md)
+- 代码结构说明见 [ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 </details>
 
@@ -356,6 +356,6 @@ MIT License
 - Found a bug or have a suggestion? Please open an [issue](https://github.com/Hxueit/Devil-Connection-Sav-Manager/issues) with the steps to reproduce and, ideally, a screenshot.
 - AI assistance was used during development. The implementation mainly targets this specific game.
 - If you want to modify or correct translations in the app, check `/src/utils/translations.py`, all UI text is in that file.
-- See [ARCHITECTURE.md](ARCHITECTURE.md) (in Chinese) for an overview of the code structure.
+- See [ARCHITECTURE.md](docs/ARCHITECTURE.md) (in Chinese) for an overview of the code structure.
 
 </details>
